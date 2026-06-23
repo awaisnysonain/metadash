@@ -39,6 +39,11 @@ export interface SyncResult {
   ok: boolean;
   synced: number;
   message: string;
+  details?: {
+    warnings?: string[];
+    syncedPages?: number;
+    syncedInstagram?: number;
+  };
 }
 
 export interface ReportsSummary {

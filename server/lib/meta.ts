@@ -68,7 +68,7 @@ export function validateMetaSync(): MetaSyncValidation {
     return {
       ok: false,
       status: 400,
-      message: `Meta API not configured. Set ${missing.join(', ')} in server environment. Required permissions: ads_read, pages_show_list, pages_read_engagement, pages_manage_metadata, instagram_basic, business_management.`,
+      message: `Meta API not configured. Set ${missing.join(', ')} in server environment. Required permissions: ads_read, pages_show_list, pages_manage_metadata, instagram_basic, business_management.`,
     };
   }
 
@@ -84,7 +84,7 @@ function friendlyMetaMessage(body: MetaGraphErrorBody, fallback: string): string
     return `Meta access token is invalid or expired. Generate a new long-lived token and update META_ACCESS_TOKEN. (${err.message})`;
   }
   if (code === 200 || code === 10) {
-    return `Missing Meta permissions. Ensure your token has ads_read, pages_show_list, pages_read_engagement, pages_manage_metadata, and instagram_basic. (${err.message})`;
+    return `Missing Meta permissions. Ensure your token has ads_read, pages_show_list, pages_manage_metadata, and instagram_basic. (${err.message})`;
   }
   if (code === 100) {
     return `Meta API field error — token may lack Marketing API access. (${err.message})`;
@@ -149,6 +149,23 @@ export async function metaGraphPost<T>(
 export interface MetaPaginated<T> {
   data?: T[];
   paging?: { next?: string; previous?: string };
+}
+
+export const ORGANIC_FEED_DISABLED_WARNING =
+  'pages_read_user_content is missing, so organic feed/post reading is disabled. Ads sync and Page account discovery still work.';
+
+export async function tokenHasPermission(permission: string, accessToken?: string): Promise<boolean> {
+  try {
+    const token = accessToken || getMetaConfig().accessToken;
+    if (!token) return false;
+    const res = await metaGraphGet<{ data?: Array<{ permission: string; status: string }> }>(
+      '/me/permissions?fields=permission,status',
+      token
+    );
+    return res.data?.some(p => p.permission === permission && p.status === 'granted') ?? false;
+  } catch {
+    return false;
+  }
 }
 
 export async function metaGraphPaginate<T>(path: string, accessToken?: string): Promise<T[]> {

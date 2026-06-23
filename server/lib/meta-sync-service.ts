@@ -7,7 +7,14 @@ import {
   upsertConnectedPage,
   upsertInstagramAccount,
 } from '../db/sync-repository.js';
-import { MetaApiError, getMetaConfig, isServerDemoMode, validateMetaSync } from './meta.js';
+import {
+  MetaApiError,
+  getMetaConfig,
+  isServerDemoMode,
+  validateMetaSync,
+  ORGANIC_FEED_DISABLED_WARNING,
+  tokenHasPermission,
+} from './meta.js';
 import {
   fetchAdAccounts,
   fetchCampaigns,
@@ -15,14 +22,13 @@ import {
   fetchAds,
   fetchAdCreative,
   fetchFacebookPages,
-  fetchInstagramBusinessAccounts,
-  subscribePagesToWebhooks,
+  extractInstagramBusinessAccountId,
+  type MetaPage,
   parseCreative,
   mapCampaignStatus,
   mapAccountStatus,
   formatBudget,
   formatSpend,
-  formatFollowers,
   detectAdPlatform,
 } from './meta-graph.js';
 import { mockAds, mockCampaigns, connectedPages } from '../../src/data.js';
@@ -149,6 +155,43 @@ async function syncCampaignsDemo(): Promise<SyncOutcome> {
 }
 
 /* ── Live Meta sync ── */
+
+async function upsertPagesAndInstagramFromAccounts(pages: MetaPage[]): Promise<{
+  syncedPages: number;
+  syncedInstagram: number;
+}> {
+  let syncedPages = 0;
+  let syncedInstagram = 0;
+
+  for (const page of pages) {
+    await upsertConnectedPage({
+      id: `meta-page-${page.id}`,
+      pageId: page.id,
+      name: page.name,
+      fans: '',
+      avatar: '📄',
+      isConnected: true,
+      accessToken: page.access_token,
+    });
+    syncedPages++;
+
+    const igId = extractInstagramBusinessAccountId(page.instagram_business_account);
+    if (!igId) continue;
+
+    await upsertInstagramAccount({
+      id: `meta-ig-${igId}`,
+      accountId: igId,
+      username: `@${page.name.replace(/\s+/g, '').toLowerCase()}`,
+      followers: '',
+      avatar: '📸',
+      isConnected: true,
+      accessToken: page.access_token,
+    });
+    syncedInstagram++;
+  }
+
+  return { syncedPages, syncedInstagram };
+}
 
 export async function syncAdsFromMeta(): Promise<SyncOutcome> {
   if (isServerDemoMode()) return syncAdsDemo();
@@ -301,34 +344,29 @@ export async function syncPagesFromMeta(): Promise<SyncOutcome> {
     };
   }
 
-  let synced = 0;
-  for (const page of pages) {
-    await upsertConnectedPage({
-      id: `meta-page-${page.id}`,
-      pageId: page.id,
-      name: page.name,
-      fans: formatFollowers(page.fan_count),
-      avatar: page.picture?.data?.url || '📄',
-      isConnected: true,
-      accessToken: page.access_token,
-    });
-    synced++;
+  const warnings: string[] = [];
+  const hasFeedContent = await tokenHasPermission('pages_read_user_content', token);
+  if (!hasFeedContent) {
+    warnings.push(ORGANIC_FEED_DISABLED_WARNING);
+    console.warn(`[sync/pages] ${ORGANIC_FEED_DISABLED_WARNING}`);
   }
 
-  const subscriptions = await subscribePagesToWebhooks(pages);
-  const subscribed = subscriptions.filter(s => s.success).length;
-  const failed = subscriptions.filter(s => !s.success);
+  const { syncedPages, syncedInstagram } = await upsertPagesAndInstagramFromAccounts(pages);
 
-  let message = `Synced ${synced} Facebook Pages from Meta. Webhook subscriptions: ${subscribed}/${pages.length} succeeded.`;
-  if (failed.length) {
-    message += ` Failed: ${failed.map(f => `${f.pageName} (${f.error})`).join('; ')}`;
+  let message = `Synced ${syncedPages} Facebook Page(s) via /me/accounts`;
+  if (syncedInstagram > 0) {
+    message += ` and ${syncedInstagram} linked Instagram Business account(s)`;
+  }
+  message += '. Webhook subscription is separate — use comment webhooks, not feed sync.';
+  if (warnings.length) {
+    message += ` Warning: ${warnings.join(' ')}`;
   }
 
   return {
     ok: true,
-    synced,
+    synced: syncedPages + syncedInstagram,
     message,
-    details: { subscriptions },
+    details: { syncedPages, syncedInstagram, warnings, pagesDiscovered: pages.length },
   };
 }
 
@@ -341,34 +379,30 @@ export async function syncInstagramFromMeta(): Promise<SyncOutcome> {
   if (metaErr) return metaErr;
 
   const token = getMetaConfig().accessToken;
-  const accounts = await fetchInstagramBusinessAccounts(token);
+  const pages = await fetchFacebookPages(token);
 
-  if (!accounts.length) {
+  if (!pages.length) {
     return {
       ok: true,
       synced: 0,
-      message: 'No Instagram Business accounts found. Link IG to a Facebook Page and ensure instagram_basic permission.',
+      message: 'No Facebook Pages found. Sync Pages first — Instagram accounts are discovered from /me/accounts.',
     };
   }
 
-  let synced = 0;
-  for (const ig of accounts) {
-    await upsertInstagramAccount({
-      id: `meta-ig-${ig.id}`,
-      accountId: ig.id,
-      username: ig.username ? `@${ig.username}` : ig.id,
-      followers: formatFollowers(ig.followers_count),
-      avatar: ig.profile_picture_url || '📸',
-      isConnected: true,
-      accessToken: ig.pageAccessToken,
-    });
-    synced++;
+  const { syncedInstagram } = await upsertPagesAndInstagramFromAccounts(pages);
+
+  if (!syncedInstagram) {
+    return {
+      ok: true,
+      synced: 0,
+      message: 'No Instagram Business accounts linked to your Pages. Link IG to a Facebook Page in Meta Business Settings.',
+    };
   }
 
   return {
     ok: true,
-    synced,
-    message: `Synced ${synced} Instagram Business accounts from Meta (via connected Pages)`,
+    synced: syncedInstagram,
+    message: `Synced ${syncedInstagram} Instagram Business account(s) from /me/accounts (via linked Pages).`,
   };
 }
 

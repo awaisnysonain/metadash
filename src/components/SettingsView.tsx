@@ -28,6 +28,7 @@ export default function SettingsView({
   const [webhookUrl] = React.useState(import.meta.env.VITE_META_WEBHOOK_URL || 'https://meta-dashboard.nysonik.com/api/meta/webhook');
   const [health, setHealth] = React.useState<HealthStatus | null>(null);
   const [syncMessage, setSyncMessage] = React.useState('');
+  const [syncWarning, setSyncWarning] = React.useState(false);
   const [syncing, setSyncing] = React.useState(false);
 
   React.useEffect(() => {
@@ -46,12 +47,14 @@ export default function SettingsView({
     }
   }, [isDemoMode]);
 
-  const runSync = async (fn: () => Promise<{ message: string }>, label: string) => {
+  const runSync = async (fn: () => Promise<{ message: string; details?: { warnings?: string[] } }>, label: string) => {
     setSyncing(true);
+    setSyncWarning(false);
     setSyncMessage(`Syncing ${label}…`);
     try {
       const result = await fn();
       setSyncMessage(result.message);
+      setSyncWarning(Boolean(result.details?.warnings?.length || result.message.includes('pages_read_user_content')));
       await onReload();
     } catch (err) {
       setSyncMessage(`Sync failed: ${String(err)}`);
@@ -109,6 +112,10 @@ export default function SettingsView({
         <h3 className="font-bold text-sm text-slate-900 mb-4 flex items-center gap-2">
           <CloudDownload className="w-4 h-4 text-indigo-600" /> Meta Sync
         </h3>
+        <p className="text-xs text-slate-500 mb-3">
+          Page discovery uses <code className="font-mono">/me/accounts</code> only — no organic feed reads.
+          Comment webhooks are configured separately in Meta App Dashboard.
+        </p>
         <div className="flex flex-wrap gap-2 mb-3">
           {[
             { label: 'Ads', fn: apiClient.syncAds },
@@ -126,7 +133,11 @@ export default function SettingsView({
             <RefreshCw className={`w-3 h-3 ${syncing ? 'animate-spin' : ''}`} /> Sync All
           </button>
         </div>
-        {syncMessage && <p className="text-xs text-slate-600 bg-slate-50 p-2 rounded-lg">{syncMessage}</p>}
+        {syncMessage && (
+          <p className={`text-xs p-2 rounded-lg ${syncWarning ? 'text-amber-800 bg-amber-50 border border-amber-200' : 'text-slate-600 bg-slate-50'}`}>
+            {syncMessage}
+          </p>
+        )}
       </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

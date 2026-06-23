@@ -71,10 +71,11 @@ export interface MetaAd {
 export interface MetaPage {
   id: string;
   name: string;
-  fan_count?: number;
   access_token?: string;
+  tasks?: string[];
+  instagram_business_account?: { id: string } | string;
+  fan_count?: number;
   picture?: { data?: { url?: string } };
-  instagram_business_account?: MetaInstagramAccount;
 }
 
 export interface MetaInstagramAccount {
@@ -117,14 +118,15 @@ const AD_LIST_FIELDS = [
   'creative{id,name,title,body,thumbnail_url,image_url,video_id,call_to_action_type,effective_object_story_id}',
 ].join(',');
 
-const PAGE_FIELDS = [
-  'id',
-  'name',
-  'fan_count',
-  'access_token',
-  'picture{url}',
-  'instagram_business_account{id,username,profile_picture_url,followers_count}',
-].join(',');
+/** Lightweight page discovery — does not require pages_read_user_content. */
+export const PAGE_ACCOUNT_FIELDS = 'id,name,access_token,instagram_business_account,tasks';
+
+export function extractInstagramBusinessAccountId(
+  ref?: MetaPage['instagram_business_account']
+): string | undefined {
+  if (!ref) return undefined;
+  return typeof ref === 'string' ? ref : ref.id;
+}
 
 /** 1. Fetch ad accounts for the authenticated user */
 export async function fetchAdAccounts(accessToken?: string): Promise<MetaAdAccount[]> {
@@ -186,56 +188,39 @@ export async function fetchAdCreative(creativeId: string, accessToken?: string):
   return metaGraphGet<MetaCreative>(`/${creativeId}?fields=${fields}`, accessToken);
 }
 
-/** 6. Fetch Facebook Pages the user manages */
+/** 6. Fetch Facebook Pages the user manages (Page discovery only — no feed/post reads). */
 export async function fetchFacebookPages(accessToken?: string): Promise<MetaPage[]> {
-  return metaGraphPaginate<MetaPage>(`/me/accounts?fields=${PAGE_FIELDS}&limit=100`, accessToken);
+  return metaGraphPaginate<MetaPage>(
+    `/me/accounts?fields=${PAGE_ACCOUNT_FIELDS}&limit=100`,
+    accessToken
+  );
 }
 
-/** 7. Fetch Instagram Business accounts linked to managed Pages */
+/** 7. Instagram Business accounts linked to managed Pages (from /me/accounts only). */
 export async function fetchInstagramBusinessAccounts(accessToken?: string): Promise<
-  Array<MetaInstagramAccount & { linkedPageId: string; linkedPageName: string; pageAccessToken?: string }>
+  Array<{ id: string; linkedPageId: string; linkedPageName: string; pageAccessToken?: string }>
 > {
   const pages = await fetchFacebookPages(accessToken);
-  const accounts: Array<
-    MetaInstagramAccount & { linkedPageId: string; linkedPageName: string; pageAccessToken?: string }
-  > = [];
+  const accounts: Array<{ id: string; linkedPageId: string; linkedPageName: string; pageAccessToken?: string }> = [];
 
   for (const page of pages) {
-    if (page.instagram_business_account?.id) {
-      accounts.push({
-        ...page.instagram_business_account,
-        linkedPageId: page.id,
-        linkedPageName: page.name,
-        pageAccessToken: page.access_token,
-      });
-      continue;
-    }
-
-    try {
-      const detail = await metaGraphGet<{ instagram_business_account?: MetaInstagramAccount }>(
-        `/${page.id}?fields=instagram_business_account{id,username,profile_picture_url,followers_count}`,
-        page.access_token || accessToken
-      );
-      if (detail.instagram_business_account?.id) {
-        accounts.push({
-          ...detail.instagram_business_account,
-          linkedPageId: page.id,
-          linkedPageName: page.name,
-          pageAccessToken: page.access_token,
-        });
-      }
-    } catch {
-      /* page may not have linked IG account */
-    }
+    const igId = extractInstagramBusinessAccountId(page.instagram_business_account);
+    if (!igId) continue;
+    accounts.push({
+      id: igId,
+      linkedPageId: page.id,
+      linkedPageName: page.name,
+      pageAccessToken: page.access_token,
+    });
   }
 
   return accounts;
 }
 
-/** 8. Subscribe connected Pages to app webhooks */
+/** 8. Subscribe connected Pages to app webhooks (separate from Page discovery sync). */
 export async function subscribePagesToWebhooks(
   pages: MetaPage[],
-  subscribedFields = 'feed,mention,comments,messages'
+  subscribedFields = 'comments,messages,mention'
 ): Promise<WebhookSubscribeResult[]> {
   const results: WebhookSubscribeResult[] = [];
 
