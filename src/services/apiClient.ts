@@ -39,10 +39,13 @@ export interface SyncResult {
   ok: boolean;
   synced: number;
   message: string;
+  pagesFound?: number;
+  pagesSaved?: number;
   details?: {
     warnings?: string[];
     syncedPages?: number;
     syncedInstagram?: number;
+    rawMetaResponses?: unknown[];
   };
 }
 
@@ -88,6 +91,10 @@ export const apiClient = {
     request<CommentNote>(`/api/comments/${id}/notes`, { method: 'POST', body: JSON.stringify(note) }),
 
   getAds: () => request<Ad[]>('/api/ads'),
+  getPages: () =>
+    request<Array<{ id: string; pageId: string; pageName: string; pageAccessToken: string | null; isConnected: boolean; syncedAt: string | null }>>(
+      '/api/pages'
+    ),
   getNotes: () => request<CommentNote[]>('/api/notes'),
   getActivityLogs: () => request<ActivityLog[]>('/api/activity-logs'),
   getTeam: () => request<TeamMember[]>('/api/team'),

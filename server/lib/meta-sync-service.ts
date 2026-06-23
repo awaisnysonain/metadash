@@ -21,7 +21,7 @@ import {
   fetchAdSets,
   fetchAds,
   fetchAdCreative,
-  fetchFacebookPages,
+  fetchManagedPages,
   extractInstagramBusinessAccountId,
   type MetaPage,
   parseCreative,
@@ -37,6 +37,8 @@ export interface SyncOutcome {
   ok: boolean;
   synced: number;
   message: string;
+  pagesFound?: number;
+  pagesSaved?: number;
   details?: Record<string, unknown>;
 }
 
@@ -333,15 +335,59 @@ export async function syncPagesFromMeta(): Promise<SyncOutcome> {
   const metaErr = validateOrError();
   if (metaErr) return metaErr;
 
-  const token = getMetaConfig().accessToken;
-  const pages = await fetchFacebookPages(token);
+  const token = getMetaConfig().accessToken?.trim() ?? '';
+  console.log('[sync/pages] META_ACCESS_TOKEN present:', Boolean(token), 'length:', token.length);
 
-  if (!pages.length) {
+  if (!token) {
     return {
-      ok: true,
+      ok: false,
       synced: 0,
-      message: 'No Facebook Pages found. Ensure your token has pages_show_list permission.',
+      pagesFound: 0,
+      pagesSaved: 0,
+      message: 'META_ACCESS_TOKEN is not set on the server.',
     };
+  }
+
+  const { pages, rawResponses } = await fetchManagedPages(token);
+  const pagesFound = pages.length;
+  let pagesSaved = 0;
+  const saveErrors: string[] = [];
+
+  console.log(`[sync/pages] Meta returned ${pagesFound} page(s)`);
+
+  for (const page of pages) {
+    try {
+      await upsertConnectedPage({
+        id: `meta-page-${page.id}`,
+        pageId: page.id,
+        name: page.name,
+        fans: '',
+        avatar: '📄',
+        isConnected: true,
+        accessToken: page.access_token,
+      });
+      pagesSaved++;
+      console.log(
+        `[sync/pages] saved page id=${page.id} name="${page.name}" accessToken=${page.access_token ? 'present' : 'missing'}`
+      );
+
+      const igId = extractInstagramBusinessAccountId(page.instagram_business_account);
+      if (igId) {
+        await upsertInstagramAccount({
+          id: `meta-ig-${igId}`,
+          accountId: igId,
+          username: `@${page.name.replace(/\s+/g, '').toLowerCase()}`,
+          followers: '',
+          avatar: '📸',
+          isConnected: true,
+          accessToken: page.access_token,
+        });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      saveErrors.push(`${page.id}: ${msg}`);
+      console.error(`[sync/pages] failed to save page ${page.id}:`, err);
+    }
   }
 
   const warnings: string[] = [];
@@ -351,22 +397,46 @@ export async function syncPagesFromMeta(): Promise<SyncOutcome> {
     console.warn(`[sync/pages] ${ORGANIC_FEED_DISABLED_WARNING}`);
   }
 
-  const { syncedPages, syncedInstagram } = await upsertPagesAndInstagramFromAccounts(pages);
-
-  let message = `Synced ${syncedPages} Facebook Page(s) via /me/accounts`;
-  if (syncedInstagram > 0) {
-    message += ` and ${syncedInstagram} linked Instagram Business account(s)`;
+  if (pagesFound === 0) {
+    return {
+      ok: true,
+      synced: 0,
+      pagesFound: 0,
+      pagesSaved: 0,
+      message:
+        'No Facebook Pages returned from Meta /me/accounts. Ensure META_ACCESS_TOKEN has pages_show_list (same token as Graph API Explorer).',
+      details: {
+        warnings,
+        rawMetaResponses: rawResponses,
+        tokenLength: token.length,
+      },
+    };
   }
-  message += '. Webhook subscription is separate — use comment webhooks, not feed sync.';
+
+  let message = `Synced ${pagesSaved}/${pagesFound} Facebook Page(s) to connected_pages.`;
+  if (saveErrors.length) {
+    message += ` ${saveErrors.length} save error(s): ${saveErrors.join('; ')}`;
+  }
   if (warnings.length) {
     message += ` Warning: ${warnings.join(' ')}`;
   }
 
   return {
-    ok: true,
-    synced: syncedPages + syncedInstagram,
+    ok: pagesSaved > 0 || pagesFound === 0,
+    synced: pagesSaved,
+    pagesFound,
+    pagesSaved,
     message,
-    details: { syncedPages, syncedInstagram, warnings, pagesDiscovered: pages.length },
+    details: {
+      warnings,
+      saveErrors,
+      rawMetaResponses: rawResponses,
+      pages: pages.map(p => ({
+        id: p.id,
+        name: p.name,
+        hasAccessToken: Boolean(p.access_token),
+      })),
+    },
   };
 }
 
@@ -378,8 +448,8 @@ export async function syncInstagramFromMeta(): Promise<SyncOutcome> {
   const metaErr = validateOrError();
   if (metaErr) return metaErr;
 
-  const token = getMetaConfig().accessToken;
-  const pages = await fetchFacebookPages(token);
+  const token = getMetaConfig().accessToken?.trim() ?? '';
+  const { pages } = await fetchManagedPages(token);
 
   if (!pages.length) {
     return {

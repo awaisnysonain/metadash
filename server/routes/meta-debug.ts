@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getMetaConfig } from '../lib/meta.js';
-import { PAGE_ACCOUNT_FIELDS } from '../lib/meta-graph.js';
+import { PAGE_SYNC_FIELDS } from '../lib/meta-graph.js';
 
 export const metaDebugRouter = Router();
 
@@ -40,7 +40,7 @@ metaDebugRouter.get('/debug-pages', async (_req, res) => {
 
   try {
     const { status, body } = await fetchMetaRaw(
-      `/me/accounts?fields=${encodeURIComponent(PAGE_ACCOUNT_FIELDS)}`,
+      `/me/accounts?fields=${encodeURIComponent(PAGE_SYNC_FIELDS)}`,
       accessToken
     );
     res.status(status).json(body);

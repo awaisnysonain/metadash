@@ -139,7 +139,7 @@ export async function upsertConnectedPage(row: {
        fans = EXCLUDED.fans,
        avatar = EXCLUDED.avatar,
        is_connected = EXCLUDED.is_connected,
-       access_token = COALESCE(EXCLUDED.access_token, connected_pages.access_token),
+       access_token = EXCLUDED.access_token,
        synced_at = NOW()`,
     [row.id, row.pageId, row.name, row.fans, row.avatar, row.isConnected, row.accessToken ?? null]
   );
@@ -166,6 +166,26 @@ export async function upsertInstagramAccount(row: {
        synced_at = NOW()`,
     [row.id, row.accountId, row.username, row.followers, row.avatar, row.isConnected, row.accessToken ?? null]
   );
+}
+
+export async function getAllConnectedPages() {
+  const { rows } = await query<{
+    id: string;
+    page_id: string;
+    name: string;
+    access_token: string | null;
+    is_connected: boolean;
+    synced_at: string | null;
+  }>('SELECT id, page_id, name, access_token, is_connected, synced_at FROM connected_pages ORDER BY name');
+
+  return rows.map(row => ({
+    id: row.id,
+    pageId: row.page_id,
+    pageName: row.name,
+    pageAccessToken: row.access_token,
+    isConnected: row.is_connected,
+    syncedAt: row.synced_at,
+  }));
 }
 
 export interface MetaSyncStatusLatest {

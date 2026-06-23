@@ -123,6 +123,8 @@ function withToken(url: string, accessToken: string): string {
   return `${url}${sep}access_token=${encodeURIComponent(accessToken)}`;
 }
 
+export { withToken };
+
 export async function metaGraphGet<T>(path: string, accessToken?: string): Promise<T> {
   const token = accessToken || getMetaConfig().accessToken;
   if (!token) throw new MetaApiError('META_ACCESS_TOKEN is not set', { status: 400 });
@@ -168,6 +170,50 @@ export async function tokenHasPermission(permission: string, accessToken?: strin
   }
 }
 
+export async function metaGraphPaginateWithRaw<T>(
+  path: string,
+  accessToken?: string,
+  logLabel = 'metaGraphPaginate'
+): Promise<{ items: T[]; rawPages: unknown[] }> {
+  const token = (accessToken || getMetaConfig().accessToken)?.trim();
+  if (!token) throw new MetaApiError('META_ACCESS_TOKEN is not set', { status: 400 });
+
+  const items: T[] = [];
+  const rawPages: unknown[] = [];
+  let url: string | null = path.startsWith('http') ? path : `${META_GRAPH}${path}`;
+
+  while (url) {
+    const fetchUrl = url.includes('access_token=') ? url : withToken(url, token);
+    const res = await fetch(fetchUrl);
+    const text = await res.text();
+    console.log(`[${logLabel}] raw Meta response (${fetchUrl.split('?')[0]}):`, text.slice(0, 12000));
+
+    let body: MetaPaginated<T> & MetaGraphErrorBody;
+    try {
+      body = JSON.parse(text) as MetaPaginated<T> & MetaGraphErrorBody;
+    } catch {
+      throw new MetaApiError(`${logLabel}: ${text || res.statusText}`, { status: res.status });
+    }
+
+    rawPages.push(body);
+
+    if (!res.ok || body.error) {
+      throw new MetaApiError(friendlyMetaMessage(body, `${logLabel} failed`), {
+        code: body.error?.code,
+        subcode: body.error?.error_subcode,
+        type: body.error?.type,
+        fbtraceId: body.error?.fbtrace_id,
+        status: res.status >= 400 ? res.status : 502,
+      });
+    }
+
+    if (body.data?.length) items.push(...body.data);
+    url = body.paging?.next ?? null;
+  }
+
+  return { items, rawPages };
+}
+
 export async function metaGraphPaginate<T>(path: string, accessToken?: string): Promise<T[]> {
   const token = accessToken || getMetaConfig().accessToken;
   if (!token) throw new MetaApiError('META_ACCESS_TOKEN is not set', { status: 400 });
@@ -176,7 +222,8 @@ export async function metaGraphPaginate<T>(path: string, accessToken?: string): 
   let url: string | null = path.startsWith('http') ? path : `${META_GRAPH}${path}`;
 
   while (url) {
-    const res = await fetch(withToken(url, token));
+    const fetchUrl = url.includes('access_token=') ? url : withToken(url, token);
+    const res = await fetch(fetchUrl);
     const page = await parseMetaResponse<MetaPaginated<T>>(res, `Meta GET ${path}`);
     if (page.data?.length) all.push(...page.data);
     url = page.paging?.next ?? null;

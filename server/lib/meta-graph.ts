@@ -1,4 +1,4 @@
-import { metaGraphGet, metaGraphPaginate, metaGraphPost } from './meta.js';
+import { metaGraphGet, metaGraphPaginate, metaGraphPaginateWithRaw, metaGraphPost } from './meta.js';
 
 /* ── Meta Graph API response shapes ── */
 
@@ -118,7 +118,10 @@ const AD_LIST_FIELDS = [
   'creative{id,name,title,body,thumbnail_url,image_url,video_id,call_to_action_type,effective_object_story_id}',
 ].join(',');
 
-/** Lightweight page discovery — does not require pages_read_user_content. */
+/** Fields used for Page sync — matches Graph API Explorer. */
+export const PAGE_SYNC_FIELDS = 'id,name,access_token';
+
+/** Lightweight page discovery — optional extra fields for IG discovery. */
 export const PAGE_ACCOUNT_FIELDS = 'id,name,access_token,instagram_business_account,tasks';
 
 export function extractInstagramBusinessAccountId(
@@ -188,12 +191,23 @@ export async function fetchAdCreative(creativeId: string, accessToken?: string):
   return metaGraphGet<MetaCreative>(`/${creativeId}?fields=${fields}`, accessToken);
 }
 
+/** Fetch managed Pages with raw Meta response logging (for sync/debug). */
+export async function fetchManagedPages(accessToken?: string): Promise<{
+  pages: MetaPage[];
+  rawResponses: unknown[];
+}> {
+  const { items, rawPages } = await metaGraphPaginateWithRaw<MetaPage>(
+    `/me/accounts?fields=${PAGE_SYNC_FIELDS}&limit=100`,
+    accessToken,
+    'sync/pages'
+  );
+  return { pages: items, rawResponses: rawPages };
+}
+
 /** 6. Fetch Facebook Pages the user manages (Page discovery only — no feed/post reads). */
 export async function fetchFacebookPages(accessToken?: string): Promise<MetaPage[]> {
-  return metaGraphPaginate<MetaPage>(
-    `/me/accounts?fields=${PAGE_ACCOUNT_FIELDS}&limit=100`,
-    accessToken
-  );
+  const { pages } = await fetchManagedPages(accessToken);
+  return pages;
 }
 
 /** 7. Instagram Business accounts linked to managed Pages (from /me/accounts only). */

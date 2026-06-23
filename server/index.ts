@@ -11,6 +11,7 @@ import { adsRouter } from './routes/ads.js';
 import { reportsRouter } from './routes/reports.js';
 import { metaSyncRouter } from './routes/meta-sync.js';
 import { metaDebugRouter } from './routes/meta-debug.js';
+import { pagesRouter } from './routes/pages.js';
 import { getMetaSyncStatus, getMetaSyncStatusLatest } from './db/sync-repository.js';
 import { getMetaConfig, isMetaConfigured, isServerDemoMode } from './lib/meta.js';
 
@@ -30,6 +31,7 @@ const REGISTERED_META_ROUTES = [
   'POST /api/meta/sync/instagram',
   'POST /api/meta/sync/campaigns',
   'POST /api/meta/sync/all',
+  'GET  /api/pages',
 ] as const;
 
 function logRegisteredMetaRoutes() {
@@ -111,8 +113,9 @@ app.use('/api/meta', metaDebugRouter);
 // Comments API
 app.use('/api/comments', commentsRouter);
 
-// Ads, reports, bootstrap
+// Ads, reports, bootstrap, pages
 app.use('/api/ads', adsRouter);
+app.use('/api/pages', pagesRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api', bootstrapRouter);
 
