@@ -1,0 +1,6 @@
+{
+  "name": "Unified Ads Comment Inbox",
+  "description": "A beautiful, modern internal dashboard for a marketing ads team to manage FB and IG comments in one place.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
