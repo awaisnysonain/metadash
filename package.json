@@ -7,6 +7,8 @@
     "dev": "vite --port=5000 --host=0.0.0.0",
     "dev:server": "tsx watch server/index.ts",
     "dev:all": "tsx server/dev-all.ts",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
     "build": "vite build",
     "start": "NODE_ENV=production tsx server/index.ts",
     "start:prod": "npm run build && NODE_ENV=production PORT=5011 tsx server/index.ts",

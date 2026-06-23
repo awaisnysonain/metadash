@@ -1,3 +1,33 @@
+export const META_GRAPH = 'https://graph.facebook.com/v21.0';
+
+export interface MetaGraphErrorBody {
+  error?: {
+    message?: string;
+    type?: string;
+    code?: number;
+    error_subcode?: number;
+    fbtrace_id?: string;
+  };
+}
+
+export class MetaApiError extends Error {
+  readonly code?: number;
+  readonly subcode?: number;
+  readonly type?: string;
+  readonly fbtraceId?: string;
+  readonly status: number;
+
+  constructor(message: string, opts: { code?: number; subcode?: number; type?: string; fbtraceId?: string; status?: number } = {}) {
+    super(message);
+    this.name = 'MetaApiError';
+    this.code = opts.code;
+    this.subcode = opts.subcode;
+    this.type = opts.type;
+    this.fbtraceId = opts.fbtraceId;
+    this.status = opts.status ?? 502;
+  }
+}
+
 export function getMetaConfig() {
   return {
     appId: process.env.META_APP_ID || '',
@@ -9,19 +39,128 @@ export function getMetaConfig() {
   };
 }
 
-export function isMetaConfigured(): boolean {
-  const cfg = getMetaConfig();
-  return Boolean(cfg.appId && (cfg.appSecret || cfg.accessToken));
+export function isServerDemoMode(): boolean {
+  const v = process.env.VITE_DEMO_MODE || process.env.DEMO_MODE || 'false';
+  return v === 'true' || v === '1';
 }
 
-export const META_GRAPH = 'https://graph.facebook.com/v21.0';
+export function isMetaConfigured(): boolean {
+  const cfg = getMetaConfig();
+  return Boolean(cfg.appId && cfg.accessToken);
+}
+
+export interface MetaSyncValidation {
+  ok: boolean;
+  message?: string;
+  status?: number;
+}
+
+export function validateMetaSync(): MetaSyncValidation {
+  if (isServerDemoMode()) return { ok: true };
+
+  const cfg = getMetaConfig();
+  const missing: string[] = [];
+
+  if (!cfg.accessToken) missing.push('META_ACCESS_TOKEN');
+  if (!cfg.appId) missing.push('META_APP_ID');
+
+  if (missing.length) {
+    return {
+      ok: false,
+      status: 400,
+      message: `Meta API not configured. Set ${missing.join(', ')} in server environment. Required permissions: ads_read, pages_show_list, pages_read_engagement, pages_manage_metadata, instagram_basic, business_management.`,
+    };
+  }
+
+  return { ok: true };
+}
+
+function friendlyMetaMessage(body: MetaGraphErrorBody, fallback: string): string {
+  const err = body.error;
+  if (!err?.message) return fallback;
+
+  const code = err.code;
+  if (code === 190) {
+    return `Meta access token is invalid or expired. Generate a new long-lived token and update META_ACCESS_TOKEN. (${err.message})`;
+  }
+  if (code === 200 || code === 10) {
+    return `Missing Meta permissions. Ensure your token has ads_read, pages_show_list, pages_read_engagement, pages_manage_metadata, and instagram_basic. (${err.message})`;
+  }
+  if (code === 100) {
+    return `Meta API field error — token may lack Marketing API access. (${err.message})`;
+  }
+
+  return err.message;
+}
+
+async function parseMetaResponse<T>(res: Response, context: string): Promise<T> {
+  const text = await res.text();
+  let body: T & MetaGraphErrorBody;
+  try {
+    body = JSON.parse(text) as T & MetaGraphErrorBody;
+  } catch {
+    throw new MetaApiError(`${context}: ${text || res.statusText}`, { status: res.status });
+  }
+
+  if (!res.ok || body.error) {
+    throw new MetaApiError(friendlyMetaMessage(body, `${context} failed`), {
+      code: body.error?.code,
+      subcode: body.error?.error_subcode,
+      type: body.error?.type,
+      fbtraceId: body.error?.fbtrace_id,
+      status: res.status >= 400 ? res.status : 502,
+    });
+  }
+
+  return body;
+}
+
+function withToken(url: string, accessToken: string): string {
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}access_token=${encodeURIComponent(accessToken)}`;
+}
 
 export async function metaGraphGet<T>(path: string, accessToken?: string): Promise<T> {
   const token = accessToken || getMetaConfig().accessToken;
-  if (!token) throw new Error('Meta access token not configured');
+  if (!token) throw new MetaApiError('META_ACCESS_TOKEN is not set', { status: 400 });
+
   const url = path.startsWith('http') ? path : `${META_GRAPH}${path}`;
-  const sep = url.includes('?') ? '&' : '?';
-  const res = await fetch(`${url}${sep}access_token=${token}`);
-  if (!res.ok) throw new Error(`Meta API ${path}: ${await res.text()}`);
-  return res.json() as Promise<T>;
+  const res = await fetch(withToken(url, token));
+  return parseMetaResponse<T>(res, `Meta GET ${path}`);
+}
+
+export async function metaGraphPost<T>(
+  path: string,
+  params: Record<string, string> = {},
+  accessToken?: string
+): Promise<T> {
+  const token = accessToken || getMetaConfig().accessToken;
+  if (!token) throw new MetaApiError('META_ACCESS_TOKEN is not set', { status: 400 });
+
+  const url = path.startsWith('http') ? path : `${META_GRAPH}${path}`;
+  const body = new URLSearchParams({ ...params, access_token: token });
+  const res = await fetch(url, { method: 'POST', body });
+  return parseMetaResponse<T>(res, `Meta POST ${path}`);
+}
+
+export interface MetaPaginated<T> {
+  data?: T[];
+  paging?: { next?: string; previous?: string };
+}
+
+export async function metaGraphPaginate<T>(path: string, accessToken?: string): Promise<T[]> {
+  const token = accessToken || getMetaConfig().accessToken;
+  if (!token) throw new MetaApiError('META_ACCESS_TOKEN is not set', { status: 400 });
+
+  const all: T[] = [];
+  let url: string | null = path.startsWith('http') ? path : `${META_GRAPH}${path}`;
+
+  while (url) {
+    const res = await fetch(withToken(url, token));
+    const page = await parseMetaResponse<MetaPaginated<T>>(res, `Meta GET ${path}`);
+    if (page.data?.length) all.push(...page.data);
+    url = page.paging?.next ?? null;
+  }
+
+  return all;
 }

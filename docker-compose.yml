@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: metadash-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: erp_meta_dashboard
+      POSTGRES_PASSWORD: erp_meta_dashboard
+      POSTGRES_DB: erp_meta_dashboard
+    volumes:
+      - metadash_pg_data:/var/lib/postgresql/data
+
+volumes:
+  metadash_pg_data:

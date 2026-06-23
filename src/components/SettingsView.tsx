@@ -82,6 +82,10 @@ export default function SettingsView({
               {health.database ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
               Database {health.database ? 'connected' : 'offline'}
             </span>
+            <span className={`flex items-center gap-1 px-2 py-1 rounded-lg border ${health.metaAccessToken ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
+              {health.metaAccessToken ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+              Access token {health.metaAccessToken ? 'set' : 'missing'}
+            </span>
             <span className={`flex items-center gap-1 px-2 py-1 rounded-lg border ${health.meta ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200'}`}>
               Meta API {health.meta ? 'configured' : 'placeholder'}
             </span>
@@ -119,7 +123,7 @@ export default function SettingsView({
             <h3 className="font-bold text-sm text-slate-900 mb-4 flex items-center gap-2">
               <Key className="w-4 h-4 text-indigo-600" /> Meta App Credentials
             </h3>
-            <p className="text-xs text-slate-500">Set META_APP_ID, META_APP_SECRET, META_VERIFY_TOKEN on the server.</p>
+            <p className="text-xs text-slate-500">Set META_APP_ID, META_APP_SECRET, META_VERIFY_TOKEN, and META_ACCESS_TOKEN on the server.</p>
           </section>
 
           <section className="bg-white border border-slate-200 p-5 rounded-xl shadow-sm">

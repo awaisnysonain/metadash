@@ -10,7 +10,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(body || `API error ${res.status}`);
+    let message = body || `API error ${res.status}`;
+    try {
+      const parsed = JSON.parse(body) as { message?: string; error?: string };
+      message = parsed.message || parsed.error || message;
+    } catch {
+      /* response is not JSON */
+    }
+    throw new Error(message);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -19,8 +26,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export interface HealthStatus {
   ok: boolean;
   mode: string;
+  demoMode?: boolean;
   database: boolean;
   meta: boolean;
+  metaAppId?: boolean;
+  metaAccessToken?: boolean;
+  metaVerifyToken?: boolean;
   timestamp: string;
 }
 
@@ -95,7 +106,7 @@ export const apiClient = {
   syncPages: () => request<SyncResult>('/api/meta/sync/pages', { method: 'POST' }),
   syncInstagram: () => request<SyncResult>('/api/meta/sync/instagram', { method: 'POST' }),
   syncCampaigns: () => request<SyncResult>('/api/meta/sync/campaigns', { method: 'POST' }),
-  syncAll: () => request<SyncResult>('/api/meta/sync/ads', { method: 'POST' }),
+  syncAll: () => request<SyncResult>('/api/meta/sync/all', { method: 'POST' }),
 
   // Legacy aliases for Settings UI
   syncAdSets: () => request<SyncResult>('/api/meta/sync/campaigns', { method: 'POST' }),

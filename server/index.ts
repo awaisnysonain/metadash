@@ -3,18 +3,40 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initDatabase, isDatabaseConfigured } from './db/pool.js';
+import { initDatabase, isDatabaseConfigured, hasDatabaseUrl } from './db/pool.js';
 import { seedIfEmpty } from './db/repository.js';
 import { metaWebhookRouter } from './routes/meta-webhook.js';
 import { commentsRouter, bootstrapRouter } from './routes/comments.js';
 import { adsRouter } from './routes/ads.js';
 import { reportsRouter } from './routes/reports.js';
 import { metaSyncRouter } from './routes/meta-sync.js';
-import { getMetaConfig, isMetaConfigured } from './lib/meta.js';
+import { metaDebugRouter } from './routes/meta-debug.js';
+import { getMetaSyncStatus } from './db/sync-repository.js';
+import { getMetaConfig, isMetaConfigured, isServerDemoMode } from './lib/meta.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 5011);
 const isProd = process.env.NODE_ENV === 'production';
+
+const REGISTERED_META_ROUTES = [
+  'GET  /api/meta/webhook',
+  'POST /api/meta/webhook',
+  'GET  /api/meta/status',
+  'GET  /api/meta/debug',
+  'GET  /api/meta/debug-pages',
+  'POST /api/meta/sync/ads',
+  'POST /api/meta/sync/pages',
+  'POST /api/meta/sync/instagram',
+  'POST /api/meta/sync/campaigns',
+  'POST /api/meta/sync/all',
+] as const;
+
+function logRegisteredMetaRoutes() {
+  console.log('[server] Registered Meta routes:');
+  for (const route of REGISTERED_META_ROUTES) {
+    console.log(`  ${route}`);
+  }
+}
 
 const app = express();
 
@@ -24,11 +46,17 @@ app.use(express.urlencoded({ extended: true }));
 
 // Health
 app.get('/api/health', (_req, res) => {
+  const cfg = getMetaConfig();
   res.json({
     ok: true,
     mode: process.env.NODE_ENV || 'development',
+    demoMode: isServerDemoMode(),
     database: isDatabaseConfigured(),
+    databaseUrl: hasDatabaseUrl(),
     meta: isMetaConfigured(),
+    metaAppId: Boolean(cfg.appId),
+    metaAccessToken: Boolean(cfg.accessToken),
+    metaVerifyToken: Boolean(cfg.verifyToken),
     domain: 'meta-dashboard.nysonik.com',
     timestamp: new Date().toISOString(),
   });
@@ -46,6 +74,23 @@ app.get('/api/config/public', (_req, res) => {
 
 // Meta webhook (production path)
 app.use('/api/meta/webhook', metaWebhookRouter);
+
+app.get('/api/meta/status', async (_req, res) => {
+  if (!isDatabaseConfigured()) {
+    return res.status(503).json({
+      error: 'PostgreSQL is not connected. Start the database and restart the server.',
+    });
+  }
+
+  try {
+    const status = await getMetaSyncStatus();
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.use('/api/meta', metaDebugRouter);
 
 // Comments API
 app.use('/api/comments', commentsRouter);
@@ -72,13 +117,14 @@ if (isProd) {
 }
 
 async function start() {
-  await initDatabase();
-  await seedIfEmpty();
+  const dbOk = await initDatabase();
+  if (dbOk) await seedIfEmpty();
 
   const httpServer = app.listen(PORT, '0.0.0.0', () => {
     console.log(`[server] Meta Dashboard API on port ${PORT} (${isProd ? 'production' : 'development'})`);
     console.log(`[server] Webhook: ${getMetaConfig().webhookUrl}`);
-    console.log(`[server] Database: ${isDatabaseConfigured() ? 'connected' : 'not configured'}`);
+    console.log(`[server] Database: ${isDatabaseConfigured() ? 'connected' : hasDatabaseUrl() ? 'unavailable (check PostgreSQL)' : 'not configured'}`);
+    logRegisteredMetaRoutes();
   });
 
   httpServer.on('error', (err: NodeJS.ErrnoException) => {
