@@ -270,7 +270,14 @@ export default function App() {
           )}
 
           {currentTab === 'campaigns' && (
-            <CampaignsView campaigns={campaigns} comments={comments} ads={ads} onNavigateToInbox={handleNavigateWithFilters} />
+            <CampaignsView
+              campaigns={campaigns}
+              comments={comments}
+              ads={ads}
+              isDemoMode={isDemoMode}
+              onNavigateToInbox={handleNavigateWithFilters}
+              onNavigateToSettings={() => setCurrentTab('settings')}
+            />
           )}
 
           {currentTab === 'team' && (

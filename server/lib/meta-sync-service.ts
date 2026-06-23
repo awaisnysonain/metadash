@@ -222,14 +222,28 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
       syncedAdSets++;
     }
 
-    const ads = await fetchAds(account.id, token);
+    let ads: Awaited<ReturnType<typeof fetchAds>>;
+    try {
+      ads = await fetchAds(account.id, token, { effectiveStatus: ['ACTIVE', 'PAUSED'] });
+    } catch (err) {
+      const msg = err instanceof MetaApiError ? err.message : String(err);
+      console.warn(`[sync] Skipping ads for account ${account.id}: ${msg}`);
+      continue;
+    }
+
     for (const ad of ads) {
       let creative = ad.creative;
-      if (creative?.id && !creative.object_story_spec && !creative.body) {
+      if (
+        creative?.id &&
+        !creative.body &&
+        !creative.image_url &&
+        !creative.thumbnail_url &&
+        !creative.object_story_spec
+      ) {
         try {
           creative = await fetchAdCreative(creative.id, token);
         } catch {
-          /* use partial creative from ad query */
+          /* use partial creative from ad list query */
         }
       }
 

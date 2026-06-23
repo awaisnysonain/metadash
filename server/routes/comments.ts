@@ -11,7 +11,7 @@ import {
   getAllNotes,
   getAllActivityLogs,
   getAllTeam,
-  getAllCampaigns,
+  getCampaignsWithAds,
   getAllRules,
   upsertRules,
   deleteRule,
@@ -210,7 +210,8 @@ bootstrapRouter.get('/team', async (_req, res) => {
 
 bootstrapRouter.get('/campaigns', async (_req, res) => {
   try {
-    res.json(await getAllCampaigns());
+    if (!isDatabaseConfigured()) return res.status(503).json({ error: 'Database not configured' });
+    res.json(await getCampaignsWithAds());
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

@@ -1,7 +1,6 @@
 import React from 'react';
 import type { DataMode } from '../lib/config';
 import { AutoTaggingRule, TeamMember } from '../types';
-import { connectedPages, mockAdAccounts } from '../data';
 import { apiClient, type HealthStatus } from '../services/apiClient';
 import {
   Settings, Facebook, Instagram, Key, Trash2, Bell, PlusCircle, Globe, Users, Zap,
@@ -24,7 +23,8 @@ export default function SettingsView({
   const [keyword, setKeyword] = React.useState('');
   const [tag, setTag] = React.useState('');
   const [priority, setPriority] = React.useState('Medium');
-  const [pagesList, setPagesList] = React.useState(connectedPages);
+  const [pagesList, setPagesList] = React.useState<Array<{ id: string; name: string; fans: string; avatar: string; platform: string; isConnected: boolean }>>([]);
+  const [adAccountsList, setAdAccountsList] = React.useState<Array<{ id: string; name: string; status: string }>>([]);
   const [webhookUrl] = React.useState(import.meta.env.VITE_META_WEBHOOK_URL || 'https://meta-dashboard.nysonik.com/api/meta/webhook');
   const [health, setHealth] = React.useState<HealthStatus | null>(null);
   const [syncMessage, setSyncMessage] = React.useState('');
@@ -33,6 +33,18 @@ export default function SettingsView({
   React.useEffect(() => {
     apiClient.health().then(setHealth).catch(() => setHealth(null));
   }, []);
+
+  React.useEffect(() => {
+    if (isDemoMode) {
+      void import('../data').then(({ connectedPages, mockAdAccounts }) => {
+        setPagesList(connectedPages);
+        setAdAccountsList(mockAdAccounts);
+      });
+    } else {
+      setPagesList([]);
+      setAdAccountsList([]);
+    }
+  }, [isDemoMode]);
 
   const runSync = async (fn: () => Promise<{ message: string }>, label: string) => {
     setSyncing(true);
@@ -138,7 +150,10 @@ export default function SettingsView({
           <section className="bg-white border border-slate-200 p-5 rounded-xl shadow-sm">
             <h3 className="font-bold text-sm text-slate-900 mb-4">Connected Pages & Instagram</h3>
             <div className="space-y-2">
-              {pagesList.map(page => (
+              {pagesList.length === 0 && !isDemoMode ? (
+                <p className="text-xs text-slate-500">No pages synced yet. Use Sync Pages or Sync All above.</p>
+              ) : (
+              pagesList.map(page => (
                 <div key={page.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <span>{page.avatar}</span>
@@ -154,7 +169,8 @@ export default function SettingsView({
                     {page.isConnected ? 'Connected' : 'Connect'}
                   </button>
                 </div>
-              ))}
+              ))
+              )}
             </div>
           </section>
 
@@ -162,12 +178,16 @@ export default function SettingsView({
             <h3 className="font-bold text-sm text-slate-900 mb-4 flex items-center gap-2">
               <CreditCard className="w-4 h-4" /> Ad Accounts
             </h3>
-            {mockAdAccounts.map(acc => (
+            {adAccountsList.length === 0 && !isDemoMode ? (
+              <p className="text-xs text-slate-500">No ad accounts synced yet. Use Sync Ads above.</p>
+            ) : (
+            adAccountsList.map(acc => (
               <div key={acc.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg mb-2 flex justify-between">
                 <div><p className="text-xs font-bold">{acc.name}</p><p className="text-[10px] font-mono text-slate-500">{acc.id}</p></div>
                 <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2 py-1 rounded">{acc.status}</span>
               </div>
-            ))}
+            ))
+            )}
           </section>
 
           <section className="bg-white border border-slate-200 p-5 rounded-xl shadow-sm">

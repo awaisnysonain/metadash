@@ -168,6 +168,50 @@ export async function upsertInstagramAccount(row: {
   );
 }
 
+export interface MetaSyncStatusLatest {
+  latestAds: Array<{ adId: string; adName: string; campaignName: string }>;
+  latestCampaigns: Array<{ campaignId: string; campaignName: string; platform: string; status: string }>;
+}
+
+export async function getMetaSyncStatusLatest(): Promise<MetaSyncStatusLatest> {
+  const { rows: latestAds } = await query<{
+    ad_id: string;
+    ad_name: string;
+    campaign_name: string | null;
+  }>(`
+    SELECT ad_id, ad_name, campaign_name
+    FROM ads
+    ORDER BY COALESCE(synced_at, created_at) DESC
+    LIMIT 20
+  `);
+
+  const { rows: latestCampaigns } = await query<{
+    campaign_id: string;
+    campaign_name: string;
+    platform: string;
+    status: string;
+  }>(`
+    SELECT campaign_id, campaign_name, platform, status
+    FROM campaigns
+    ORDER BY COALESCE(synced_at, created_at) DESC
+    LIMIT 20
+  `);
+
+  return {
+    latestAds: latestAds.map(row => ({
+      adId: row.ad_id,
+      adName: row.ad_name,
+      campaignName: row.campaign_name ?? '',
+    })),
+    latestCampaigns: latestCampaigns.map(row => ({
+      campaignId: row.campaign_id,
+      campaignName: row.campaign_name,
+      platform: row.platform,
+      status: row.status,
+    })),
+  };
+}
+
 export interface MetaSyncStatus {
   adAccountsCount: number;
   campaignsCount: number;

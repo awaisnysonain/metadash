@@ -89,6 +89,9 @@ function friendlyMetaMessage(body: MetaGraphErrorBody, fallback: string): string
   if (code === 100) {
     return `Meta API field error — token may lack Marketing API access. (${err.message})`;
   }
+  if (code === 1 && err.message?.toLowerCase().includes('reduce the amount of data')) {
+    return `Meta API returned too much data for one request. Sync uses lighter ad queries; retry or sync per account. (${err.message})`;
+  }
 
   return err.message;
 }

@@ -1,42 +1,40 @@
 import React from 'react';
 import { Campaign, Comment, Ad } from '../types';
-import { mockAds } from '../data';
 import { 
   Megaphone, 
   Facebook, 
   Instagram, 
-  MessageSquare, 
-  TrendingUp, 
-  Activity, 
-  Search,
-  PlusCircle,
-  HelpCircle,
-  ThumbsUp,
-  ThumbsDown,
-  Percent
+  CloudDownload,
 } from 'lucide-react';
 
 interface CampaignsViewProps {
   campaigns: Campaign[];
   comments: Comment[];
-  ads?: Ad[];
-  onNavigateToInbox: (filters?: any) => void;
+  ads: Ad[];
+  isDemoMode?: boolean;
+  onNavigateToInbox: (filters?: { platform?: string }) => void;
+  onNavigateToSettings?: () => void;
 }
 
-export default function CampaignsView({ campaigns, comments, ads = mockAds, onNavigateToInbox }: CampaignsViewProps) {
+export default function CampaignsView({
+  campaigns,
+  comments,
+  ads,
+  isDemoMode = false,
+  onNavigateToInbox,
+  onNavigateToSettings,
+}: CampaignsViewProps) {
   
-  // Quick calculations for each campaign
   const campaignData = campaigns.map(camp => {
     const totalComments = comments.filter(c => c.campaignId === camp.id).length;
     const unseenComments = comments.filter(c => c.campaignId === camp.id && c.status === 'Unseen').length;
     const repliedComments = comments.filter(c => c.campaignId === camp.id && c.status === 'Replied').length;
     
-    // Sentiment ratios
     const totalSenti = comments.filter(c => c.campaignId === camp.id && c.sentiment !== 'Neutral').length;
     const positiveSenti = comments.filter(c => c.campaignId === camp.id && c.sentiment === 'Positive').length;
     const complaintSenti = comments.filter(c => c.campaignId === camp.id && (c.sentiment === 'Complaint' || c.sentiment === 'Negative')).length;
     
-    let sentimentIndex = 50; // default neutral
+    let sentimentIndex = 50;
     if (totalSenti > 0) {
       sentimentIndex = Math.round((positiveSenti / (positiveSenti + complaintSenti || 1)) * 100);
     }
@@ -53,7 +51,6 @@ export default function CampaignsView({ campaigns, comments, ads = mockAds, onNa
 
   return (
     <div className="space-y-4 animate-fadeIn text-xs" id="campaigns-screen">
-      {/* Title */}
       <div>
         <h2 className="text-xs font-bold text-slate-900 tracking-tight flex items-center gap-1.5">
           <Megaphone className="w-4 h-4 text-blue-600" /> Active Ad Campaigns Monitor
@@ -63,7 +60,24 @@ export default function CampaignsView({ campaigns, comments, ads = mockAds, onNa
         </p>
       </div>
 
-      {/* Campaigns Listing */}
+      {campaignData.length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-lg p-8 text-center shadow-sm">
+          <CloudDownload className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+          <p className="text-sm font-bold text-slate-700">
+            {isDemoMode
+              ? 'No demo campaigns loaded.'
+              : 'No campaigns synced yet. Click Sync Ads in Settings.'}
+          </p>
+          {!isDemoMode && onNavigateToSettings && (
+            <button
+              onClick={onNavigateToSettings}
+              className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700"
+            >
+              Go to Settings → Sync Ads
+            </button>
+          )}
+        </div>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {campaignData.map(camp => {
           const isFB = camp.platform === 'facebook';
@@ -74,7 +88,6 @@ export default function CampaignsView({ campaigns, comments, ads = mockAds, onNa
               className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm relative overflow-hidden flex flex-col justify-between"
             >
               <div>
-                {/* Header Platform & status */}
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center space-x-2">
                     <div className={`p-1.5 rounded ${
@@ -95,7 +108,6 @@ export default function CampaignsView({ campaigns, comments, ads = mockAds, onNa
                   </span>
                 </div>
 
-                {/* Substats Grid */}
                 <div className="grid grid-cols-2 gap-2 mt-3 mb-4">
                   <div className="bg-slate-50 p-2 rounded border border-slate-150">
                     <span className="text-[9px] text-slate-400 font-mono block">Spent Budget</span>
@@ -107,9 +119,7 @@ export default function CampaignsView({ campaigns, comments, ads = mockAds, onNa
                   </div>
                 </div>
 
-                {/* Engagement SLA bars */}
                 <div className="space-y-2.5 mb-4 border-t border-slate-100 pt-3">
-                  {/* Replied SLA progress */}
                   <div>
                     <div className="flex justify-between items-center text-[11px] mb-1">
                       <span className="text-slate-500 font-medium font-sans">Reply Processing Resolution Rate</span>
@@ -120,7 +130,6 @@ export default function CampaignsView({ campaigns, comments, ads = mockAds, onNa
                     </div>
                   </div>
 
-                  {/* Customer Sentiment Index */}
                   <div>
                     <div className="flex justify-between items-center text-[11px] mb-1">
                       <span className="text-slate-500 font-medium font-sans">Customer Sentiment Index</span>
@@ -134,7 +143,6 @@ export default function CampaignsView({ campaigns, comments, ads = mockAds, onNa
                   </div>
                 </div>
 
-                {/* Active Ad Creatives displaying and playing */}
                 {(() => {
                   const campaignAds = ads.filter(ad => ad.campaignName === camp.campaignName || ad.id === camp.id);
                   if (campaignAds.length === 0) return null;
@@ -147,7 +155,6 @@ export default function CampaignsView({ campaigns, comments, ads = mockAds, onNa
                       <div className="space-y-2">
                         {campaignAds.map(ad => (
                           <div key={ad.id} className="p-2 bg-slate-50 border border-slate-200 rounded flex gap-2.5 items-start">
-                            {/* Miniature loop video player */}
                             <div className="relative w-16 h-11 bg-black rounded overflow-hidden shrink-0 border border-slate-200 flex items-center justify-center">
                               {ad.mediaType === 'image' && ad.mediaUrl ? (
                                 <img src={ad.mediaUrl} alt="" className="w-full h-full object-cover" />
@@ -160,7 +167,6 @@ export default function CampaignsView({ campaigns, comments, ads = mockAds, onNa
                                 loop
                               </div>
                             </div>
-                            {/* Ad info summary */}
                             <div className="min-w-0 flex-1 text-left">
                               <div className="flex justify-between items-start gap-1">
                                 <span className="text-[10px] font-extrabold text-slate-800 truncate block leading-tight">{ad.adName}</span>
@@ -170,9 +176,9 @@ export default function CampaignsView({ campaigns, comments, ads = mockAds, onNa
                                 {ad.adCopy}
                               </p>
                               <div className="flex gap-2 items-center text-[8.5px] font-mono text-slate-400 mt-1 leading-none">
-                                <span>👍 {ad.likesCount} metrics</span>
+                                <span>👍 {ad.likesCount ?? 0} metrics</span>
                                 <span>•</span>
-                                <span>🔄 {ad.sharesCount} shares</span>
+                                <span>🔄 {ad.sharesCount ?? 0} shares</span>
                               </div>
                             </div>
                           </div>
@@ -183,7 +189,6 @@ export default function CampaignsView({ campaigns, comments, ads = mockAds, onNa
                 })()}
               </div>
 
-              {/* Card Footer Triage Quicklinks */}
               <div className="flex items-center justify-between border-t border-slate-100 pt-3 mt-1.5">
                 <span className="text-[11px] text-rose-600 font-bold font-mono">
                   {camp.unseenComments > 0 ? `🚨 ${camp.unseenComments} unseen comments` : '✅ All comments triaged'}
@@ -201,6 +206,7 @@ export default function CampaignsView({ campaigns, comments, ads = mockAds, onNa
           );
         })}
       </div>
+      )}
     </div>
   );
 }

@@ -217,7 +217,10 @@ export default function DashboardOverview({ comments, campaigns, onNavigateToInb
         <div className="lg:col-span-3 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
           <h3 className="font-bold text-sm text-slate-900 mb-4">By Campaign</h3>
           <div className="space-y-3">
-            {campStats.map(camp => {
+            {campStats.length === 0 ? (
+              <p className="text-xs text-slate-500">No campaigns synced yet. Click Sync Ads in Settings.</p>
+            ) : (
+            campStats.map(camp => {
               const pct = totalComments > 0 ? Math.round((camp.count / totalComments) * 100) : 0;
               const isFB = camp.platform === 'facebook';
               return (
@@ -239,7 +242,8 @@ export default function DashboardOverview({ comments, campaigns, onNavigateToInb
                   </div>
                 </button>
               );
-            })}
+            })
+            )}
           </div>
         </div>
       </div>

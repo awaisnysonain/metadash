@@ -107,13 +107,14 @@ export interface WebhookSubscribeResult {
 const AD_ACCOUNT_FIELDS = 'id,name,account_status,amount_spent,currency';
 const CAMPAIGN_FIELDS = 'id,name,status,daily_budget,lifetime_budget,objective';
 const ADSET_FIELDS = 'id,name,campaign_id,status';
-const AD_FIELDS = [
+// Keep ad list queries light — object_story_spec on many ads triggers Meta "reduce data" errors.
+const AD_LIST_FIELDS = [
   'id',
   'name',
   'status',
   'adset{id,name}',
   'campaign{id,name}',
-  'creative{id,name,title,body,thumbnail_url,image_url,video_id,call_to_action_type,effective_object_story_id,object_story_spec}',
+  'creative{id,name,title,body,thumbnail_url,image_url,video_id,call_to_action_type,effective_object_story_id}',
 ].join(',');
 
 const PAGE_FIELDS = [
@@ -151,11 +152,19 @@ export async function fetchAdSets(adAccountId: string, accessToken?: string): Pr
   );
 }
 
-/** 4. Fetch ads for an ad account (includes embedded creative) */
-export async function fetchAds(adAccountId: string, accessToken?: string): Promise<MetaAd[]> {
+/** 4. Fetch ads for an ad account (creative details fetched separately when needed) */
+export async function fetchAds(
+  adAccountId: string,
+  accessToken?: string,
+  opts?: { limit?: number; effectiveStatus?: string[] }
+): Promise<MetaAd[]> {
   const actId = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
+  const limit = opts?.limit ?? 25;
+  const statusFilter = opts?.effectiveStatus?.length
+    ? `&effective_status=[${opts.effectiveStatus.map(s => `"${s}"`).join(',')}]`
+    : '';
   return metaGraphPaginate<MetaAd>(
-    `/${actId}/ads?fields=${AD_FIELDS}&limit=100`,
+    `/${actId}/ads?fields=${AD_LIST_FIELDS}&limit=${limit}${statusFilter}`,
     accessToken
   );
 }

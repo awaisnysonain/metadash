@@ -113,4 +113,9 @@ export const apiClient = {
   syncCreatives: () => request<SyncResult>('/api/meta/sync/ads', { method: 'POST' }),
   syncFacebookComments: () => request<SyncResult>('/api/meta/sync/pages', { method: 'POST' }),
   syncInstagramComments: () => request<SyncResult>('/api/meta/sync/instagram', { method: 'POST' }),
+
+  getMetaStatusLatest: () =>
+    request<{ latestAds: Array<{ adId: string; adName: string; campaignName: string }>; latestCampaigns: Array<{ campaignId: string; campaignName: string; platform: string; status: string }> }>(
+      '/api/meta/status/latest'
+    ),
 };

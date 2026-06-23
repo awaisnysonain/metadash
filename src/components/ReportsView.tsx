@@ -142,7 +142,10 @@ export default function ReportsView({ comments, teamMembers, campaigns, onNaviga
         <div className="bg-white border border-slate-200 p-5 rounded-xl shadow-sm">
           <h3 className="font-bold text-sm text-slate-900 mb-4">Campaigns with Most Comments</h3>
           <div className="space-y-2">
-            {campaignVolume.map((c, i) => (
+            {campaignVolume.length === 0 ? (
+              <p className="text-xs text-slate-500">No campaigns synced yet. Click Sync Ads in Settings.</p>
+            ) : (
+            campaignVolume.map((c, i) => (
               <button
                 key={c.id}
                 onClick={() => onNavigateToInbox({ campaign: c.campaignName })}
@@ -154,7 +157,8 @@ export default function ReportsView({ comments, teamMembers, campaigns, onNaviga
                 </div>
                 <span className="text-sm font-bold text-slate-600 shrink-0 ml-2">{c.count}</span>
               </button>
-            ))}
+            ))
+            )}
           </div>
         </div>
 

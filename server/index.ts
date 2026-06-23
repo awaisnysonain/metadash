@@ -11,7 +11,7 @@ import { adsRouter } from './routes/ads.js';
 import { reportsRouter } from './routes/reports.js';
 import { metaSyncRouter } from './routes/meta-sync.js';
 import { metaDebugRouter } from './routes/meta-debug.js';
-import { getMetaSyncStatus } from './db/sync-repository.js';
+import { getMetaSyncStatus, getMetaSyncStatusLatest } from './db/sync-repository.js';
 import { getMetaConfig, isMetaConfigured, isServerDemoMode } from './lib/meta.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -22,6 +22,7 @@ const REGISTERED_META_ROUTES = [
   'GET  /api/meta/webhook',
   'POST /api/meta/webhook',
   'GET  /api/meta/status',
+  'GET  /api/meta/status/latest',
   'GET  /api/meta/debug',
   'GET  /api/meta/debug-pages',
   'POST /api/meta/sync/ads',
@@ -85,6 +86,21 @@ app.get('/api/meta/status', async (_req, res) => {
   try {
     const status = await getMetaSyncStatus();
     res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.get('/api/meta/status/latest', async (_req, res) => {
+  if (!isDatabaseConfigured()) {
+    return res.status(503).json({
+      error: 'PostgreSQL is not connected. Start the database and restart the server.',
+    });
+  }
+
+  try {
+    const latest = await getMetaSyncStatusLatest();
+    res.json(latest);
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }

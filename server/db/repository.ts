@@ -1,4 +1,5 @@
 import { query, isDatabaseConfigured } from '../db/pool.js';
+import { isServerDemoMode } from '../lib/meta.js';
 import {
   rowToComment,
   rowToNote,
@@ -110,6 +111,16 @@ export async function getAllCampaigns() {
   return rows.map(rowToCampaign);
 }
 
+export async function getCampaignsWithAds() {
+  const campaigns = await getAllCampaigns();
+  const { rows: adRows } = await query('SELECT * FROM ads ORDER BY ad_name');
+  const ads = adRows.map(rowToAd);
+  return campaigns.map(camp => ({
+    ...camp,
+    ads: ads.filter(ad => ad.campaignName === camp.campaignName),
+  }));
+}
+
 export async function getAllAds() {
   const { rows } = await query('SELECT * FROM ads ORDER BY ad_name');
   return rows.map(rowToAd);
@@ -151,6 +162,10 @@ export async function getReportsSummary() {
 
 export async function seedIfEmpty() {
   if (!isDatabaseConfigured()) return;
+  if (!isServerDemoMode()) {
+    console.log('[db] Production mode — skipping demo seed data');
+    return;
+  }
   const { rows } = await query('SELECT COUNT(*)::int AS c FROM comments');
   if (rows[0].c > 0) return;
 

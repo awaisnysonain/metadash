@@ -43,6 +43,18 @@ function demoSnapshot(): AppDataSnapshot {
   };
 }
 
+function emptyLiveSnapshot(): AppDataSnapshot {
+  return {
+    comments: [],
+    notes: [],
+    activityLogs: [],
+    autoTaggingRules: [],
+    team: [],
+    campaigns: [],
+    ads: [],
+  };
+}
+
 export async function loadAppData(mode: DataMode): Promise<AppDataSnapshot> {
   if (mode === 'demo') return demoSnapshot();
 
@@ -57,24 +69,25 @@ export async function loadAppData(mode: DataMode): Promise<AppDataSnapshot> {
       apiClient.getAds(),
     ]);
 
+    console.log('Using live PostgreSQL API data');
+
     return {
       comments,
       notes,
       activityLogs,
       autoTaggingRules,
-      team: team.length ? team : teamMembers,
-      campaigns: campaigns.length ? campaigns : mockCampaigns,
-      ads: ads.length ? ads : mockAds,
+      team,
+      campaigns,
+      ads,
     };
   } catch (err) {
-    console.warn('[dataService] API load failed, falling back to demo data', err);
-    return demoSnapshot();
+    console.error('[dataService] API load failed in production mode — showing empty state', err);
+    return emptyLiveSnapshot();
   }
 }
 
 export async function persistComments(mode: DataMode, comments: Comment[]): Promise<void> {
   if (mode === 'demo') return;
-  // Individual comment updates handled by specific API calls
   void comments;
 }
 
