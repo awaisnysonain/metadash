@@ -14,6 +14,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import type { InboxFilters } from './UnifiedInbox';
+import { getCommentsForCampaign } from '../utils/campaignHelpers';
 
 interface DashboardOverviewProps {
   comments: Comment[];
@@ -43,7 +44,7 @@ export default function DashboardOverview({ comments, campaigns, onNavigateToInb
   const campStats = campaigns
     .map(camp => ({
       ...camp,
-      count: comments.filter(c => c.campaignId === camp.id).length,
+      count: getCommentsForCampaign(comments, camp).length,
     }))
     .sort((a, b) => b.count - a.count);
 

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Campaign, Comment, Ad } from '../types';
+import { getCommentsForCampaign, getAdsForCampaign } from '../utils/campaignHelpers';
 import { Facebook, Instagram, Megaphone, MessageCircle, Heart, ArrowRight } from 'lucide-react';
 
 interface CampaignsViewProps {
@@ -20,7 +21,7 @@ export default function CampaignsView({
   onNavigateToSettings,
 }: CampaignsViewProps) {
   const campaignData = campaigns.map(camp => {
-    const campComments = comments.filter(c => c.campaignId === camp.id);
+    const campComments = getCommentsForCampaign(comments, camp);
     const totalComments = campComments.length;
     const unseenComments = campComments.filter(c => c.status === 'Unseen').length;
     const repliedComments = campComments.filter(c => c.status === 'Replied').length;
@@ -45,12 +46,19 @@ export default function CampaignsView({
     };
   });
 
+  const accountGroups = campaignData.reduce<Record<string, typeof campaignData>>((acc, camp) => {
+    const key = camp.accountLabel || 'Other';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(camp);
+    return acc;
+  }, {});
+
   return (
     <div className="space-y-6 animate-fade-in" id="campaigns-screen">
       <div>
         <h2 className="text-lg font-semibold text-slate-900">Your campaigns</h2>
         <p className="text-sm text-slate-500 mt-1">
-          See how people are responding to your ads on Facebook and Instagram.
+          Campaigns from NOBL & FLO ad accounts — Facebook and Instagram.
         </p>
       </div>
 
@@ -73,12 +81,15 @@ export default function CampaignsView({
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {campaignData.map(camp => {
+        Object.entries(accountGroups).map(([accountLabel, camps]) => (
+          <div key={accountLabel} className="space-y-4">
+            <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+              <Megaphone className="w-4 h-4" /> {accountLabel} ({camps.length} campaigns)
+            </h3>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {camps.map(camp => {
             const isFB = camp.platform === 'facebook';
-            const campaignAds = ads.filter(
-              ad => ad.campaignName === camp.campaignName || ad.id === camp.id
-            );
+            const campaignAds = getAdsForCampaign(ads, camp);
 
             return (
               <div
@@ -221,7 +232,9 @@ export default function CampaignsView({
               </div>
             );
           })}
-        </div>
+            </div>
+          </div>
+        ))
       )}
     </div>
   );

@@ -7,11 +7,50 @@ export type CommentPriority = 'Low' | 'Medium' | 'High' | 'Urgent';
 export type CommentSentiment = 'Positive' | 'Neutral' | 'Negative' | 'Question' | 'Complaint';
 
 export interface TeamMember {
-  id: string; // e.g. "team-1"
+  id: string;
   name: string;
   email: string;
   role: string;
   avatarUrl: string;
+  title?: string;
+  bio?: string;
+  username?: string;
+}
+
+export type Permission =
+  | 'inbox.view'
+  | 'inbox.manage'
+  | 'comments.reply'
+  | 'comments.assign'
+  | 'comments.notes'
+  | 'comments.tags'
+  | 'campaigns.view'
+  | 'reports.view'
+  | 'team.view'
+  | 'team.manage'
+  | 'settings.view'
+  | 'settings.manage'
+  | 'sync.run';
+
+export interface AppUser {
+  id: string;
+  username: string;
+  name: string;
+  email: string;
+  role: 'admin' | 'member';
+  title: string;
+  bio: string;
+  avatarUrl: string;
+  permissions: Permission[];
+  isActive: boolean;
+  lastLoginAt?: string;
+  createdAt?: string;
+}
+
+export interface CommentView {
+  userId: string;
+  userName: string;
+  viewedAt: string;
 }
 
 export interface CommentNote {
@@ -43,6 +82,8 @@ export interface Campaign {
   status: 'Active' | 'Paused' | 'Ended';
   budget: string;
   commentsCount: number;
+  accountLabel?: string;
+  metaAccountId?: string;
 }
 
 export interface Ad {
@@ -65,6 +106,9 @@ export interface Ad {
   sharesCount?: number;
   commentsCount?: number;
   postStoryId?: string;
+  spend?: number;
+  accountLabel?: string;
+  metaAccountId?: string;
 }
 
 export interface Comment {

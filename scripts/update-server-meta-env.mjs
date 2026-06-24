@@ -37,7 +37,7 @@ execSync(
   { stdio: 'inherit' }
 );
 execSync(
-  `ssh -i "${pem}" -o StrictHostKeyChecking=no ${host} "python3 /tmp/_update_meta_env.py; rm -f /tmp/_update_meta_env.py; pm2 restart metadashboard"`,
+  `ssh -i "${pem}" -o StrictHostKeyChecking=no ${host} "python3 /tmp/_update_meta_env.py; rm -f /tmp/_update_meta_env.py; pm2 restart metadashboard --update-env"`,
   { stdio: 'inherit' }
 );
 fs.unlinkSync('_update_meta_env.py');

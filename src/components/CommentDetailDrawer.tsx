@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Comment, TeamMember, CommentNote, ActivityLog, CommentStatus, CommentPriority, Ad } from '../types';
-import { getAdForComment, formatFullTime } from '../utils/helpers';
+import { getAdForComment, formatFullTime, displayCommenterName, commenterAvatarUrl } from '../utils/helpers';
 import { StatusBadge, PriorityBadge, SentimentBadge, PlatformBadge } from './ui/Badges';
 import AdPreviewPanel from './AdPreviewPanel';
 import {
@@ -81,14 +81,20 @@ export default function CommentDetailDrawer({
           {/* Comment card */}
           <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
             <div className="flex items-center gap-3 mb-3">
+              {commenterAvatarUrl(comment) ? (
               <img
-                src={comment.commenterProfileUrl}
+                src={commenterAvatarUrl(comment)}
                 alt=""
                 className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100"
                 referrerPolicy="no-referrer"
               />
+              ) : (
+              <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-500">
+                {displayCommenterName(comment.commenterName).charAt(0)}
+              </div>
+              )}
               <div>
-                <h4 className="font-bold text-slate-900 text-sm">{comment.commenterName}</h4>
+                <h4 className="font-bold text-slate-900 text-sm">{displayCommenterName(comment.commenterName)}</h4>
                 <p className="text-[10px] text-slate-400">{formatFullTime(comment.createdAt)}</p>
               </div>
             </div>
@@ -275,6 +281,9 @@ export default function CommentDetailDrawer({
                       )}
                       {log.action === 'Context Note Addition' && <>added a note</>}
                       {log.action === 'Webhook Received' && <>received a new comment</>}
+                      {log.action === 'Viewed' && (
+                        <>viewed this comment <span className="font-medium text-sky-600">({log.newValue})</span></>
+                      )}
                     </p>
                     <p className="text-[9px] text-slate-400 mt-0.5">{formatFullTime(log.createdAt)}</p>
                   </div>

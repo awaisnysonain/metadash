@@ -197,7 +197,7 @@ export async function fetchManagedPages(accessToken?: string): Promise<{
   rawResponses: unknown[];
 }> {
   const { items, rawPages } = await metaGraphPaginateWithRaw<MetaPage>(
-    `/me/accounts?fields=${PAGE_SYNC_FIELDS}&limit=100`,
+    `/me/accounts?fields=${PAGE_ACCOUNT_FIELDS}&limit=100`,
     accessToken,
     'sync/pages'
   );
@@ -397,14 +397,79 @@ export function detectAdPlatform(campaign?: MetaCampaign): 'facebook' | 'instagr
   return 'facebook';
 }
 
-/* ── Comment fetch ── */
+/** Fetch per-ad spend for an ad account (last 30 days by default). */
+export async function fetchAdSpendInsights(
+  adAccountId: string,
+  accessToken?: string,
+  datePreset = 'last_30d'
+): Promise<Map<string, number>> {
+  const actId = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
+  const spendMap = new Map<string, number>();
+
+  try {
+    const rows = await metaGraphPaginate<{ ad_id?: string; spend?: string }>(
+      `/${actId}/insights?level=ad&fields=ad_id,spend&date_preset=${datePreset}&limit=500`,
+      accessToken
+    );
+    for (const row of rows) {
+      if (row.ad_id && row.spend) {
+        spendMap.set(row.ad_id, parseFloat(row.spend));
+      }
+    }
+  } catch (err) {
+    console.warn(`[insights] Could not fetch spend for ${actId}:`, err instanceof Error ? err.message : err);
+  }
+
+  return spendMap;
+}
+
+/** Fetch single ad account details by ID */
+export async function fetchAdAccountById(
+  accountId: string,
+  accessToken?: string
+): Promise<MetaAdAccount | null> {
+  const actId = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
+  try {
+    return await metaGraphGet<MetaAdAccount>(`/${actId}?fields=${AD_ACCOUNT_FIELDS}`, accessToken);
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch Instagram profile for a business account ID */
+export async function fetchInstagramProfile(
+  igAccountId: string,
+  accessToken?: string
+): Promise<MetaInstagramAccount | null> {
+  try {
+    return await metaGraphGet<MetaInstagramAccount>(
+      `/${igAccountId}?fields=id,username,profile_picture_url,followers_count`,
+      accessToken
+    );
+  } catch {
+    return null;
+  }
+}
 
 export interface MetaComment {
   id: string;
   message?: string;
-  from?: { id?: string; name?: string };
+  from?: { id?: string; name?: string; picture?: { data?: { url?: string } } };
+  username?: string;
   created_time?: string;
   permalink_url?: string;
+}
+
+export function resolveCommenterInfo(from?: MetaComment['from'], username?: string): {
+  name: string;
+  profileUrl: string;
+  id?: string;
+} {
+  const id = from?.id;
+  const profileUrl =
+    from?.picture?.data?.url || (id ? `https://www.facebook.com/profile.php?id=${id}` : '');
+  const name = from?.name?.trim() || username?.trim() || (id ? 'Facebook User' : 'Commenter');
+  return { name, profileUrl, id };
 }
 
 export interface ResolvedAdStory {
@@ -468,11 +533,30 @@ async function fetchStoryCommentsWithToken(
   token: string,
   opts?: { since?: number; until?: number; limit?: number }
 ): Promise<MetaComment[]> {
-  const fields = 'id,message,from,created_time,permalink_url';
+  const fields = 'id,message,from{id,name,picture},username,created_time,permalink_url';
   let path = `/${storyId}/comments?fields=${fields}&limit=${opts?.limit ?? 100}`;
   if (opts?.since) path += `&since=${opts.since}`;
   if (opts?.until) path += `&until=${opts.until}`;
   return metaGraphPaginate<MetaComment>(path, token);
+}
+
+/** Re-fetch a single comment when the list response omits author fields. */
+export async function enrichMetaCommentAuthor(
+  comment: MetaComment,
+  pageAccessToken: string | null | undefined
+): Promise<MetaComment> {
+  if (comment.from?.name?.trim() || comment.username?.trim()) return comment;
+  if (!comment.id || !pageAccessToken?.trim()) return comment;
+
+  try {
+    const res = await metaGraphGet<MetaComment>(
+      `/${comment.id}?fields=id,message,from{id,name,picture},username,permalink_url`,
+      pageAccessToken
+    );
+    return { ...comment, ...res, message: res.message ?? comment.message };
+  } catch {
+    return comment;
+  }
 }
 
 export async function fetchStoryComments(

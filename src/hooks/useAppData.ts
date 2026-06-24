@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import type { AppUser } from '../types';
 import type { DataMode } from '../lib/config';
 import { getAppConfig, resolveDataMode } from '../lib/config';
 import type {
@@ -52,7 +53,7 @@ export interface UseAppDataReturn {
   reload: () => Promise<void>;
 }
 
-export function useAppData(): UseAppDataReturn {
+export function useAppData(currentUser?: AppUser | null): UseAppDataReturn {
   const config = getAppConfig();
   const dataMode = resolveDataMode();
   const [isLoading, setIsLoading] = useState(true);
@@ -86,8 +87,16 @@ export function useAppData(): UseAppDataReturn {
   }, [applySnapshot]);
 
   useEffect(() => {
-    reload();
-  }, [reload]);
+    if (modeRef.current === 'demo') {
+      void reload();
+      return;
+    }
+    if (currentUser) {
+      void reload();
+    } else {
+      setIsLoading(false);
+    }
+  }, [currentUser, reload]);
 
   useEffect(() => {
     const unsub = subscribeToComments(dataMode, setComments);
@@ -152,9 +161,9 @@ export function useAppData(): UseAppDataReturn {
     const localNote: CommentNote = {
       id: `note-${Date.now()}`,
       commentId,
-      userId: 'team-1',
-      userName: 'Team',
-      userAvatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=120',
+      userId: currentUser?.id ?? 'team-1',
+      userName: currentUser?.name ?? 'Team',
+      userAvatar: currentUser?.avatarUrl ?? '',
       note: noteText,
       createdAt: dateStr,
     };
@@ -164,10 +173,10 @@ export function useAppData(): UseAppDataReturn {
       return localNote;
     }
 
-    const saved = await persistNote('live', commentId, noteText);
+    const saved = await persistNote('live', commentId, noteText, currentUser);
     await reload();
     return saved ?? localNote;
-  }, [reload]);
+  }, [reload, currentUser]);
 
   const addActivityLogLocal = useCallback((log: ActivityLog) => {
     setActivityLogs(prev => [log, ...prev]);

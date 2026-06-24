@@ -3,6 +3,27 @@ import { Comment, Ad, CommentStatus, CommentPriority, CommentSentiment, Platform
 export const getAdForComment = (comment: Comment, ads: Ad[]): Ad | undefined =>
   ads.find(ad => ad.id === comment.adId || ad.adId === comment.adId);
 
+const GENERIC_COMMENTER_LABELS = new Set(['Unknown User', 'Commenter', 'Facebook User', 'Facebook commenter']);
+
+export function displayCommenterName(name: string): string {
+  if (!name || GENERIC_COMMENTER_LABELS.has(name)) return 'Facebook commenter';
+  return name;
+}
+
+export function isGenericCommenterName(name: string): boolean {
+  return !name || GENERIC_COMMENTER_LABELS.has(name);
+}
+
+export function commenterAvatarUrl(comment: Comment): string | undefined {
+  const url = comment.commenterProfileUrl?.trim();
+  if (!url || url.includes('profile.php')) return undefined;
+  return url;
+}
+
+export function commenterInitial(name: string): string {
+  return displayCommenterName(name).charAt(0).toUpperCase();
+}
+
 export const formatCommentTime = (timeStr: string): string => {
   const d = new Date(timeStr);
   return (

@@ -160,3 +160,44 @@ CREATE INDEX IF NOT EXISTS idx_comments_created_at ON comments(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_comment ON activity_logs(comment_id);
 
 ALTER TABLE ads ADD COLUMN IF NOT EXISTS post_story_id TEXT;
+ALTER TABLE ads ADD COLUMN IF NOT EXISTS spend NUMERIC DEFAULT 0;
+ALTER TABLE ads ADD COLUMN IF NOT EXISTS account_label TEXT;
+ALTER TABLE ads ADD COLUMN IF NOT EXISTS meta_account_id TEXT;
+
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS account_label TEXT;
+
+-- App users (authentication & team)
+CREATE TABLE IF NOT EXISTS app_users (
+  id TEXT PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL DEFAULT '',
+  role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('admin', 'member')),
+  title TEXT NOT NULL DEFAULT '',
+  bio TEXT NOT NULL DEFAULT '',
+  avatar_url TEXT NOT NULL DEFAULT '',
+  permissions JSONB NOT NULL DEFAULT '[]'::JSONB,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  last_login_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_app_users_username ON app_users(username);
+
+-- Track who viewed each comment
+CREATE TABLE IF NOT EXISTS comment_views (
+  id TEXT PRIMARY KEY,
+  comment_id TEXT NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  user_name TEXT NOT NULL,
+  viewed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(comment_id, user_id)
+);
+
+-- Env-based admin is not in app_users; drop FK if it was created earlier
+ALTER TABLE comment_views DROP CONSTRAINT IF EXISTS comment_views_user_id_fkey;
+
+CREATE INDEX IF NOT EXISTS idx_comment_views_comment ON comment_views(comment_id);
+CREATE INDEX IF NOT EXISTS idx_comment_views_user ON comment_views(user_id);

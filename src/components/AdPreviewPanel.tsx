@@ -85,18 +85,29 @@ export default function AdPreviewPanel({ ad, comment, compact = false, className
     }
 
     return (
-      <div className="relative aspect-video bg-black rounded-lg overflow-hidden border border-slate-800">
+      <div className="relative aspect-video bg-black rounded-xl overflow-hidden border border-slate-800 group">
         <video
           ref={videoRef}
           src={ad.mediaUrl}
           poster={ad.thumbnailUrl}
-          className="w-full h-full object-cover"
+          className="w-full h-full object-contain bg-black"
           loop
           muted={isMuted}
           playsInline
           autoPlay
+          controls={false}
         />
-        <div className="absolute bottom-2 right-2 flex gap-1 bg-black/70 backdrop-blur-sm p-1 rounded-full">
+        {!isPlaying && (
+          <div
+            className="absolute inset-0 flex items-center justify-center bg-black/30 cursor-pointer"
+            onClick={() => setIsPlaying(true)}
+          >
+            <div className="w-14 h-14 rounded-full bg-white/90 flex items-center justify-center shadow-xl">
+              <Play className="w-6 h-6 text-slate-900 fill-current ml-0.5" />
+            </div>
+          </div>
+        )}
+        <div className="absolute bottom-3 right-3 flex gap-1.5 bg-black/70 backdrop-blur-sm p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             type="button"
             onClick={() => setIsPlaying(!isPlaying)}

@@ -1,5 +1,6 @@
 import type { DataMode } from '../lib/config';
 import type {
+  AppUser,
   Comment,
   CommentNote,
   ActivityLog,
@@ -131,13 +132,18 @@ export async function updateCommentTagsApi(mode: DataMode, id: string, tags: str
   await apiClient.patchCommentTags(id, tags);
 }
 
-export async function persistNote(mode: DataMode, commentId: string, noteText: string): Promise<CommentNote | void> {
+export async function persistNote(
+  mode: DataMode,
+  commentId: string,
+  noteText: string,
+  user?: AppUser | null
+): Promise<CommentNote | void> {
   if (mode === 'demo') return;
   return apiClient.addCommentNote(commentId, {
     note: noteText,
-    userId: 'team-1',
-    userName: 'Team',
-    userAvatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=120',
+    userId: user?.id,
+    userName: user?.name,
+    userAvatar: user?.avatarUrl,
   });
 }
 

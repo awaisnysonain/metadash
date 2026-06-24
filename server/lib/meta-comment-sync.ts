@@ -2,7 +2,8 @@ import { isDatabaseConfigured, hasDatabaseUrl } from '../db/pool.js';
 import { getAllAds, upsertComment, insertActivityLog, commentExistsByMetaId } from '../db/repository.js';
 import { getPageAccessToken } from '../db/sync-repository.js';
 import { getMetaConfig, isServerDemoMode, validateMetaSync, validateMetaAccessToken } from './meta.js';
-import { resolveAdStoryId, fetchStoryComments, pageIdFromStoryId, type MetaComment } from './meta-graph.js';
+import { getTokenForAccount, getConfiguredMetaAccounts } from './meta-accounts.js';
+import { resolveAdStoryId, fetchStoryComments, enrichMetaCommentAuthor, pageIdFromStoryId, resolveCommenterInfo, type MetaComment } from './meta-graph.js';
 import { MetaApiError } from './meta.js';
 import { mapSyncedComment } from './webhook.js';
 import { syncErrorMessage, syncPagesFromMeta, syncAdsFromMeta } from './meta-sync-service.js';
@@ -29,7 +30,7 @@ export interface CommentSyncState {
   tokenMessage: string;
 }
 
-const BACKFILL_DAYS = 14;
+const BACKFILL_DAYS = 730;
 const INCREMENTAL_HOURS = 26;
 const AD_BATCH_DELAY_MS = 120;
 
@@ -81,8 +82,10 @@ async function persistMetaComment(
     adName: string;
     adsetName: string;
     campaignName: string;
+    campaignMetaId?: string;
     storyId: string;
     since: number;
+    pageAccessToken?: string | null;
   }
 ): Promise<boolean> {
   if (!metaComment.id || !metaComment.message?.trim()) return false;
@@ -95,19 +98,24 @@ async function persistMetaComment(
 
   const exists = await commentExistsByMetaId(metaComment.id);
 
+  const enriched = await enrichMetaCommentAuthor(metaComment, ctx.pageAccessToken);
+  const author = resolveCommenterInfo(enriched.from, enriched.username);
+
   const row = mapSyncedComment({
     platform: ctx.platform,
-    commentId: metaComment.id,
-    message: metaComment.message,
-    fromName: metaComment.from?.name || 'Unknown User',
-    fromId: metaComment.from?.id,
+    commentId: enriched.id,
+    message: enriched.message || metaComment.message || '',
+    fromName: author.name,
+    fromId: author.id,
+    profileUrl: author.profileUrl,
     createdTime: createdIso,
-    permalinkUrl: metaComment.permalink_url,
+    permalinkUrl: enriched.permalink_url || metaComment.permalink_url,
     postId: ctx.storyId,
     adId: ctx.adId,
     adName: ctx.adName,
     adsetName: ctx.adsetName,
     campaignName: ctx.campaignName,
+    campaignMetaId: ctx.campaignMetaId,
   });
 
   await upsertComment(row);
@@ -145,7 +153,9 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
     return { ok: false, synced: 0, message: check.message! };
   }
 
-  const tokenStatus = await validateMetaAccessToken();
+  const tokenStatus = await validateMetaAccessToken(
+    getConfiguredMetaAccounts()[0]?.accessToken || getMetaConfig().accessToken
+  );
   syncState.tokenValid = tokenStatus.valid;
   syncState.tokenMessage = tokenStatus.message;
 
@@ -168,9 +178,9 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
     };
   }
 
-  const token = getMetaConfig().accessToken?.trim();
-  if (!token) {
-    return { ok: false, synced: 0, message: 'META_ACCESS_TOKEN is not set.' };
+  const primaryToken = getConfiguredMetaAccounts()[0]?.accessToken || getMetaConfig().accessToken?.trim();
+  if (!primaryToken) {
+    return { ok: false, synced: 0, message: 'No Meta access token configured.' };
   }
 
   // Refresh page tokens for comment reads
@@ -198,6 +208,10 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
 
   for (const ad of ads) {
     try {
+      const adToken = ad.metaAccountId ? getTokenForAccount(ad.metaAccountId) : getMetaConfig().accessToken?.trim();
+      const token = adToken ?? getMetaConfig().accessToken?.trim();
+      if (!token) continue;
+
       let storyId = ad.postStoryId?.trim() || null;
       let pageId = pageIdFromStoryId(storyId);
 
@@ -232,8 +246,10 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
           adName: ad.adName,
           adsetName: ad.adsetName,
           campaignName: ad.campaignName,
+          campaignMetaId: ad.campaignName,
           storyId,
           since,
+          pageAccessToken: pageToken,
         });
         if (saved) synced++;
       }

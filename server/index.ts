@@ -12,6 +12,11 @@ import { reportsRouter } from './routes/reports.js';
 import { metaSyncRouter } from './routes/meta-sync.js';
 import { metaDebugRouter } from './routes/meta-debug.js';
 import { pagesRouter } from './routes/pages.js';
+import { accountsRouter } from './routes/accounts.js';
+import { authRouter } from './routes/auth.js';
+import { usersRouter } from './routes/users.js';
+import { requireAuth } from './middleware/auth.js';
+import { removeStaleAdminFromDb } from './db/user-repository.js';
 import { getMetaSyncStatus, getMetaSyncStatusLatest } from './db/sync-repository.js';
 import { getMetaConfig, isMetaConfigured, isServerDemoMode, validateMetaAccessToken } from './lib/meta.js';
 import { startCommentSyncCron } from './lib/meta-comment-sync.js';
@@ -70,6 +75,11 @@ app.get('/api/health', async (_req, res) => {
     metaTokenValid: tokenStatus?.valid ?? false,
     metaTokenExpiresAt: tokenStatus?.expiresAtIso ?? null,
     metaTokenMessage: tokenStatus?.message ?? null,
+    metaCanSyncComments: tokenStatus?.canSyncComments ?? false,
+    metaHasPagesReadUserContent: tokenStatus?.hasPagesReadUserContent ?? false,
+    metaDataAccessExpiresAt: tokenStatus?.dataAccessExpiresAt
+      ? new Date(tokenStatus.dataAccessExpiresAt * 1000).toISOString()
+      : null,
     domain: 'meta-dashboard.nysonik.com',
     timestamp: new Date().toISOString(),
   });
@@ -85,7 +95,10 @@ app.get('/api/config/public', (_req, res) => {
   });
 });
 
-// Meta webhook (production path)
+// Auth (public login)
+app.use('/api/auth', authRouter);
+
+// Meta webhook (production path) — must stay public
 app.use('/api/meta/webhook', metaWebhookRouter);
 
 app.get('/api/meta/status', async (_req, res) => {
@@ -120,18 +133,16 @@ app.get('/api/meta/status/latest', async (_req, res) => {
 
 app.use('/api/meta', metaDebugRouter);
 
-// Comments API
-app.use('/api/comments', commentsRouter);
-
-// Ads, reports, bootstrap, pages
-app.use('/api/ads', adsRouter);
-app.use('/api/pages', pagesRouter);
-app.use('/api/reports', reportsRouter);
-app.use('/api', bootstrapRouter);
-
-// Meta sync
-app.use('/api/meta/sync', metaSyncRouter);
-app.use('/api/sync', metaSyncRouter); // legacy alias
+// Protected API routes
+app.use('/api/users', usersRouter);
+app.use('/api/comments', requireAuth, commentsRouter);
+app.use('/api/ads', requireAuth, adsRouter);
+app.use('/api/accounts', requireAuth, accountsRouter);
+app.use('/api/pages', requireAuth, pagesRouter);
+app.use('/api/reports', requireAuth, reportsRouter);
+app.use('/api', requireAuth, bootstrapRouter);
+app.use('/api/meta/sync', requireAuth, metaSyncRouter);
+app.use('/api/sync', requireAuth, metaSyncRouter);
 
 // Serve Vite build in production
 if (isProd) {
@@ -147,7 +158,10 @@ if (isProd) {
 
 async function start() {
   const dbOk = await initDatabase();
-  if (dbOk) await seedIfEmpty();
+  if (dbOk) {
+    await seedIfEmpty();
+    await removeStaleAdminFromDb();
+  }
 
   if (dbOk && !isServerDemoMode()) {
     startCommentSyncCron();

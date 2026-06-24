@@ -30,17 +30,19 @@ export async function upsertCampaign(row: {
   status: string;
   budget: string;
   metaAccountId?: string;
+  accountLabel?: string;
 }) {
   await query(
-    `INSERT INTO campaigns (id, platform, campaign_id, campaign_name, status, budget, meta_account_id, synced_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+    `INSERT INTO campaigns (id, platform, campaign_id, campaign_name, status, budget, meta_account_id, account_label, synced_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
      ON CONFLICT (id) DO UPDATE SET
        campaign_name = EXCLUDED.campaign_name,
        status = EXCLUDED.status,
        budget = EXCLUDED.budget,
        meta_account_id = EXCLUDED.meta_account_id,
+       account_label = COALESCE(EXCLUDED.account_label, campaigns.account_label),
        synced_at = NOW()`,
-    [row.id, row.platform, row.campaignId, row.campaignName, row.status, row.budget, row.metaAccountId ?? null]
+    [row.id, row.platform, row.campaignId, row.campaignName, row.status, row.budget, row.metaAccountId ?? null, row.accountLabel ?? null]
   );
 }
 
@@ -80,13 +82,16 @@ export async function upsertAd(row: {
   description?: string;
   cta?: string;
   postStoryId?: string | null;
+  spend?: number;
+  accountLabel?: string;
+  metaAccountId?: string;
 }) {
   await query(
     `INSERT INTO ads (
        id, platform, ad_id, ad_name, adset_name, campaign_name,
        adset_id, campaign_id, original_ad_url, media_type, media_url, thumbnail_url,
-       ad_copy, headline, description, cta, post_story_id, synced_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW())
+       ad_copy, headline, description, cta, post_story_id, spend, account_label, meta_account_id, synced_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NOW())
      ON CONFLICT (id) DO UPDATE SET
        ad_name = EXCLUDED.ad_name,
        adset_name = EXCLUDED.adset_name,
@@ -102,6 +107,9 @@ export async function upsertAd(row: {
        description = EXCLUDED.description,
        cta = EXCLUDED.cta,
        post_story_id = COALESCE(EXCLUDED.post_story_id, ads.post_story_id),
+       spend = COALESCE(EXCLUDED.spend, ads.spend),
+       account_label = COALESCE(EXCLUDED.account_label, ads.account_label),
+       meta_account_id = COALESCE(EXCLUDED.meta_account_id, ads.meta_account_id),
        synced_at = NOW()`,
     [
       row.id,
@@ -121,6 +129,9 @@ export async function upsertAd(row: {
       row.description ?? null,
       row.cta ?? null,
       row.postStoryId ?? null,
+      row.spend ?? 0,
+      row.accountLabel ?? null,
+      row.metaAccountId ?? null,
     ]
   );
 }
@@ -169,6 +180,87 @@ export async function upsertInstagramAccount(row: {
        synced_at = NOW()`,
     [row.id, row.accountId, row.username, row.followers, row.avatar, row.isConnected, row.accessToken ?? null]
   );
+}
+
+export async function getAllConnectedAdAccounts() {
+  const { rows } = await query<{
+    id: string;
+    account_id: string;
+    name: string;
+    platform: string;
+    spend: string | null;
+    status: string;
+    is_connected: boolean;
+    synced_at: string | null;
+  }>('SELECT * FROM connected_ad_accounts ORDER BY spend DESC NULLS LAST, name');
+
+  return rows.map(row => ({
+    id: row.id,
+    accountId: row.account_id,
+    name: row.name,
+    platform: row.platform,
+    spend: row.spend ?? '',
+    status: row.status,
+    isConnected: row.is_connected,
+    syncedAt: row.synced_at,
+    label: row.name.includes('NOBL') ? 'NOBL' : row.name.includes('FLO') ? 'FLO' : row.name,
+  }));
+}
+
+export async function getAllInstagramAccounts() {
+  const { rows } = await query<{
+    id: string;
+    account_id: string;
+    username: string;
+    followers: string | null;
+    avatar: string | null;
+    is_connected: boolean;
+    synced_at: string | null;
+  }>('SELECT * FROM connected_instagram_accounts ORDER BY username');
+
+  return rows.map(row => ({
+    id: row.id,
+    accountId: row.account_id,
+    username: row.username,
+    followers: row.followers ?? '',
+    avatar: row.avatar ?? '',
+    isConnected: row.is_connected,
+    syncedAt: row.synced_at,
+  }));
+}
+
+export async function getTopAdsBySpend(limit = 20) {
+  const { rows } = await query<{
+    id: string;
+    ad_id: string;
+    ad_name: string;
+    campaign_name: string | null;
+    platform: string;
+    spend: string | null;
+    account_label: string | null;
+    media_type: string | null;
+    thumbnail_url: string | null;
+    media_url: string | null;
+    comments_count: number | null;
+  }>(
+    `SELECT id, ad_id, ad_name, campaign_name, platform, spend, account_label, media_type, thumbnail_url, media_url, comments_count
+     FROM ads WHERE spend > 0 ORDER BY spend DESC LIMIT $1`,
+    [limit]
+  );
+
+  return rows.map(row => ({
+    id: row.id,
+    adId: row.ad_id,
+    adName: row.ad_name,
+    campaignName: row.campaign_name ?? '',
+    platform: row.platform,
+    spend: Number(row.spend ?? 0),
+    accountLabel: row.account_label ?? '',
+    mediaType: row.media_type ?? 'image',
+    thumbnailUrl: row.thumbnail_url ?? undefined,
+    mediaUrl: row.media_url ?? undefined,
+    commentsCount: row.comments_count ?? 0,
+  }));
 }
 
 export async function getAllConnectedPages() {

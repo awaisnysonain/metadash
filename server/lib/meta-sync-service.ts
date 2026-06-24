@@ -17,11 +17,14 @@ import {
 } from './meta.js';
 import {
   fetchAdAccounts,
+  fetchAdAccountById,
   fetchCampaigns,
   fetchAdSets,
   fetchAds,
   fetchAdCreative,
   fetchManagedPages,
+  fetchInstagramProfile,
+  fetchAdSpendInsights,
   extractInstagramBusinessAccountId,
   type MetaPage,
   parseCreative,
@@ -30,7 +33,9 @@ import {
   formatBudget,
   formatSpend,
   detectAdPlatform,
+  PAGE_ACCOUNT_FIELDS,
 } from './meta-graph.js';
+import { getConfiguredMetaAccounts } from './meta-accounts.js';
 import { mockAds, mockCampaigns, connectedPages } from '../../src/data.js';
 
 export interface SyncOutcome {
@@ -203,15 +208,9 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
   const metaErr = validateOrError();
   if (metaErr) return metaErr;
 
-  const token = getMetaConfig().accessToken;
-  const accounts = await fetchAdAccounts(token);
-
-  if (!accounts.length) {
-    return {
-      ok: true,
-      synced: 0,
-      message: 'No ad accounts found. Ensure your token has ads_read and business_management permissions.',
-    };
+  const configuredAccounts = getConfiguredMetaAccounts();
+  if (!configuredAccounts.length) {
+    return { ok: false, synced: 0, message: 'No Meta ad accounts configured. Set NOBL_META_* / FLO_META_* or META_ACCESS_TOKEN in .env' };
   }
 
   let syncedAccounts = 0;
@@ -219,104 +218,125 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
   let syncedAdSets = 0;
   let syncedAds = 0;
 
-  const campaignIdMap = new Map<string, string>();
-  const adsetIdMap = new Map<string, string>();
+  for (const config of configuredAccounts) {
+    const token = config.accessToken;
+    let accounts = config.accountId
+      ? [await fetchAdAccountById(config.accountId, token)].filter(Boolean)
+      : await fetchAdAccounts(token);
 
-  for (const account of accounts) {
-    const accountDbId = `meta-act-${account.id.replace(/^act_/, '')}`;
-    await upsertAdAccount({
-      id: accountDbId,
-      accountId: account.id,
-      name: account.name,
-      platform: 'facebook',
-      spend: formatSpend(account.amount_spent, account.currency),
-      status: mapAccountStatus(account.account_status),
-      isConnected: account.account_status === 1,
-    });
-    syncedAccounts++;
-
-    const campaigns = await fetchCampaigns(account.id, token);
-    for (const camp of campaigns) {
-      const campDbId = `meta-camp-${camp.id}`;
-      campaignIdMap.set(camp.id, campDbId);
-      const platform = detectAdPlatform(camp);
-      await upsertCampaign({
-        id: campDbId,
-        platform,
-        campaignId: camp.id,
-        campaignName: camp.name,
-        status: mapCampaignStatus(camp.status),
-        budget: formatBudget(camp, account.currency),
-        metaAccountId: account.id,
-      });
-      syncedCampaigns++;
+    if (config.accountId && !accounts.length) {
+      accounts = [{ id: config.accountId, name: config.label, account_status: 1 }];
     }
 
-    const adsets = await fetchAdSets(account.id, token);
-    for (const adset of adsets) {
-      const adsetDbId = `meta-adset-${adset.id}`;
-      adsetIdMap.set(adset.id, adsetDbId);
-      const campDbId = adset.campaign_id ? campaignIdMap.get(adset.campaign_id) ?? null : null;
-      await upsertAdSet({
-        id: adsetDbId,
-        campaignId: campDbId,
-        adsetId: adset.id,
-        adsetName: adset.name,
+    for (const account of accounts) {
+      if (!account) continue;
+      const accountDbId = `meta-act-${account.id.replace(/^act_/, '')}`;
+      await upsertAdAccount({
+        id: accountDbId,
+        accountId: account.id,
+        name: `${config.label} — ${account.name}`,
         platform: 'facebook',
+        spend: formatSpend(account.amount_spent, account.currency),
+        status: mapAccountStatus(account.account_status),
+        isConnected: account.account_status === 1,
       });
-      syncedAdSets++;
-    }
+      syncedAccounts++;
 
-    let ads: Awaited<ReturnType<typeof fetchAds>>;
-    try {
-      ads = await fetchAds(account.id, token, { effectiveStatus: ['ACTIVE', 'PAUSED'] });
-    } catch (err) {
-      const msg = err instanceof MetaApiError ? err.message : String(err);
-      console.warn(`[sync] Skipping ads for account ${account.id}: ${msg}`);
-      continue;
-    }
+      const campaignIdMap = new Map<string, string>();
+      const adsetIdMap = new Map<string, string>();
 
-    for (const ad of ads) {
-      let creative = ad.creative;
-      if (
-        creative?.id &&
-        !creative.body &&
-        !creative.image_url &&
-        !creative.thumbnail_url &&
-        !creative.object_story_spec
-      ) {
-        try {
-          creative = await fetchAdCreative(creative.id, token);
-        } catch {
-          /* use partial creative from ad list query */
-        }
+      const spendMap = await fetchAdSpendInsights(account.id, token);
+
+      const campaigns = await fetchCampaigns(account.id, token);
+      for (const camp of campaigns) {
+        const campDbId = `meta-camp-${camp.id}`;
+        campaignIdMap.set(camp.id, campDbId);
+        const platform = detectAdPlatform(camp);
+        await upsertCampaign({
+          id: campDbId,
+          platform,
+          campaignId: camp.id,
+          campaignName: camp.name,
+          status: mapCampaignStatus(camp.status),
+          budget: formatBudget(camp, account.currency),
+          metaAccountId: account.id,
+          accountLabel: config.label,
+        });
+        syncedCampaigns++;
       }
 
-      const parsed = parseCreative(creative, ad.id);
-      const campMetaId = ad.campaign?.id;
-      const adsetMetaId = ad.adset?.id;
-      const postStoryId = creative?.effective_object_story_id ?? null;
+      const adsets = await fetchAdSets(account.id, token);
+      for (const adset of adsets) {
+        const adsetDbId = `meta-adset-${adset.id}`;
+        adsetIdMap.set(adset.id, adsetDbId);
+        const campDbId = adset.campaign_id ? campaignIdMap.get(adset.campaign_id) ?? null : null;
+        await upsertAdSet({
+          id: adsetDbId,
+          campaignId: campDbId,
+          adsetId: adset.id,
+          adsetName: adset.name,
+          platform: 'facebook',
+        });
+        syncedAdSets++;
+      }
 
-      await upsertAd({
-        id: `meta-ad-${ad.id}`,
-        platform: 'facebook',
-        adId: ad.id,
-        adName: ad.name,
-        adsetName: ad.adset?.name || '',
-        campaignName: ad.campaign?.name || '',
-        adsetId: adsetMetaId ? adsetIdMap.get(adsetMetaId) ?? null : null,
-        campaignId: campMetaId ? campaignIdMap.get(campMetaId) ?? null : null,
-        originalAdUrl: parsed.originalAdUrl || '',
-        mediaType: parsed.mediaType,
-        mediaUrl: parsed.mediaUrl,
-        thumbnailUrl: parsed.thumbnailUrl,
-        adCopy: parsed.adCopy,
-        headline: parsed.headline,
-        description: parsed.description,
-        cta: parsed.cta,
-        postStoryId,
-      });
-      syncedAds++;
+      let ads: Awaited<ReturnType<typeof fetchAds>>;
+      try {
+        ads = await fetchAds(account.id, token, { effectiveStatus: ['ACTIVE', 'PAUSED'] });
+      } catch (err) {
+        const msg = err instanceof MetaApiError ? err.message : String(err);
+        console.warn(`[sync] Skipping ads for ${config.label} ${account.id}: ${msg}`);
+        continue;
+      }
+
+      for (const ad of ads) {
+        let creative = ad.creative;
+        if (
+          creative?.id &&
+          !creative.body &&
+          !creative.image_url &&
+          !creative.thumbnail_url &&
+          !creative.object_story_spec
+        ) {
+          try {
+            creative = await fetchAdCreative(creative.id, token);
+          } catch {
+            /* use partial creative */
+          }
+        }
+
+        const parsed = parseCreative(creative, ad.id);
+        const campMetaId = ad.campaign?.id;
+        const adsetMetaId = ad.adset?.id;
+        const postStoryId = creative?.effective_object_story_id ?? null;
+        const platform = campMetaId && campaignIdMap.has(campMetaId)
+          ? detectAdPlatform(campaigns.find(c => c.id === campMetaId))
+          : 'facebook';
+
+        await upsertAd({
+          id: `meta-ad-${ad.id}`,
+          platform,
+          adId: ad.id,
+          adName: ad.name,
+          adsetName: ad.adset?.name || '',
+          campaignName: ad.campaign?.name || '',
+          adsetId: adsetMetaId ? adsetIdMap.get(adsetMetaId) ?? null : null,
+          campaignId: campMetaId ? campaignIdMap.get(campMetaId) ?? null : null,
+          originalAdUrl: parsed.originalAdUrl || '',
+          mediaType: parsed.mediaType,
+          mediaUrl: parsed.mediaUrl,
+          thumbnailUrl: parsed.thumbnailUrl,
+          adCopy: parsed.adCopy,
+          headline: parsed.headline,
+          description: parsed.description,
+          cta: parsed.cta,
+          postStoryId,
+          spend: spendMap.get(ad.id) ?? 0,
+          accountLabel: config.label,
+          metaAccountId: account.id,
+        });
+        syncedAds++;
+      }
     }
   }
 
@@ -324,8 +344,8 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
   return {
     ok: true,
     synced: total,
-    message: `Synced from Meta: ${syncedAccounts} ad accounts, ${syncedCampaigns} campaigns, ${syncedAdSets} ad sets, ${syncedAds} ads with creatives`,
-    details: { syncedAccounts, syncedCampaigns, syncedAdSets, syncedAds },
+    message: `Synced from Meta: ${syncedAccounts} ad accounts, ${syncedCampaigns} campaigns, ${syncedAdSets} ad sets, ${syncedAds} ads (${configuredAccounts.map(a => a.label).join(', ')})`,
+    details: { syncedAccounts, syncedCampaigns, syncedAdSets, syncedAds, accounts: configuredAccounts.map(a => a.label) },
   };
 }
 
@@ -337,66 +357,71 @@ export async function syncPagesFromMeta(): Promise<SyncOutcome> {
   const metaErr = validateOrError();
   if (metaErr) return metaErr;
 
-  const token = getMetaConfig().accessToken?.trim() ?? '';
-  console.log('[sync/pages] META_ACCESS_TOKEN present:', Boolean(token), 'length:', token.length);
-
-  if (!token) {
-    return {
-      ok: false,
-      synced: 0,
-      pagesFound: 0,
-      pagesSaved: 0,
-      message: 'META_ACCESS_TOKEN is not set on the server.',
-    };
+  const configuredAccounts = getConfiguredMetaAccounts();
+  if (!configuredAccounts.length) {
+    return { ok: false, synced: 0, pagesFound: 0, pagesSaved: 0, message: 'No Meta tokens configured.' };
   }
 
-  const { pages, rawResponses } = await fetchManagedPages(token);
-  const pagesFound = pages.length;
+  const seenPageIds = new Set<string>();
+  let pagesFound = 0;
   let pagesSaved = 0;
   const saveErrors: string[] = [];
+  const rawResponses: unknown[] = [];
 
-  console.log(`[sync/pages] Meta returned ${pagesFound} page(s)`);
+  for (const config of configuredAccounts) {
+    const token = config.accessToken;
+    console.log(`[sync/pages] Syncing pages for ${config.label}, token length: ${token.length}`);
 
-  for (const page of pages) {
-    try {
-      await upsertConnectedPage({
-        id: `meta-page-${page.id}`,
-        pageId: page.id,
-        name: page.name,
-        fans: '',
-        avatar: '📄',
-        isConnected: true,
-        accessToken: page.access_token,
-      });
-      pagesSaved++;
-      console.log(
-        `[sync/pages] saved page id=${page.id} name="${page.name}" accessToken=${page.access_token ? 'present' : 'missing'}`
-      );
+    const { pages, rawResponses: raw } = await fetchManagedPages(token);
+    rawResponses.push(...raw);
+    pagesFound += pages.length;
 
-      const igId = extractInstagramBusinessAccountId(page.instagram_business_account);
-      if (igId) {
-        await upsertInstagramAccount({
-          id: `meta-ig-${igId}`,
-          accountId: igId,
-          username: `@${page.name.replace(/\s+/g, '').toLowerCase()}`,
-          followers: '',
-          avatar: '📸',
+    for (const page of pages) {
+      if (seenPageIds.has(page.id)) continue;
+      seenPageIds.add(page.id);
+
+      try {
+        await upsertConnectedPage({
+          id: `meta-page-${page.id}`,
+          pageId: page.id,
+          name: `${page.name}`,
+          fans: page.fan_count ? String(page.fan_count) : '',
+          avatar: page.picture?.data?.url ? page.picture.data.url : '📄',
           isConnected: true,
           accessToken: page.access_token,
         });
+        pagesSaved++;
+
+        const igId = extractInstagramBusinessAccountId(page.instagram_business_account);
+        if (igId) {
+          let username = `@${page.name.replace(/\s+/g, '').toLowerCase()}`;
+          let followers = '';
+          const igProfile = await fetchInstagramProfile(igId, page.access_token || token);
+          if (igProfile?.username) username = `@${igProfile.username}`;
+          if (igProfile?.followers_count) followers = `${igProfile.followers_count.toLocaleString()} followers`;
+
+          await upsertInstagramAccount({
+            id: `meta-ig-${igId}`,
+            accountId: igId,
+            username,
+            followers,
+            avatar: igProfile?.profile_picture_url ? igProfile.profile_picture_url : '📸',
+            isConnected: true,
+            accessToken: page.access_token,
+          });
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        saveErrors.push(`${page.id}: ${msg}`);
       }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      saveErrors.push(`${page.id}: ${msg}`);
-      console.error(`[sync/pages] failed to save page ${page.id}:`, err);
     }
   }
 
   const warnings: string[] = [];
-  const hasFeedContent = await tokenHasPermission('pages_read_user_content', token);
-  if (!hasFeedContent) {
-    warnings.push(ORGANIC_FEED_DISABLED_WARNING);
-    console.warn(`[sync/pages] ${ORGANIC_FEED_DISABLED_WARNING}`);
+  const primaryToken = configuredAccounts[0]?.accessToken;
+  if (primaryToken) {
+    const hasFeedContent = await tokenHasPermission('pages_read_user_content', primaryToken);
+    if (!hasFeedContent) warnings.push(ORGANIC_FEED_DISABLED_WARNING);
   }
 
   if (pagesFound === 0) {
@@ -405,38 +430,22 @@ export async function syncPagesFromMeta(): Promise<SyncOutcome> {
       synced: 0,
       pagesFound: 0,
       pagesSaved: 0,
-      message:
-        'No Facebook Pages returned from Meta /me/accounts. Ensure META_ACCESS_TOKEN has pages_show_list (same token as Graph API Explorer).',
-      details: {
-        warnings,
-        tokenLength: token.length,
-      },
+      message: 'No Facebook Pages returned. Ensure tokens have pages_show_list permission.',
+      details: { rawMetaResponses: rawResponses, accounts: configuredAccounts.map(a => a.label) },
     };
   }
 
-  let message = `Synced ${pagesSaved}/${pagesFound} Facebook Page(s) to connected_pages.`;
-  if (saveErrors.length) {
-    message += ` ${saveErrors.length} save error(s): ${saveErrors.join('; ')}`;
-  }
-  if (warnings.length) {
-    message += ` Warning: ${warnings.join(' ')}`;
-  }
+  let message = `Synced ${pagesSaved}/${pagesFound} Facebook Page(s) from ${configuredAccounts.map(a => a.label).join(', ')}.`;
+  if (saveErrors.length) message += ` ${saveErrors.length} save error(s).`;
+  if (warnings.length) message += ` ${warnings.join(' ')}`;
 
   return {
-    ok: pagesSaved > 0 || pagesFound === 0,
+    ok: true,
     synced: pagesSaved,
     pagesFound,
     pagesSaved,
     message,
-      details: {
-        warnings,
-        saveErrors,
-        pages: pages.map(p => ({
-          id: p.id,
-          name: p.name,
-          hasAccessToken: Boolean(p.access_token),
-        })),
-      },
+    details: { saveErrors, warnings, rawMetaResponses: rawResponses },
   };
 }
 

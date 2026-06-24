@@ -51,7 +51,7 @@ metaWebhookRouter.post('/', (req, res) => {
               platform,
               commentId: String(value.comment_id || value.id),
               message: value.message || value.text || '',
-              fromName: value.from?.name || value.username || 'Unknown User',
+              fromName: value.from?.name || value.username || 'Commenter',
               fromId: value.from?.id,
               createdTime: value.created_time
                 ? new Date(value.created_time * 1000).toISOString()

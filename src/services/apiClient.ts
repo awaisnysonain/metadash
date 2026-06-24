@@ -1,13 +1,16 @@
-import type { Comment, CommentNote, ActivityLog, TeamMember, AutoTaggingRule, Campaign, Ad, CommentStatus, CommentPriority } from '../types';
+import type { Comment, CommentNote, ActivityLog, TeamMember, AutoTaggingRule, Campaign, Ad, CommentStatus, CommentPriority, AppUser, Permission, CommentView } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+const TOKEN_KEY = 'metadash_token';
+
+let authToken: string | null = typeof localStorage !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null;
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const url = API_BASE ? `${API_BASE}${path}` : path;
-  const res = await fetch(url, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-  });
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(options?.headers as Record<string, string>) };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  const res = await fetch(url, { ...options, headers });
   if (!res.ok) {
     const body = await res.text();
     let message = body || `API error ${res.status}`;
@@ -16,6 +19,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       message = parsed.message || parsed.error || message;
     } catch {
       /* response is not JSON */
+    }
+    if (res.status === 401 && !path.includes('/auth/login')) {
+      localStorage.removeItem(TOKEN_KEY);
+      authToken = null;
     }
     throw new Error(message);
   }
@@ -42,6 +49,7 @@ export interface MetaTokenStatus {
   valid: boolean;
   expiresAt: number | null;
   expiresAtIso: string | null;
+  dataAccessExpiresAt?: number | null;
   message: string;
   scopes: string[];
   appId: string | null;
@@ -74,6 +82,57 @@ export interface ReportsSummary {
 }
 
 export const apiClient = {
+  setToken(token: string | null) {
+    authToken = token;
+  },
+
+  login: (username: string, password: string) =>
+    request<{ token: string; user: AppUser }>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    }),
+
+  getMe: () => request<{ user: AppUser }>('/api/auth/me'),
+
+  updateProfile: (fields: Partial<Pick<AppUser, 'name' | 'email' | 'title' | 'bio' | 'avatarUrl'>>) =>
+    request<{ user: AppUser }>('/api/auth/profile', { method: 'PATCH', body: JSON.stringify(fields) }),
+
+  getPermissions: () => request<{ permissions: Permission[] }>('/api/auth/permissions'),
+
+  getUsers: () => request<AppUser[]>('/api/users'),
+
+  createUser: (data: {
+    username: string;
+    password: string;
+    name: string;
+    email?: string;
+    title?: string;
+    bio?: string;
+    avatarUrl?: string;
+    permissions?: Permission[];
+  }) => request<AppUser>('/api/users', { method: 'POST', body: JSON.stringify(data) }),
+
+  updateUser: (id: string, data: Partial<AppUser & { password?: string; isActive?: boolean }>) =>
+    request<AppUser>(`/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  recordCommentView: (id: string) =>
+    request<{ views: CommentView[] }>(`/api/comments/${id}/view`, { method: 'POST' }),
+
+  getCommentViews: (id: string) => request<CommentView[]>(`/api/comments/${id}/views`),
+
+  getConnectedAccounts: () =>
+    request<{
+      adAccounts: Array<{ id: string; accountId: string; name: string; spend: string; status: string; isConnected: boolean; label: string }>;
+      pages: Array<{ id: string; pageId: string; pageName: string; isConnected: boolean }>;
+      instagram: Array<{ id: string; accountId: string; username: string; followers: string; isConnected: boolean }>;
+      topAds: Array<{ id: string; adId: string; adName: string; campaignName: string; platform: string; spend: number; accountLabel: string; thumbnailUrl?: string; mediaUrl?: string; commentsCount: number }>;
+    }>('/api/accounts'),
+
+  getTopAdsBySpend: (limit = 20) =>
+    request<Array<{ id: string; adId: string; adName: string; campaignName: string; platform: string; spend: number; accountLabel: string }>>(
+      `/api/ads/top-by-spend?limit=${limit}`
+    ),
+
   health: () => request<HealthStatus>('/api/health'),
 
   getComments: () => request<Comment[]>('/api/comments'),

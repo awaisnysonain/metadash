@@ -44,6 +44,7 @@ function buildCommentRow(payload: {
   message: string;
   fromName: string;
   fromId?: string;
+  profileUrl?: string;
   createdTime?: string;
   postId?: string;
   permalinkUrl?: string;
@@ -55,6 +56,8 @@ function buildCommentRow(payload: {
   adsetName?: string;
   adId?: string;
   adName?: string;
+  campaignMetaId?: string;
+  adsetMetaId?: string;
   idPrefix?: string;
 }) {
   const tagging = autoTagComment(payload.message);
@@ -75,13 +78,13 @@ function buildCommentRow(payload: {
     comment_id: payload.commentId,
     comment_text: payload.message,
     commenter_name: payload.fromName,
-    commenter_profile_url: payload.fromId
-      ? `https://graph.facebook.com/${payload.fromId}/picture?type=square`
-      : '',
+    commenter_profile_url:
+      payload.profileUrl ||
+      (payload.fromId ? `https://www.facebook.com/profile.php?id=${payload.fromId}` : ''),
     original_comment_url: originalCommentUrl,
-    campaign_id: payload.campaignName ? `camp-${payload.campaignName.slice(0, 8)}` : null,
+    campaign_id: payload.campaignMetaId ?? payload.campaignName ?? null,
     campaign_name: payload.campaignName ?? 'Unknown Campaign',
-    adset_id: payload.adsetName ? `adset-${payload.adsetName.slice(0, 8)}` : null,
+    adset_id: payload.adsetMetaId ?? payload.adsetName ?? null,
     adset_name: payload.adsetName ?? 'Unknown Ad Set',
     ad_id: payload.adId ?? null,
     ad_name: payload.adName ?? 'Unknown Ad',
@@ -127,6 +130,7 @@ export function mapSyncedComment(payload: {
   message: string;
   fromName: string;
   fromId?: string;
+  profileUrl?: string;
   createdTime?: string;
   postId?: string;
   permalinkUrl?: string;
@@ -134,6 +138,8 @@ export function mapSyncedComment(payload: {
   adName: string;
   adsetName: string;
   campaignName: string;
+  campaignMetaId?: string;
+  adsetMetaId?: string;
 }) {
   return buildCommentRow({ ...payload, idPrefix: 'sync' });
 }

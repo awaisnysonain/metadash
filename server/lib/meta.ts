@@ -1,5 +1,7 @@
 export const META_GRAPH = 'https://graph.facebook.com/v21.0';
 
+import { isAnyMetaAccountConfigured } from './meta-accounts.js';
+
 export interface MetaGraphErrorBody {
   error?: {
     message?: string;
@@ -30,12 +32,12 @@ export class MetaApiError extends Error {
 
 export function getMetaConfig() {
   return {
-    appId: process.env.META_APP_ID || '',
-    appSecret: process.env.META_APP_SECRET || '',
-    verifyToken: process.env.META_VERIFY_TOKEN || 'meta_comment_inbox_token_v2_secure_hash',
-    redirectUri: process.env.META_REDIRECT_URI || `${process.env.APP_URL || 'https://meta-dashboard.nysonik.com'}/auth/meta/callback`,
-    accessToken: process.env.META_ACCESS_TOKEN || '',
-    webhookUrl: process.env.META_WEBHOOK_URL || 'https://meta-dashboard.nysonik.com/api/meta/webhook',
+    appId: (process.env.META_APP_ID || '').trim(),
+    appSecret: (process.env.META_APP_SECRET || '').trim(),
+    verifyToken: (process.env.META_VERIFY_TOKEN || 'meta_comment_inbox_token_v2_secure_hash').trim(),
+    redirectUri: (process.env.META_REDIRECT_URI || `${process.env.APP_URL || 'https://meta-dashboard.nysonik.com'}/auth/meta/callback`).trim(),
+    accessToken: (process.env.META_ACCESS_TOKEN || '').trim(),
+    webhookUrl: (process.env.META_WEBHOOK_URL || 'https://meta-dashboard.nysonik.com/api/meta/webhook').trim(),
   };
 }
 
@@ -46,7 +48,7 @@ export function isServerDemoMode(): boolean {
 
 export function isMetaConfigured(): boolean {
   const cfg = getMetaConfig();
-  return Boolean(cfg.appId && cfg.accessToken);
+  return Boolean(cfg.appId && (cfg.accessToken || isAnyMetaAccountConfigured()));
 }
 
 export interface MetaSyncValidation {
@@ -61,14 +63,16 @@ export function validateMetaSync(): MetaSyncValidation {
   const cfg = getMetaConfig();
   const missing: string[] = [];
 
-  if (!cfg.accessToken) missing.push('META_ACCESS_TOKEN');
   if (!cfg.appId) missing.push('META_APP_ID');
+  if (!cfg.accessToken && !isAnyMetaAccountConfigured()) {
+    missing.push('META_ACCESS_TOKEN or NOBL_META_*/FLO_META_*');
+  }
 
   if (missing.length) {
     return {
       ok: false,
       status: 400,
-      message: `Meta API not configured. Set ${missing.join(', ')} in server environment. Required permissions: ads_read, pages_show_list, pages_manage_metadata, instagram_basic, business_management.`,
+      message: `Meta API not configured. Set ${missing.join(', ')} in server environment.`,
     };
   }
 

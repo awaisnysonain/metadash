@@ -85,6 +85,8 @@ export function rowToCampaign(row: any) {
     status: row.status,
     budget: row.budget ?? '',
     commentsCount: row.comments_count ?? 0,
+    accountLabel: row.account_label ?? undefined,
+    metaAccountId: row.meta_account_id ?? undefined,
   };
 }
 
@@ -109,5 +111,8 @@ export function rowToAd(row: any) {
     sharesCount: row.shares_count ?? undefined,
     commentsCount: row.comments_count ?? undefined,
     postStoryId: row.post_story_id ?? undefined,
+    spend: row.spend != null ? Number(row.spend) : undefined,
+    accountLabel: row.account_label ?? undefined,
+    metaAccountId: row.meta_account_id ?? undefined,
   };
 }

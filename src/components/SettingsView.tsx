@@ -118,9 +118,16 @@ export default function SettingsView({
         </p>
         {!isDemoMode && tokenStatus?.valid && !tokenStatus.canSyncComments && (
           <div className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
-            <strong>Comment sync blocked:</strong> your token is missing <code className="text-xs">pages_read_user_content</code>.
-            Add it in Meta App Dashboard → Permissions, then regenerate the token in Graph API Explorer with:
-            ads_read, pages_show_list, pages_read_engagement, pages_read_user_content.
+            <strong>Comment sync blocked:</strong> your token is missing{' '}
+            <code className="text-xs">pages_read_user_content</code>.
+            <ol className="list-decimal list-inside mt-2 space-y-1 text-amber-800">
+              <li>Meta App Dashboard → your app → App Review → Permissions → add <strong>pages_read_user_content</strong></li>
+              <li>
+                Graph API Explorer → generate a new User token with: ads_read, pages_show_list, pages_read_engagement,
+                pages_read_user_content
+              </li>
+              <li>Exchange for a long-lived token, update <code className="text-xs">META_ACCESS_TOKEN</code>, restart the server</li>
+            </ol>
           </div>
         )}
         {!isDemoMode && tokenStatus && !tokenStatus.valid && (
@@ -128,9 +135,16 @@ export default function SettingsView({
             Your Meta connection needs to be refreshed. Ask your admin to reconnect in Advanced setup below.
           </div>
         )}
-        {!isDemoMode && tokenStatus?.valid && tokenStatus.expiresAtIso && (
+        {!isDemoMode && tokenStatus?.valid && (
           <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg p-2 mb-4">
-            Connected to Meta · active until {new Date(tokenStatus.expiresAtIso).toLocaleDateString()}
+            Connected to Meta
+            {tokenStatus.expiresAtIso
+              ? ` · token expires ${new Date(tokenStatus.expiresAtIso).toLocaleDateString()}`
+              : ' · long-lived token (no expiry)'}
+            {tokenStatus.dataAccessExpiresAt
+              ? ` · data access until ${new Date(tokenStatus.dataAccessExpiresAt * 1000).toLocaleDateString()}`
+              : ''}
+            {tokenStatus.canSyncComments ? ' · comment sync ready' : ''}
           </p>
         )}
         <div className="flex flex-wrap gap-2">
@@ -356,7 +370,7 @@ export default function SettingsView({
                   onClick={() => runSync(apiClient.syncCommentsBackfill, 'past comments')}
                   className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm disabled:opacity-50"
                 >
-                  Import comments from last 2 weeks
+                  Import comments from last 2 years
                 </button>
                 <div className="pt-3 border-t border-slate-100 space-y-2">
                   <p className="font-medium text-slate-700">Refresh Meta access token</p>

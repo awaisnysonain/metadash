@@ -36,6 +36,16 @@ export async function upsertComment(row: Record<string, unknown>) {
       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26
     ) ON CONFLICT (comment_id) DO UPDATE SET
       comment_text = EXCLUDED.comment_text,
+      commenter_name = CASE
+        WHEN EXCLUDED.commenter_name NOT IN ('Unknown User', 'Commenter', 'Facebook commenter')
+        THEN EXCLUDED.commenter_name
+        ELSE comments.commenter_name
+      END,
+      commenter_profile_url = CASE
+        WHEN EXCLUDED.commenter_profile_url IS NOT NULL AND EXCLUDED.commenter_profile_url <> ''
+        THEN EXCLUDED.commenter_profile_url
+        ELSE comments.commenter_profile_url
+      END,
       updated_at = EXCLUDED.updated_at`,
     [
       row.id, row.platform, row.comment_id, row.comment_text, row.commenter_name,
@@ -107,8 +117,17 @@ export async function insertActivityLog(log: Record<string, unknown>) {
 }
 
 export async function getAllTeam() {
-  const { rows } = await query('SELECT * FROM team_members ORDER BY name');
-  return rows.map(rowToTeam);
+  try {
+    const { rows } = await query(
+      `SELECT id, name, email, COALESCE(NULLIF(title, ''), role) AS role, avatar_url
+       FROM app_users WHERE is_active = TRUE ORDER BY name`
+    );
+    if (rows.length > 0) return rows.map(rowToTeam);
+  } catch {
+    /* app_users table may not exist yet */
+  }
+  const fallback = await query('SELECT * FROM team_members ORDER BY name');
+  return fallback.rows.map(rowToTeam);
 }
 
 export async function getAllCampaigns() {

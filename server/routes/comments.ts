@@ -16,7 +16,9 @@ import {
   upsertRules,
   deleteRule,
 } from '../db/repository.js';
+import { recordCommentView, getCommentViews } from '../db/user-repository.js';
 import { isDatabaseConfigured } from '../db/pool.js';
+import type { AuthenticatedRequest } from '../middleware/auth.js';
 
 export const commentsRouter = Router();
 
@@ -69,21 +71,26 @@ commentsRouter.post('/', async (req, res) => {
   }
 });
 
-commentsRouter.patch('/:id/status', async (req, res) => {
+commentsRouter.patch('/:id/status', async (req: AuthenticatedRequest, res) => {
   try {
     const { status } = req.body;
     const now = new Date().toISOString();
+    const user = req.user!;
     const timestamps: { seenAt?: string; repliedAt?: string } = {};
     if (status === 'Seen') timestamps.seenAt = now;
     if (status === 'Replied') timestamps.repliedAt = now;
 
     const comment = await updateCommentStatus(req.params.id, status, timestamps);
 
+    if (status === 'Seen') {
+      await recordCommentView(req.params.id, user.id, user.name);
+    }
+
     await insertActivityLog({
       id: `log-${Date.now()}`,
       comment_id: req.params.id,
-      user_id: req.body.userId ?? 'team-1',
-      user_name: req.body.userName ?? 'Team',
+      user_id: user.id,
+      user_name: user.name,
       action: 'Status Change',
       old_value: req.body.oldStatus ?? '',
       new_value: status,
@@ -96,17 +103,56 @@ commentsRouter.patch('/:id/status', async (req, res) => {
   }
 });
 
-commentsRouter.patch('/:id/assign', async (req, res) => {
+commentsRouter.post('/:id/view', async (req: AuthenticatedRequest, res) => {
   try {
-    const { assignedTo, userId, userName, oldAssignee } = req.body;
+    const user = req.user!;
+    const commentId = req.params.id;
+    await recordCommentView(commentId, user.id, user.name);
+
+    const comment = await getCommentById(commentId);
+    if (comment && comment.status === 'Unseen') {
+      const now = new Date().toISOString();
+      await updateCommentStatus(commentId, 'Seen', { seenAt: now });
+      await insertActivityLog({
+        id: `log-${Date.now()}`,
+        comment_id: commentId,
+        user_id: user.id,
+        user_name: user.name,
+        action: 'Viewed',
+        old_value: 'Unseen',
+        new_value: 'Seen',
+        created_at: now,
+      });
+    }
+
+    const views = await getCommentViews(commentId);
+    res.json({ views });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+commentsRouter.get('/:id/views', async (req, res) => {
+  try {
+    const views = await getCommentViews(req.params.id);
+    res.json(views);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+commentsRouter.patch('/:id/assign', async (req: AuthenticatedRequest, res) => {
+  try {
+    const user = req.user!;
+    const { assignedTo } = req.body;
     const comment = await updateCommentAssign(req.params.id, assignedTo ?? null);
     await insertActivityLog({
       id: `log-${Date.now()}`,
       comment_id: req.params.id,
-      user_id: userId ?? 'team-1',
-      user_name: userName ?? 'Team',
+      user_id: user.id,
+      user_name: user.name,
       action: 'Assignment',
-      old_value: oldAssignee ?? 'Unassigned',
+      old_value: req.body.oldAssignee ?? 'Unassigned',
       new_value: assignedTo ? (req.body.assigneeName ?? assignedTo) : 'Unassigned',
       created_at: new Date().toISOString(),
     });
@@ -116,14 +162,15 @@ commentsRouter.patch('/:id/assign', async (req, res) => {
   }
 });
 
-commentsRouter.patch('/:id/priority', async (req, res) => {
+commentsRouter.patch('/:id/priority', async (req: AuthenticatedRequest, res) => {
   try {
+    const user = req.user!;
     const comment = await updateCommentFields(req.params.id, { priority: req.body.priority });
     await insertActivityLog({
       id: `log-${Date.now()}`,
       comment_id: req.params.id,
-      user_id: req.body.userId ?? 'team-1',
-      user_name: req.body.userName ?? 'Team',
+      user_id: user.id,
+      user_name: user.name,
       action: 'Priority Change',
       old_value: req.body.oldPriority ?? '',
       new_value: req.body.priority,
@@ -144,15 +191,16 @@ commentsRouter.patch('/:id/tags', async (req, res) => {
   }
 });
 
-commentsRouter.post('/:id/notes', async (req, res) => {
+commentsRouter.post('/:id/notes', async (req: AuthenticatedRequest, res) => {
   try {
+    const user = req.user!;
     const now = new Date().toISOString();
     const note = {
       id: req.body.id ?? `note-${Date.now()}`,
       comment_id: req.params.id,
-      user_id: req.body.userId ?? 'team-1',
-      user_name: req.body.userName ?? 'Team',
-      user_avatar: req.body.userAvatar ?? '',
+      user_id: user.id,
+      user_name: user.name,
+      user_avatar: user.avatarUrl || req.body.userAvatar || '',
       note: req.body.note,
       created_at: now,
     };
