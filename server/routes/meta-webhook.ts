@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import { getMetaConfig } from '../lib/meta.js';
 import { isDatabaseConfigured } from '../db/pool.js';
-import { upsertComment, insertActivityLog } from '../db/repository.js';
+import { upsertComment, insertActivityLog, commentExistsByMetaId } from '../db/repository.js';
 import { mapWebhookComment } from '../lib/webhook.js';
+import { analyzeComment } from '../lib/ai-analysis.js';
+import { sendSlackCommentAlert } from '../lib/slack-alerts.js';
 
 export const metaWebhookRouter = Router();
 
@@ -53,11 +55,23 @@ metaWebhookRouter.post('/', (req, res) => {
             body.object === 'instagram' ? 'instagram' : 'facebook';
 
           if (isCommentWebhookChange(field, value)) {
+            const commentId = String(value.comment_id || value.id);
+            const message = value.message || value.text || '';
+            const fromName = value.from?.name || value.username || 'Commenter';
+            const exists = isDatabaseConfigured() ? await commentExistsByMetaId(commentId) : false;
+            const analysis = await analyzeComment({
+              text: message,
+              platform,
+              author: fromName,
+              campaignName: value.ad_metadata?.campaign_name,
+              adName: value.ad_metadata?.ad_name,
+              pageName: value.page_name,
+            });
             const row = mapWebhookComment({
               platform,
-              commentId: String(value.comment_id || value.id),
-              message: value.message || value.text || '',
-              fromName: value.from?.name || value.username || 'Commenter',
+              commentId,
+              message,
+              fromName,
               fromId: value.from?.id,
               createdTime: value.created_time
                 ? new Date(value.created_time * 1000).toISOString()
@@ -72,6 +86,9 @@ metaWebhookRouter.post('/', (req, res) => {
               adId: value.ad_metadata?.ad_id,
               adName: value.ad_metadata?.ad_name,
             });
+            row.priority = analysis.priority;
+            row.sentiment = analysis.sentiment;
+            row.tags = analysis.tags;
 
             if (isDatabaseConfigured()) {
               await upsertComment(row);
@@ -85,6 +102,21 @@ metaWebhookRouter.post('/', (req, res) => {
                 new_value: 'New comment received from webhook',
                 created_at: new Date().toISOString(),
               });
+              if (!exists) {
+                const slack = await sendSlackCommentAlert({
+                  commentId: row.id,
+                  platform: row.platform,
+                  author: fromName,
+                  text: message,
+                  createdAt: row.created_at,
+                  commentUrl: row.original_comment_url,
+                  adName: row.ad_name,
+                  adId: row.ad_id,
+                  campaignName: row.campaign_name,
+                  analysis,
+                });
+                if (!slack.sent) console.warn('[slack] webhook alert skipped:', slack.reason);
+              }
               console.log('[webhook] Saved comment', row.comment_id);
             } else {
               console.warn('[webhook] DATABASE_URL not set — comment not persisted');

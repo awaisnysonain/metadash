@@ -47,12 +47,15 @@ export default function SettingsView({
   const [syncing, setSyncing] = React.useState(false);
   const [showAdvanced, setShowAdvanced] = React.useState(false);
   const [tokenStatus, setTokenStatus] = React.useState<Awaited<ReturnType<typeof apiClient.getMetaTokenStatus>> | null>(null);
+  const [slackStatus, setSlackStatus] = React.useState<Awaited<ReturnType<typeof apiClient.getSlackStatus>> | null>(null);
+  const [slackMessage, setSlackMessage] = React.useState('');
   const [shortToken, setShortToken] = React.useState('');
   const [exchangeResult, setExchangeResult] = React.useState('');
 
   React.useEffect(() => {
     if (!isDemoMode) {
       apiClient.getMetaTokenStatus().then(setTokenStatus).catch(() => setTokenStatus(null));
+      apiClient.getSlackStatus().then(setSlackStatus).catch(() => setSlackStatus(null));
     }
   }, [isDemoMode, syncMessage]);
 
@@ -316,14 +319,48 @@ export default function SettingsView({
       {/* Notifications */}
       <section className="bg-white border border-slate-200 p-5 rounded-2xl">
         <h3 className="font-medium text-slate-900 mb-4 flex items-center gap-2">
-          <Bell className="w-4 h-4 text-slate-400" /> Notifications
+          <Bell className="w-4 h-4 text-slate-400" /> Slack alerts
         </h3>
-        {['New comment alerts', 'Urgent comment alerts', 'Daily summary email'].map((label, i) => (
-          <label key={label} className="flex items-center gap-3 text-sm text-slate-700 mb-3 cursor-pointer">
-            <input type="checkbox" defaultChecked={i < 2} className="w-4 h-4 rounded border-slate-300" />
-            {label}
-          </label>
-        ))}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <p className="text-sm text-slate-700">Send Slack messages for new Meta comments.</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {slackStatus?.configured
+                ? `Configured for channel ${slackStatus.channelId}`
+                : 'Missing SLACK_BOT_TOKEN or SLACK_ALERT_CHANNEL_ID on the server.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={isDemoMode || !slackStatus?.configured}
+            onClick={async () => {
+              const next = await apiClient.setSlackEnabled(!slackStatus?.enabled);
+              setSlackStatus(next);
+              setSlackMessage(next.enabled ? 'Slack alerts enabled.' : 'Slack alerts disabled.');
+            }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 ${slackStatus?.enabled ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+          >
+            {slackStatus?.enabled ? 'Enabled' : 'Disabled'}
+          </button>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={isDemoMode || !slackStatus?.configured}
+            onClick={async () => {
+              try {
+                const result = await apiClient.testSlackAlert();
+                setSlackMessage(result.sent ? 'Test alert sent to Slack.' : `Slack test failed: ${result.reason || 'unknown'}`);
+              } catch (err) {
+                setSlackMessage(err instanceof Error ? err.message : 'Slack test failed.');
+              }
+            }}
+            className="px-3 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+          >
+            Send test alert
+          </button>
+          {slackMessage && <p className="text-sm text-slate-600 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">{slackMessage}</p>}
+        </div>
       </section>
 
       {/* Team preview */}

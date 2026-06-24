@@ -154,6 +154,12 @@ CREATE TABLE IF NOT EXISTS auto_tagging_rules (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS app_config (
+  key TEXT PRIMARY KEY,
+  value JSONB NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_comments_status ON comments(status);
 CREATE INDEX IF NOT EXISTS idx_comments_platform ON comments(platform);
 CREATE INDEX IF NOT EXISTS idx_comments_created_at ON comments(created_at DESC);

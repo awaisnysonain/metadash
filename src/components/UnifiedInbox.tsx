@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Comment, TeamMember, CommentStatus, Ad } from '../types';
-import { getAdForComment, formatCommentTime, displayCommenterName, isGenericCommenterName, commenterAvatarUrl, commenterInitial } from '../utils/helpers';
-import { StatusBadge, PlatformBadge } from './ui/Badges';
+import { getAdForComment, formatCommentTime, displayCommenterName, isGenericCommenterName, commenterAvatarUrl, commenterInitial, inferBrandLabel, brandChipClass } from '../utils/helpers';
+import { StatusBadge, PlatformBadge, PriorityBadge, SentimentBadge } from './ui/Badges';
 import AdPreviewPanel from './AdPreviewPanel';
 import { apiClient } from '../services/apiClient';
 import {
@@ -25,6 +25,8 @@ export interface InboxFilters {
   sentiment?: string;
   assignedTo?: string;
   campaign?: string;
+  brand?: string;
+  topSpend?: boolean;
 }
 
 interface UnifiedInboxProps {
@@ -67,13 +69,34 @@ export default function UnifiedInbox({
     preconfiguredFilters?.platform || 'All'
   );
   const [statusFilter, setStatusFilter] = useState(preconfiguredFilters?.status || 'All');
+  const [priorityFilter, setPriorityFilter] = useState(preconfiguredFilters?.priority || 'All');
+  const [sentimentFilter, setSentimentFilter] = useState(preconfiguredFilters?.sentiment || 'All');
+  const [brandFilter, setBrandFilter] = useState(preconfiguredFilters?.brand || 'All');
+  const [topSpendOnly, setTopSpendOnly] = useState(Boolean(preconfiguredFilters?.topSpend));
   const [previewCommentId, setPreviewCommentId] = useState<string | undefined>(selectedCommentId);
   const [recentlyViewed, setRecentlyViewed] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setPlatformFilter(preconfiguredFilters?.platform ?? 'All');
     setStatusFilter(preconfiguredFilters?.status ?? 'All');
+    setPriorityFilter(preconfiguredFilters?.priority ?? 'All');
+    setSentimentFilter(preconfiguredFilters?.sentiment ?? 'All');
+    setBrandFilter(preconfiguredFilters?.brand ?? 'All');
+    setTopSpendOnly(Boolean(preconfiguredFilters?.topSpend));
   }, [preconfiguredFilters]);
+
+  const topSpendAdIds = useMemo(() => {
+    const ids = new Set<string>();
+    [...ads]
+      .filter(ad => (ad.spend ?? 0) > 0)
+      .sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0))
+      .slice(0, 25)
+      .forEach(ad => {
+        ids.add(ad.id);
+        ids.add(ad.adId);
+      });
+    return ids;
+  }, [ads]);
 
   useEffect(() => {
     if (selectedCommentId) setPreviewCommentId(selectedCommentId);
@@ -81,6 +104,9 @@ export default function UnifiedInbox({
 
   const filteredComments = useMemo(() => {
     return comments.filter(comment => {
+      const linkedAd = getAdForComment(comment, ads);
+      const brand = inferBrandLabel(comment, linkedAd);
+      const isTopSpend = Boolean(linkedAd && (topSpendAdIds.has(linkedAd.id) || topSpendAdIds.has(linkedAd.adId)));
       const q = searchTerm.toLowerCase();
       const textMatches =
         !q ||
@@ -88,12 +114,16 @@ export default function UnifiedInbox({
         comment.commenterName.toLowerCase().includes(q) ||
         displayCommenterName(comment.commenterName).toLowerCase().includes(q) ||
         comment.campaignName.toLowerCase().includes(q) ||
-        comment.adName.toLowerCase().includes(q);
+        comment.adName.toLowerCase().includes(q) ||
+        brand.toLowerCase().includes(q) ||
+        (linkedAd?.accountLabel || '').toLowerCase().includes(q);
 
       if (!textMatches) return false;
       if (platformFilter !== 'All' && comment.platform !== platformFilter) return false;
-      if (preconfiguredFilters?.priority && comment.priority !== preconfiguredFilters.priority) return false;
-      if (preconfiguredFilters?.sentiment && comment.sentiment !== preconfiguredFilters.sentiment) return false;
+      if (priorityFilter !== 'All' && comment.priority !== priorityFilter) return false;
+      if (sentimentFilter !== 'All' && comment.sentiment !== sentimentFilter) return false;
+      if (brandFilter !== 'All' && brand !== brandFilter) return false;
+      if (topSpendOnly && !isTopSpend) return false;
       if (preconfiguredFilters?.assignedTo && comment.assignedTo !== preconfiguredFilters.assignedTo) return false;
       if (preconfiguredFilters?.campaign && comment.campaignName !== preconfiguredFilters.campaign && comment.campaignId !== preconfiguredFilters.campaign) return false;
 
@@ -105,7 +135,7 @@ export default function UnifiedInbox({
 
       return true;
     });
-  }, [comments, searchTerm, platformFilter, statusFilter, preconfiguredFilters]);
+  }, [comments, ads, topSpendAdIds, searchTerm, platformFilter, statusFilter, priorityFilter, sentimentFilter, brandFilter, topSpendOnly, preconfiguredFilters]);
 
   const previewComment = filteredComments.find(c => c.id === previewCommentId)
     || comments.find(c => c.id === previewCommentId);
@@ -201,6 +231,34 @@ export default function UnifiedInbox({
             <option value="facebook">Facebook</option>
             <option value="instagram">Instagram</option>
           </select>
+          <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} className="filter-select sm:w-36">
+            <option value="All">All priorities</option>
+            <option value="Urgent">Urgent</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+          </select>
+          <select value={sentimentFilter} onChange={e => setSentimentFilter(e.target.value)} className="filter-select sm:w-40">
+            <option value="All">All sentiment</option>
+            <option value="Complaint">Complaint</option>
+            <option value="Negative">Negative</option>
+            <option value="Question">Question</option>
+            <option value="Positive">Positive</option>
+            <option value="Neutral">Neutral</option>
+          </select>
+          <select value={brandFilter} onChange={e => setBrandFilter(e.target.value)} className="filter-select sm:w-36">
+            <option value="All">All brands</option>
+            <option value="Nobl">Nobl</option>
+            <option value="Flo">Flo</option>
+            <option value="Unattributed">Unattributed</option>
+          </select>
+          <button
+            type="button"
+            onClick={() => setTopSpendOnly(v => !v)}
+            className={`px-3 py-2.5 rounded-xl border text-sm font-medium transition-colors ${topSpendOnly ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+          >
+            Top spend only
+          </button>
         </div>
       </div>
 
@@ -220,6 +278,9 @@ export default function UnifiedInbox({
               const isUnseen = comment.status === 'Unseen';
               const wasJustViewed = recentlyViewed.has(comment.id);
               const assignedUser = teamMembers.find(t => t.id === comment.assignedTo);
+              const linkedAd = getAdForComment(comment, ads);
+              const brand = inferBrandLabel(comment, linkedAd);
+              const isTopSpend = Boolean(linkedAd && (topSpendAdIds.has(linkedAd.id) || topSpendAdIds.has(linkedAd.adId)));
 
               return (
                 <div
@@ -264,6 +325,10 @@ export default function UnifiedInbox({
                         <div className="flex flex-wrap items-center gap-1.5 mb-1">
                           <PlatformBadge platform={comment.platform} />
                           <StatusBadge status={comment.status} />
+                          <PriorityBadge priority={comment.priority} />
+                          <SentimentBadge sentiment={comment.sentiment} />
+                          <span className={`text-[10px] px-1.5 py-0.5 border rounded-md font-semibold ${brandChipClass(brand)}`}>{brand}</span>
+                          {isTopSpend && <span className="text-[10px] px-1.5 py-0.5 border rounded-md font-semibold bg-amber-50 text-amber-700 border-amber-200">Top spend</span>}
                           {isUnseen && (
                             <span className="text-[9px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
                               New
@@ -294,7 +359,7 @@ export default function UnifiedInbox({
                         </p>
 
                         <p className="text-[10px] text-slate-500 mt-2 truncate">
-                          {comment.campaignName} · {comment.adName}
+                          {(linkedAd?.accountLabel || brand)} · {comment.campaignName} · {comment.adName}
                         </p>
 
                         {assignedUser && (

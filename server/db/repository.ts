@@ -264,6 +264,20 @@ export async function deleteRule(id: string) {
   await query('DELETE FROM auto_tagging_rules WHERE id = $1', [id]);
 }
 
+export async function getConfigValue<T>(key: string, fallback: T): Promise<T> {
+  const { rows } = await query<{ value: T }>('SELECT value FROM app_config WHERE key = $1 LIMIT 1', [key]);
+  return rows[0]?.value ?? fallback;
+}
+
+export async function setConfigValue(key: string, value: unknown): Promise<void> {
+  await query(
+    `INSERT INTO app_config (key, value, updated_at)
+     VALUES ($1, $2::jsonb, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [key, JSON.stringify(value)]
+  );
+}
+
 export async function getReportsSummary() {
   const { rows: stats } = await query(`
     SELECT

@@ -1,6 +1,8 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Ad, Comment } from '../types';
 import { apiClient } from '../services/apiClient';
+import { inferBrandLabel, brandChipClass } from '../utils/helpers';
+import { formatSpend } from '../utils/campaignHelpers';
 import { PlatformBadge } from './ui/Badges';
 import {
   ExternalLink,
@@ -90,6 +92,7 @@ export default function AdPreviewPanel({ ad: adProp, comment, compact = false, c
 
   const platform = comment.platform;
   const BrandIcon = platform === 'facebook' ? Facebook : Instagram;
+  const brand = inferBrandLabel(comment, ad);
 
   const renderMedia = () => {
     if (loadingAd) {
@@ -174,7 +177,10 @@ export default function AdPreviewPanel({ ad: adProp, comment, compact = false, c
           <BrandIcon className={`w-4 h-4 ${platform === 'facebook' ? 'text-[#1877F2]' : 'text-pink-600'}`} />
           <h3 className="text-sm font-medium text-slate-900">Ad preview</h3>
         </div>
-        <PlatformBadge platform={platform} />
+        <div className="flex items-center gap-2">
+          <span className={`text-[10px] px-2 py-1 border rounded-lg font-semibold ${brandChipClass(brand)}`}>{brand}</span>
+          <PlatformBadge platform={platform} />
+        </div>
       </div>
 
       <div className={`p-4 space-y-3 ${compact ? 'text-xs' : ''}`}>
@@ -188,6 +194,14 @@ export default function AdPreviewPanel({ ad: adProp, comment, compact = false, c
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
+            <div>
+              <p className="text-xs text-slate-500">Account</p>
+              <p className="text-sm text-slate-700 truncate">{ad?.accountLabel || brand}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">Spend</p>
+              <p className="text-sm text-slate-700 truncate">{ad?.spend != null ? formatSpend(ad.spend) : '—'}</p>
+            </div>
             <div>
               <p className="text-xs text-slate-500">Ad set</p>
               <p className="text-sm text-slate-700 truncate" title={comment.adsetName}>{comment.adsetName}</p>

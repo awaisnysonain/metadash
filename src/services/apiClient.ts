@@ -80,6 +80,12 @@ export interface FullSyncJobStatus {
   synced: number;
 }
 
+export interface SlackStatus {
+  enabled: boolean;
+  configured: boolean;
+  channelId: string | null;
+}
+
 async function requestRaw(path: string, options?: RequestInit): Promise<Response> {
   const url = API_BASE ? `${API_BASE}${path}` : path;
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(options?.headers as Record<string, string>) };
@@ -277,4 +283,9 @@ export const apiClient = {
       '/api/meta/token/exchange',
       { method: 'POST', body: JSON.stringify({ shortLivedToken }) }
     ),
+
+  getSlackStatus: () => request<SlackStatus>('/api/notifications/slack/status'),
+  setSlackEnabled: (enabled: boolean) =>
+    request<SlackStatus>('/api/notifications/slack/status', { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+  testSlackAlert: () => request<{ sent: boolean; reason?: string }>('/api/notifications/slack/test', { method: 'POST' }),
 };

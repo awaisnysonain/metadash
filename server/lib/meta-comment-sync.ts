@@ -1,6 +1,6 @@
 import { isDatabaseConfigured, hasDatabaseUrl } from '../db/pool.js';
-import { getAllAds, upsertComment, insertActivityLog, commentExistsByMetaId } from '../db/repository.js';
-import { realignCommentPlatformsFromAds, pruneStaleInstagramAccounts } from '../db/sync-repository.js';
+import { getAllAds, upsertComment, insertActivityLog, commentExistsByMetaId, getConfigValue, setConfigValue } from '../db/repository.js';
+import { realignCommentPlatformsFromAds } from '../db/sync-repository.js';
 import { getPageAccessToken } from '../db/sync-repository.js';
 import { getMetaConfig, isServerDemoMode, validateMetaSync, validateMetaAccessToken, metaGraphGet } from './meta.js';
 import { getTokenForAccount, getConfiguredMetaAccounts } from './meta-accounts.js';
@@ -9,6 +9,8 @@ import { MetaApiError } from './meta.js';
 import { mapSyncedComment } from './webhook.js';
 import { syncErrorMessage, syncPagesFromMeta, syncAdsFromMeta } from './meta-sync-service.js';
 import { query } from '../db/pool.js';
+import { analyzeComment, fallbackAnalyzeComment, type CommentAnalysis } from './ai-analysis.js';
+import { sendSlackCommentAlert } from './slack-alerts.js';
 
 export interface CommentSyncOutcome {
   ok: boolean;
@@ -32,9 +34,11 @@ export interface CommentSyncState {
 }
 
 const BACKFILL_DAYS = 730;
-const INCREMENTAL_HOURS = 26;
+const INCREMENTAL_FALLBACK_HOURS = 24;
 const AD_BATCH_DELAY_MS = 120;
 const STUCK_SYNC_MS = 45 * 60 * 1000;
+const INCREMENTAL_AD_LIMIT = Math.max(Number(process.env.MAX_COMMENT_SYNC_ADS_PER_RUN || 50), 1);
+const AD_CURSOR_CONFIG_KEY = 'comment_sync_ad_cursor';
 let syncRunStartedAt: number | null = null;
 
 let syncState: CommentSyncState = {
@@ -113,12 +117,32 @@ async function resolveCommentSyncToken(): Promise<{ token: string; status: Await
   return null;
 }
 
-function sinceTimestamp(mode: 'incremental' | 'backfill'): number {
+async function sinceTimestamp(mode: 'incremental' | 'backfill'): Promise<number> {
   const now = Date.now();
   if (mode === 'backfill') {
     return Math.floor((now - BACKFILL_DAYS * 24 * 60 * 60 * 1000) / 1000);
   }
-  return Math.floor((now - INCREMENTAL_HOURS * 60 * 60 * 1000) / 1000);
+
+  const { rows } = await query<{ last_comment_at: string | null }>(
+    `SELECT MAX(created_at)::text AS last_comment_at FROM comments`
+  );
+  const lastCommentAt = rows[0]?.last_comment_at;
+  if (lastCommentAt) {
+    // Use a small overlap so delayed Meta comments are not missed between runs.
+    return Math.floor((new Date(lastCommentAt).getTime() - 60 * 60 * 1000) / 1000);
+  }
+  return Math.floor((now - INCREMENTAL_FALLBACK_HOURS * 60 * 60 * 1000) / 1000);
+}
+
+async function selectAdsForMode<T>(ads: T[], mode: 'incremental' | 'backfill'): Promise<{ selected: T[]; cursor: number | null }> {
+  if (mode === 'backfill' || ads.length <= INCREMENTAL_AD_LIMIT) return { selected: ads, cursor: null };
+
+  const cursor = Math.min(Math.max(await getConfigValue<number>(AD_CURSOR_CONFIG_KEY, 0), 0), ads.length - 1);
+  const selected = [...ads.slice(cursor, cursor + INCREMENTAL_AD_LIMIT)];
+  if (selected.length < INCREMENTAL_AD_LIMIT) {
+    selected.push(...ads.slice(0, INCREMENTAL_AD_LIMIT - selected.length));
+  }
+  return { selected, cursor: (cursor + selected.length) % ads.length };
 }
 
 function commentInRange(createdTime: string | undefined, since: number): boolean {
@@ -147,6 +171,9 @@ async function persistMetaComment(
     storyId: string;
     since: number;
     pageAccessToken?: string | null;
+    accountLabel?: string | null;
+    analyzeWithAi: boolean;
+    alertNewComment: boolean;
   }
 ): Promise<boolean> {
   if (!metaComment.id || !metaComment.message?.trim()) return false;
@@ -162,10 +189,23 @@ async function persistMetaComment(
   const enriched = await enrichMetaCommentAuthor(metaComment, ctx.pageAccessToken);
   const author = resolveCommenterInfo(enriched.from, enriched.username);
 
+  const platform = inferCommentPlatform(ctx.platform, enriched);
+  const text = enriched.message || metaComment.message || '';
+  const analysis: CommentAnalysis = !exists && ctx.analyzeWithAi
+    ? await analyzeComment({
+        text,
+        platform,
+        author: author.name,
+        campaignName: ctx.campaignName,
+        adName: ctx.adName,
+        accountLabel: ctx.accountLabel,
+      })
+    : fallbackAnalyzeComment({ text, campaignName: ctx.campaignName, adName: ctx.adName, accountLabel: ctx.accountLabel });
+
   const row = mapSyncedComment({
-    platform: inferCommentPlatform(ctx.platform, enriched),
+    platform,
     commentId: enriched.id,
-    message: enriched.message || metaComment.message || '',
+    message: text,
     fromName: author.name,
     fromId: author.id,
     profileUrl: author.profileUrl,
@@ -179,6 +219,9 @@ async function persistMetaComment(
     campaignMetaId: ctx.campaignMetaId,
     adsetMetaId: ctx.adsetMetaId,
   });
+  row.priority = analysis.priority;
+  row.sentiment = analysis.sentiment;
+  row.tags = analysis.tags;
 
   await upsertComment(row);
 
@@ -193,6 +236,22 @@ async function persistMetaComment(
       new_value: `Imported from Meta ad ${ctx.adId}`,
       created_at: new Date().toISOString(),
     });
+
+    if (ctx.alertNewComment) {
+      const slack = await sendSlackCommentAlert({
+        commentId: row.id,
+        platform: row.platform,
+        author: author.name,
+        text,
+        createdAt: createdIso,
+        commentUrl: row.original_comment_url,
+        adName: ctx.adName,
+        adId: ctx.adId,
+        campaignName: ctx.campaignName,
+        analysis,
+      });
+      if (!slack.sent) console.warn('[slack] comment alert skipped:', slack.reason);
+    }
   }
 
   return true;
@@ -254,7 +313,7 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
     };
   }
 
-  const since = sinceTimestamp(mode);
+  const since = await sinceTimestamp(mode);
   let synced = 0;
   let adsProcessed = 0;
   let adsSkipped = 0;
@@ -262,10 +321,12 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
   const errors: string[] = [];
   const skipReasons: Record<string, number> = { no_story: 0, fetch_error: 0 };
 
-  for (const ad of ads) {
+  const { selected: adsToProcess, cursor } = await selectAdsForMode(ads, mode);
+
+  for (const ad of adsToProcess) {
     try {
       if (adsProcessed > 0 && adsProcessed % 25 === 0) {
-        syncState.lastMessage = `Comment ${mode}: ${adsProcessed}/${ads.length} ads processed, ${synced} comment(s) synced…`;
+        syncState.lastMessage = `Comment ${mode}: ${adsProcessed}/${adsToProcess.length} ads processed this run, ${synced} comment(s) synced…`;
       }
       const adToken = ad.metaAccountId ? getTokenForAccount(ad.metaAccountId) : getMetaConfig().accessToken?.trim();
       const token = adToken ?? getMetaConfig().accessToken?.trim();
@@ -310,6 +371,9 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
           storyId,
           since,
           pageAccessToken: pageToken,
+          accountLabel: ad.accountLabel,
+          analyzeWithAi: mode === 'incremental',
+          alertNewComment: mode === 'incremental',
         });
         if (saved) synced++;
       }
@@ -340,8 +404,12 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
     }
   }
 
+  if (cursor != null) {
+    await setConfigValue(AD_CURSOR_CONFIG_KEY, cursor);
+  }
+
   const label = mode === 'backfill' ? `${BACKFILL_DAYS}-day backfill` : 'incremental';
-  let message = `Comment ${label}: synced ${synced} comment(s) from ${adsProcessed} ad(s) (${adsWithStory} with post IDs).`;
+  let message = `Comment ${label}: synced ${synced} comment(s) from ${adsProcessed}/${adsToProcess.length} ad(s) in this run (${adsWithStory} with post IDs).`;
   if (adsSkipped) {
     message += ` Skipped ${adsSkipped} ad(s)`;
     if (skipReasons.no_story) message += ` (${skipReasons.no_story} without post story ID)`;
@@ -356,7 +424,7 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
     adsSkipped,
     adsWithStory,
     message,
-    details: { mode, since, skipReasons, errors: errors.slice(0, 10), pagesSync: pagesResult?.message },
+    details: { mode, since, adBatchSize: adsToProcess.length, totalAds: ads.length, nextCursor: cursor, skipReasons, errors: errors.slice(0, 10), pagesSync: pagesResult?.message },
   };
 }
 
@@ -415,7 +483,7 @@ export async function syncCommentsBackfill(): Promise<CommentSyncOutcome> {
   return runCommentSync('backfill');
 }
 
-const CRON_INTERVAL_MS = 10 * 60 * 1000;
+const CRON_INTERVAL_MS = 15 * 60 * 1000;
 let cronTimer: ReturnType<typeof setInterval> | null = null;
 
 export function startCommentSyncCron(): void {
@@ -448,33 +516,7 @@ export function startCommentSyncCron(): void {
 
   console.log(`[comment-sync] Cron scheduled every ${CRON_INTERVAL_MS / 60000} minutes`);
 
-  setTimeout(async () => {
-    try {
-      const resolved = await resolveCommentSyncToken();
-      if (!resolved?.status.canSyncComments) {
-        console.error('[comment-sync] Startup skipped — no valid comment sync token:', syncState.tokenMessage);
-        return;
-      }
-      syncState.tokenValid = resolved.status.valid;
-      syncState.tokenMessage = resolved.status.message;
-
-      let ads = await getAllAds();
-      if (!ads.length) {
-        console.log('[comment-sync] No ads in DB — syncing pages and ads first');
-        await syncPagesFromMeta();
-        await syncAdsFromMeta();
-        ads = await getAllAds();
-      }
-      if (ads.length > 0) {
-        console.log('[comment-sync] Startup: running incremental comment sync');
-        await runCommentSync('incremental');
-      } else {
-        console.warn('[comment-sync] Still no ads after sync — check META_ACCESS_TOKEN permissions');
-      }
-    } catch (err) {
-      console.error('[comment-sync] Startup bootstrap failed:', err);
-    }
-  }, 10000);
+  console.log('[comment-sync] Startup sync disabled; cron will run the next safe incremental batch.');
 }
 
 export function stopCommentSyncCron(): void {

@@ -3,6 +3,24 @@ import { Comment, Ad, CommentStatus, CommentPriority, CommentSentiment, Platform
 export const getAdForComment = (comment: Comment, ads: Ad[]): Ad | undefined =>
   ads.find(ad => ad.id === comment.adId || ad.adId === comment.adId);
 
+export type BrandLabel = 'Nobl' | 'Flo' | 'Unattributed';
+
+export function inferBrandLabel(comment?: Comment, ad?: Ad): BrandLabel {
+  const text = [ad?.accountLabel, comment?.campaignName, ad?.campaignName, comment?.adName, ad?.adName]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  if (text.includes('nobl')) return 'Nobl';
+  if (text.includes('flo')) return 'Flo';
+  return 'Unattributed';
+}
+
+export function brandChipClass(brand: BrandLabel): string {
+  if (brand === 'Nobl') return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+  if (brand === 'Flo') return 'bg-pink-50 text-pink-700 border-pink-200';
+  return 'bg-slate-50 text-slate-600 border-slate-200';
+}
+
 const GENERIC_COMMENTER_LABELS = new Set(['Unknown User', 'Commenter', 'Facebook User', 'Facebook commenter']);
 
 export function displayCommenterName(name: string): string {
