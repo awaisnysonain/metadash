@@ -107,23 +107,22 @@ export default function UnifiedInbox({
   };
 
   return (
-    <div className="space-y-4 animate-fade-in" id="inbox-screen">
-      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+    <div className="space-y-5 animate-fade-in" id="inbox-screen">
+      <div className="bg-white border border-slate-200 rounded-2xl p-5">
         <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between mb-4">
           <div>
-            <h2 className="text-base font-bold text-slate-900">Comment Inbox</h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {comments.length} total · {unseenCount} unseen · auto-sync every 10 min
+            <p className="text-sm text-slate-500">
+              {comments.length} comments · {unseenCount} new
             </p>
           </div>
           {onRefresh && (
             <button
               onClick={() => void onRefresh()}
               disabled={isRefreshing}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg text-xs font-bold transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg text-sm font-medium transition-colors"
             >
-              {isRefreshing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-              {isRefreshing ? 'Fetching…' : 'Fetch new comments'}
+              {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              {isRefreshing ? 'Updating…' : 'Refresh comments'}
             </button>
           )}
         </div>
@@ -133,7 +132,7 @@ export default function UnifiedInbox({
             <button
               key={tab.id}
               onClick={() => setStatusFilter(tab.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+              className={`px-3.5 py-2 rounded-lg text-sm font-medium transition-colors ${
                 statusFilter === tab.id
                   ? 'bg-blue-600 text-white'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -181,11 +180,11 @@ export default function UnifiedInbox({
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
         <div className="xl:col-span-7 space-y-2">
           {filteredComments.length === 0 ? (
-            <div className="p-12 text-center bg-white border border-slate-200 rounded-xl">
+            <div className="p-12 text-center bg-white border border-slate-200 rounded-2xl">
               <Inbox className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-              <h3 className="font-bold text-slate-800">No comments yet</h3>
+              <h3 className="font-medium text-slate-800">No comments yet</h3>
               <p className="text-sm text-slate-500 mt-1">
-                Sync ads in Settings, then use Fetch new comments or wait for the 10-minute auto-sync.
+                Comments from your Facebook and Instagram ads will show up here.
               </p>
             </div>
           ) : (
@@ -198,12 +197,12 @@ export default function UnifiedInbox({
                 <div
                   key={comment.id}
                   onClick={() => selectComment(comment)}
-                  className={`bg-white border rounded-xl cursor-pointer transition-all ${
+                  className={`bg-white border rounded-2xl cursor-pointer transition-all ${
                     isSelected
-                      ? 'border-blue-400 ring-2 ring-blue-100 shadow-md'
+                      ? 'border-blue-300 ring-2 ring-blue-100'
                       : isUnseen
-                        ? 'border-blue-200 bg-blue-50/30 hover:border-blue-300'
-                        : 'border-slate-200 hover:border-slate-300 hover:shadow-sm'
+                        ? 'border-blue-200 bg-blue-50/40 hover:border-blue-300'
+                        : 'border-slate-200 hover:border-slate-300'
                   }`}
                 >
                   <div className="p-4">
@@ -253,7 +252,7 @@ export default function UnifiedInbox({
                       {comment.status !== 'Replied' && (
                         <button
                           onClick={() => onUpdateStatus(comment.id, 'Replied')}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[11px] font-bold"
+                          className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-medium"
                         >
                           <CheckCircle className="w-3 h-3" /> Mark replied
                         </button>
@@ -261,7 +260,7 @@ export default function UnifiedInbox({
                       {comment.status === 'Unseen' && (
                         <button
                           onClick={() => onUpdateStatus(comment.id, 'Seen')}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-lg text-[11px] font-bold"
+                          className="inline-flex items-center gap-1 px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-lg text-xs font-medium"
                         >
                           <Eye className="w-3 h-3" /> Mark seen
                         </button>
@@ -271,9 +270,9 @@ export default function UnifiedInbox({
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={() => { if (comment.status === 'Unseen') onUpdateStatus(comment.id, 'Seen'); }}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[11px] font-bold ml-auto"
+                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-medium ml-auto"
                       >
-                        Open on Meta <ExternalLink className="w-3 h-3" />
+                        Reply on Meta <ExternalLink className="w-3 h-3" />
                       </a>
                     </div>
                   </div>

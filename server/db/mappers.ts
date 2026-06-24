@@ -108,5 +108,6 @@ export function rowToAd(row: any) {
     likesCount: row.likes_count ?? undefined,
     sharesCount: row.shares_count ?? undefined,
     commentsCount: row.comments_count ?? undefined,
+    postStoryId: row.post_story_id ?? undefined,
   };
 }

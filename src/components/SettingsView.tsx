@@ -1,10 +1,18 @@
 import React from 'react';
 import type { DataMode } from '../lib/config';
 import { AutoTaggingRule, TeamMember } from '../types';
-import { apiClient, type HealthStatus } from '../services/apiClient';
+import { apiClient } from '../services/apiClient';
 import {
-  Settings, Facebook, Instagram, Key, Trash2, Bell, PlusCircle, Globe, Users, Zap,
-  CreditCard, Database, FlaskConical, RefreshCw, CloudDownload, CheckCircle, AlertCircle,
+  Settings,
+  Facebook,
+  Instagram,
+  Trash2,
+  Bell,
+  PlusCircle,
+  RefreshCw,
+  ChevronDown,
+  ChevronUp,
+  Link2,
 } from 'lucide-react';
 
 interface SettingsViewProps {
@@ -18,22 +26,35 @@ interface SettingsViewProps {
 }
 
 export default function SettingsView({
-  autoTaggingRules, teamMembers, dataMode, isDemoMode, onReload, onAddRule, onDeleteRule,
+  autoTaggingRules,
+  teamMembers,
+  isDemoMode,
+  onReload,
+  onAddRule,
+  onDeleteRule,
 }: SettingsViewProps) {
   const [keyword, setKeyword] = React.useState('');
   const [tag, setTag] = React.useState('');
   const [priority, setPriority] = React.useState('Medium');
-  const [pagesList, setPagesList] = React.useState<Array<{ id: string; name: string; fans: string; avatar: string; platform: string; isConnected: boolean }>>([]);
-  const [adAccountsList, setAdAccountsList] = React.useState<Array<{ id: string; name: string; status: string }>>([]);
-  const [webhookUrl] = React.useState(import.meta.env.VITE_META_WEBHOOK_URL || 'https://meta-dashboard.nysonik.com/api/meta/webhook');
-  const [health, setHealth] = React.useState<HealthStatus | null>(null);
+  const [pagesList, setPagesList] = React.useState<
+    Array<{ id: string; name: string; fans: string; avatar: string; platform: string; isConnected: boolean }>
+  >([]);
+  const [adAccountsList, setAdAccountsList] = React.useState<Array<{ id: string; name: string; status: string }>>(
+    []
+  );
   const [syncMessage, setSyncMessage] = React.useState('');
   const [syncWarning, setSyncWarning] = React.useState(false);
   const [syncing, setSyncing] = React.useState(false);
+  const [showAdvanced, setShowAdvanced] = React.useState(false);
+  const [tokenStatus, setTokenStatus] = React.useState<Awaited<ReturnType<typeof apiClient.getMetaTokenStatus>> | null>(null);
+  const [shortToken, setShortToken] = React.useState('');
+  const [exchangeResult, setExchangeResult] = React.useState('');
 
   React.useEffect(() => {
-    apiClient.health().then(setHealth).catch(() => setHealth(null));
-  }, []);
+    if (!isDemoMode) {
+      apiClient.getMetaTokenStatus().then(setTokenStatus).catch(() => setTokenStatus(null));
+    }
+  }, [isDemoMode, syncMessage]);
 
   React.useEffect(() => {
     if (isDemoMode) {
@@ -42,220 +63,332 @@ export default function SettingsView({
         setAdAccountsList(mockAdAccounts);
       });
     } else {
-      apiClient.getPages().then(pages =>
-        setPagesList(pages.map(p => ({
-          id: p.id,
-          name: p.pageName,
-          fans: '',
-          avatar: '📄',
-          platform: 'facebook',
-          isConnected: p.isConnected,
-        })))
-      ).catch(() => setPagesList([]));
+      apiClient
+        .getPages()
+        .then(pages =>
+          setPagesList(
+            pages.map(p => ({
+              id: p.id,
+              name: p.pageName,
+              fans: '',
+              avatar: '📄',
+              platform: 'facebook',
+              isConnected: p.isConnected,
+            }))
+          )
+        )
+        .catch(() => setPagesList([]));
       setAdAccountsList([]);
     }
   }, [isDemoMode]);
 
-  const runSync = async (fn: () => Promise<{ message: string; details?: { warnings?: string[] } }>, label: string) => {
+  const runSync = async (
+    fn: () => Promise<{ message: string; details?: { warnings?: string[] } }>,
+    label: string
+  ) => {
     setSyncing(true);
     setSyncWarning(false);
-    setSyncMessage(`Syncing ${label}…`);
+    setSyncMessage(`Updating ${label.toLowerCase()}…`);
     try {
       const result = await fn();
-      setSyncMessage(result.message);
-      setSyncWarning(Boolean(result.details?.warnings?.length || result.message.includes('pages_read_user_content')));
+      setSyncMessage(result.message.replace(/sync/gi, 'update').replace(/Sync/g, 'Update'));
+      setSyncWarning(Boolean(result.details?.warnings?.length));
       await onReload();
     } catch (err) {
-      setSyncMessage(`Sync failed: ${String(err)}`);
+      setSyncMessage(`Something went wrong. Please try again.`);
     } finally {
       setSyncing(false);
     }
   };
 
   return (
-    <div className="space-y-6 animate-fade-in" id="settings-screen">
+    <div className="space-y-6 animate-fade-in max-w-3xl" id="settings-screen">
       <div>
-        <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-          <Settings className="w-5 h-5 text-indigo-600" /> Settings
+        <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+          <Settings className="w-5 h-5 text-slate-400" /> Settings
         </h2>
-        <p className="text-sm text-slate-500 mt-1">
-          Production: meta-dashboard.nysonik.com · PostgreSQL erp_meta_dashboard
-        </p>
+        <p className="text-sm text-slate-500 mt-1">Manage your connected accounts and preferences.</p>
       </div>
 
-      <section className="bg-white border border-slate-200 p-5 rounded-xl shadow-sm">
-        <h3 className="font-bold text-sm text-slate-900 mb-4 flex items-center gap-2">
-          <Database className="w-4 h-4 text-indigo-600" /> Data Mode
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className={`p-4 rounded-xl border-2 ${!isDemoMode ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200'}`}>
-            <Database className="w-5 h-5 text-indigo-600 mb-2" />
-            <p className="font-bold text-sm">Production (PostgreSQL)</p>
-            <p className="text-xs text-slate-500 mt-1">VITE_DEMO_MODE=false</p>
-          </div>
-          <div className={`p-4 rounded-xl border-2 ${isDemoMode ? 'border-amber-500 bg-amber-50' : 'border-slate-200'}`}>
-            <FlaskConical className="w-5 h-5 text-amber-600 mb-2" />
-            <p className="font-bold text-sm">Demo Mode</p>
-            <p className="text-xs text-slate-500 mt-1">VITE_DEMO_MODE=true</p>
-          </div>
-        </div>
-        <p className="text-xs text-slate-500 mt-3">Current mode: <strong>{dataMode}</strong></p>
-        {health && (
-          <div className="flex flex-wrap gap-3 text-xs mt-3">
-            <span className={`flex items-center gap-1 px-2 py-1 rounded-lg border ${health.database ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200'}`}>
-              {health.database ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
-              Database {health.database ? 'connected' : 'offline'}
-            </span>
-            <span className={`flex items-center gap-1 px-2 py-1 rounded-lg border ${health.metaAccessToken ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
-              {health.metaAccessToken ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
-              Access token {health.metaAccessToken ? 'set' : 'missing'}
-            </span>
-            <span className={`flex items-center gap-1 px-2 py-1 rounded-lg border ${health.meta ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200'}`}>
-              Meta API {health.meta ? 'configured' : 'placeholder'}
-            </span>
+      {/* Sync section */}
+      <section className="bg-white border border-slate-200 p-5 rounded-2xl">
+        <h3 className="font-medium text-slate-900 mb-1">Update from Meta</h3>
+        <p className="text-sm text-slate-500 mb-4">
+          Pull in your latest campaigns, pages, and comments from Facebook & Instagram.
+        </p>
+        {!isDemoMode && tokenStatus && !tokenStatus.valid && (
+          <div className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg p-3 mb-4">
+            Your Meta connection needs to be refreshed. Ask your admin to reconnect in Advanced setup below.
           </div>
         )}
-      </section>
-
-      <section className="bg-white border border-slate-200 p-5 rounded-xl shadow-sm">
-        <h3 className="font-bold text-sm text-slate-900 mb-4 flex items-center gap-2">
-          <CloudDownload className="w-4 h-4 text-indigo-600" /> Meta Sync
-        </h3>
-        <p className="text-xs text-slate-500 mb-3">
-          Sync ads & pages from Meta, then fetch comments. Comments auto-sync every 10 minutes on the server.
-        </p>
-        <div className="flex flex-wrap gap-2 mb-3">
+        {!isDemoMode && tokenStatus?.valid && tokenStatus.expiresAtIso && (
+          <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg p-2 mb-4">
+            Connected to Meta · active until {new Date(tokenStatus.expiresAtIso).toLocaleDateString()}
+          </p>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <button
+            disabled={syncing || isDemoMode}
+            onClick={() => runSync(apiClient.syncAll, 'everything')}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+            Update everything
+          </button>
           {[
-            { label: 'Ads', fn: apiClient.syncAds },
+            { label: 'Campaigns & ads', fn: apiClient.syncAds },
             { label: 'Pages', fn: apiClient.syncPages },
             { label: 'Comments', fn: apiClient.syncComments },
-            { label: 'Backfill 2 weeks', fn: apiClient.syncCommentsBackfill },
           ].map(item => (
-            <button key={item.label} disabled={syncing || isDemoMode} onClick={() => runSync(item.fn, item.label)}
-              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold disabled:opacity-50">
-              Sync {item.label}
+            <button
+              key={item.label}
+              disabled={syncing || isDemoMode}
+              onClick={() => runSync(item.fn, item.label)}
+              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm disabled:opacity-50 transition-colors"
+            >
+              {item.label}
             </button>
           ))}
-          <button disabled={syncing || isDemoMode} onClick={() => runSync(apiClient.syncAll, 'all')}
-            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 disabled:opacity-50">
-            <RefreshCw className={`w-3 h-3 ${syncing ? 'animate-spin' : ''}`} /> Sync All
-          </button>
         </div>
+        {isDemoMode && (
+          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3 mt-3">
+            You&apos;re viewing sample data. Connect a live account to sync from Meta.
+          </p>
+        )}
         {syncMessage && (
-          <p className={`text-xs p-2 rounded-lg ${syncWarning ? 'text-amber-800 bg-amber-50 border border-amber-200' : 'text-slate-600 bg-slate-50'}`}>
+          <p
+            className={`text-sm p-3 rounded-lg mt-3 ${
+              syncWarning
+                ? 'text-amber-800 bg-amber-50 border border-amber-100'
+                : 'text-slate-600 bg-slate-50'
+            }`}
+          >
             {syncMessage}
           </p>
         )}
       </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-8 space-y-6">
-          <section className="bg-white border border-slate-200 p-5 rounded-xl shadow-sm">
-            <h3 className="font-bold text-sm text-slate-900 mb-4 flex items-center gap-2">
-              <Key className="w-4 h-4 text-indigo-600" /> Meta App Credentials
-            </h3>
-            <p className="text-xs text-slate-500">Set META_APP_ID, META_APP_SECRET, META_VERIFY_TOKEN, and META_ACCESS_TOKEN on the server.</p>
-          </section>
-
-          <section className="bg-white border border-slate-200 p-5 rounded-xl shadow-sm">
-            <h3 className="font-bold text-sm text-slate-900 mb-4 flex items-center gap-2">
-              <Globe className="w-4 h-4 text-indigo-600" /> Webhook
-            </h3>
-            <label className="label-text">Callback URL (Meta App Dashboard)</label>
-            <input type="url" readOnly value={webhookUrl} className="filter-select font-mono text-xs bg-slate-50" />
-            <p className="text-xs text-slate-500 mt-2">Verify token: META_VERIFY_TOKEN env var on server</p>
-          </section>
-
-          <section className="bg-white border border-slate-200 p-5 rounded-xl shadow-sm">
-            <h3 className="font-bold text-sm text-slate-900 mb-4">Connected Pages & Instagram</h3>
-            <div className="space-y-2">
-              {pagesList.length === 0 && !isDemoMode ? (
-                <p className="text-xs text-slate-500">No pages synced yet. Use Sync Pages or Sync All above.</p>
-              ) : (
-              pagesList.map(page => (
-                <div key={page.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span>{page.avatar}</span>
-                    <div>
-                      <p className="text-xs font-bold flex items-center gap-1">{page.name}
-                        {page.platform === 'facebook' ? <Facebook className="w-3 h-3 text-[#1877F2]" /> : <Instagram className="w-3 h-3 text-pink-600" />}
-                      </p>
-                      <p className="text-[10px] text-slate-500">{page.fans}</p>
-                    </div>
+      {/* Connected pages */}
+      <section className="bg-white border border-slate-200 p-5 rounded-2xl">
+        <h3 className="font-medium text-slate-900 mb-4">Connected pages</h3>
+        <div className="space-y-2">
+          {pagesList.length === 0 && !isDemoMode ? (
+            <p className="text-sm text-slate-500">
+              No pages connected yet. Use &quot;Update everything&quot; above to connect your pages.
+            </p>
+          ) : (
+            pagesList.map(page => (
+              <div
+                key={page.id}
+                className="p-3 bg-slate-50 rounded-xl flex items-center justify-between"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-lg">{page.avatar}</span>
+                  <div>
+                    <p className="text-sm font-medium text-slate-800 flex items-center gap-1.5">
+                      {page.name}
+                      {page.platform === 'facebook' ? (
+                        <Facebook className="w-3.5 h-3.5 text-[#1877F2]" />
+                      ) : (
+                        <Instagram className="w-3.5 h-3.5 text-pink-600" />
+                      )}
+                    </p>
+                    {page.fans && <p className="text-xs text-slate-500">{page.fans}</p>}
                   </div>
-                  <button onClick={() => setPagesList(pagesList.map(p => p.id === page.id ? { ...p, isConnected: !p.isConnected } : p))}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold ${page.isConnected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-900 text-white'}`}>
-                    {page.isConnected ? 'Connected' : 'Connect'}
-                  </button>
                 </div>
-              ))
-              )}
-            </div>
-          </section>
-
-          <section className="bg-white border border-slate-200 p-5 rounded-xl shadow-sm">
-            <h3 className="font-bold text-sm text-slate-900 mb-4 flex items-center gap-2">
-              <CreditCard className="w-4 h-4" /> Ad Accounts
-            </h3>
-            {adAccountsList.length === 0 && !isDemoMode ? (
-              <p className="text-xs text-slate-500">No ad accounts synced yet. Use Sync Ads above.</p>
-            ) : (
-            adAccountsList.map(acc => (
-              <div key={acc.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg mb-2 flex justify-between">
-                <div><p className="text-xs font-bold">{acc.name}</p><p className="text-[10px] font-mono text-slate-500">{acc.id}</p></div>
-                <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2 py-1 rounded">{acc.status}</span>
+                <span
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
+                    page.isConnected
+                      ? 'bg-emerald-50 text-emerald-700'
+                      : 'bg-slate-200 text-slate-600'
+                  }`}
+                >
+                  {page.isConnected ? 'Connected' : 'Not connected'}
+                </span>
               </div>
             ))
-            )}
-          </section>
+          )}
+        </div>
+      </section>
 
-          <section className="bg-white border border-slate-200 p-5 rounded-xl shadow-sm">
-            <h3 className="font-bold text-sm mb-4">Auto-Tagging Rules</h3>
-            {autoTaggingRules.map(rule => (
-              <div key={rule.id} className="p-3 bg-slate-50 border rounded-lg mb-2 flex justify-between text-xs">
-                <span>&quot;{rule.keyword}&quot; → #{rule.tag} · {rule.priority}</span>
-                <button onClick={() => onDeleteRule(rule.id)} className="text-red-600"><Trash2 className="w-4 h-4" /></button>
+      {/* Ad accounts */}
+      {(adAccountsList.length > 0 || isDemoMode) && (
+        <section className="bg-white border border-slate-200 p-5 rounded-2xl">
+          <h3 className="font-medium text-slate-900 mb-4">Ad accounts</h3>
+          {adAccountsList.length === 0 ? (
+            <p className="text-sm text-slate-500">No ad accounts yet. Update campaigns & ads to connect.</p>
+          ) : (
+            adAccountsList.map(acc => (
+              <div key={acc.id} className="p-3 bg-slate-50 rounded-xl mb-2 flex justify-between items-center">
+                <p className="text-sm font-medium text-slate-800">{acc.name}</p>
+                <span className="text-xs font-medium bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg">
+                  {acc.status}
+                </span>
               </div>
-            ))}
-            <form onSubmit={e => { e.preventDefault(); if (keyword && tag) { onAddRule(keyword, tag, priority); setKeyword(''); setTag(''); } }} className="grid grid-cols-3 gap-2 mt-3">
-              <input placeholder="Keyword" value={keyword} onChange={e => setKeyword(e.target.value)} className="filter-select text-xs" />
-              <input placeholder="Tag" value={tag} onChange={e => setTag(e.target.value)} className="filter-select text-xs" />
-              <select value={priority} onChange={e => setPriority(e.target.value)} className="filter-select text-xs">
-                <option>Low</option><option>Medium</option><option>High</option><option>Urgent</option>
-              </select>
-              <button type="submit" className="col-span-3 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1">
-                <PlusCircle className="w-3.5 h-3.5" /> Add Rule
+            ))
+          )}
+        </section>
+      )}
+
+      {/* Auto-tagging */}
+      <section className="bg-white border border-slate-200 p-5 rounded-2xl">
+        <h3 className="font-medium text-slate-900 mb-1">Auto-labeling</h3>
+        <p className="text-sm text-slate-500 mb-4">
+          Automatically tag comments when they contain certain words.
+        </p>
+        {autoTaggingRules.length === 0 ? (
+          <p className="text-sm text-slate-400 mb-3">No rules yet.</p>
+        ) : (
+          autoTaggingRules.map(rule => (
+            <div
+              key={rule.id}
+              className="p-3 bg-slate-50 rounded-xl mb-2 flex justify-between items-center text-sm"
+            >
+              <span className="text-slate-700">
+                When comment contains &quot;<strong>{rule.keyword}</strong>&quot; → tag{' '}
+                <strong>#{rule.tag}</strong> · {rule.priority} priority
+              </span>
+              <button onClick={() => onDeleteRule(rule.id)} className="text-red-500 hover:text-red-700 p-1">
+                <Trash2 className="w-4 h-4" />
               </button>
-            </form>
-          </section>
-        </div>
+            </div>
+          ))
+        )}
+        <form
+          onSubmit={e => {
+            e.preventDefault();
+            if (keyword && tag) {
+              onAddRule(keyword, tag, priority);
+              setKeyword('');
+              setTag('');
+            }
+          }}
+          className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3"
+        >
+          <input
+            placeholder="Word to look for"
+            value={keyword}
+            onChange={e => setKeyword(e.target.value)}
+            className="filter-select text-sm"
+          />
+          <input
+            placeholder="Tag name"
+            value={tag}
+            onChange={e => setTag(e.target.value)}
+            className="filter-select text-sm"
+          />
+          <select value={priority} onChange={e => setPriority(e.target.value)} className="filter-select text-sm">
+            <option>Low</option>
+            <option>Medium</option>
+            <option>High</option>
+            <option>Urgent</option>
+          </select>
+          <button
+            type="submit"
+            className="sm:col-span-3 py-2.5 bg-slate-900 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 hover:bg-slate-800 transition-colors"
+          >
+            <PlusCircle className="w-4 h-4" /> Add rule
+          </button>
+        </form>
+      </section>
 
-        <div className="lg:col-span-4 space-y-6">
-          <section className="bg-white border border-slate-200 p-5 rounded-xl">
-            <h3 className="font-bold text-sm mb-4 flex items-center gap-2"><Users className="w-4 h-4" /> Team</h3>
-            {teamMembers.map(m => (
-              <div key={m.id} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg mb-2">
-                <img src={m.avatarUrl} alt="" className="w-8 h-8 rounded-full" />
-                <div><p className="text-xs font-bold">{m.name}</p><p className="text-[10px] text-slate-500">{m.role}</p></div>
+      {/* Notifications */}
+      <section className="bg-white border border-slate-200 p-5 rounded-2xl">
+        <h3 className="font-medium text-slate-900 mb-4 flex items-center gap-2">
+          <Bell className="w-4 h-4 text-slate-400" /> Notifications
+        </h3>
+        {['New comment alerts', 'Urgent comment alerts', 'Daily summary email'].map((label, i) => (
+          <label key={label} className="flex items-center gap-3 text-sm text-slate-700 mb-3 cursor-pointer">
+            <input type="checkbox" defaultChecked={i < 2} className="w-4 h-4 rounded border-slate-300" />
+            {label}
+          </label>
+        ))}
+      </section>
+
+      {/* Team preview */}
+      <section className="bg-white border border-slate-200 p-5 rounded-2xl">
+        <h3 className="font-medium text-slate-900 mb-4">Team members</h3>
+        {teamMembers.map(m => (
+          <div key={m.id} className="flex items-center gap-3 p-2 bg-slate-50 rounded-xl mb-2">
+            {m.avatarUrl ? (
+              <img src={m.avatarUrl} alt="" className="w-8 h-8 rounded-full" />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-medium text-slate-600">
+                {m.name.charAt(0)}
               </div>
-            ))}
-          </section>
-          <section className="bg-white border border-slate-200 p-5 rounded-xl">
-            <h3 className="font-bold text-sm mb-4 flex items-center gap-2"><Zap className="w-4 h-4" /> Status Rules</h3>
-            {['New webhook → Unseen', 'Open comment → Seen', 'Reply on Meta → Replied', 'Assign → Auto Seen'].map(r => (
-              <div key={r} className="p-2 bg-slate-50 rounded-lg mb-1 text-xs">{r}</div>
-            ))}
-          </section>
-          <section className="bg-white border border-slate-200 p-5 rounded-xl">
-            <h3 className="font-bold text-sm mb-4 flex items-center gap-2"><Bell className="w-4 h-4" /> Notifications</h3>
-            {['Webhook sound', 'Urgent alerts', 'Slack SLA'].map((l, i) => (
-              <label key={l} className="flex items-center gap-2 text-xs mb-2 cursor-pointer">
-                <input type="checkbox" defaultChecked={i < 2} className="w-4 h-4" /> {l}
-              </label>
-            ))}
-          </section>
-        </div>
-      </div>
+            )}
+            <div>
+              <p className="text-sm font-medium text-slate-800">{m.name}</p>
+              <p className="text-xs text-slate-500">{m.role}</p>
+            </div>
+          </div>
+        ))}
+      </section>
+
+      {/* Advanced - collapsed by default */}
+      <section className="border border-slate-200 rounded-2xl overflow-hidden">
+        <button
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="w-full px-5 py-4 flex items-center justify-between text-sm text-slate-500 hover:bg-slate-50 transition-colors"
+        >
+          <span className="flex items-center gap-2">
+            <Link2 className="w-4 h-4" /> Advanced setup
+          </span>
+          {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        {showAdvanced && (
+          <div className="px-5 pb-5 border-t border-slate-100 pt-4 space-y-3 text-sm text-slate-500">
+            <p>
+              API credentials, webhooks, and database settings are configured by your admin team on the
+              server. Contact your IT administrator if you need to change the Meta connection.
+            </p>
+            {!isDemoMode && (
+              <>
+                <button
+                  disabled={syncing}
+                  onClick={() => runSync(apiClient.syncCommentsBackfill, 'past comments')}
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm disabled:opacity-50"
+                >
+                  Import comments from last 2 weeks
+                </button>
+                <div className="pt-3 border-t border-slate-100 space-y-2">
+                  <p className="font-medium text-slate-700">Refresh Meta access token</p>
+                  <p className="text-xs">
+                    Paste a short-lived token from Graph API Explorer. This returns a long-lived token to put in server .env.
+                  </p>
+                  <textarea
+                    value={shortToken}
+                    onChange={e => setShortToken(e.target.value)}
+                    placeholder="Paste short-lived token here…"
+                    rows={2}
+                    className="w-full filter-select text-xs font-mono"
+                  />
+                  <button
+                    type="button"
+                    disabled={!shortToken.trim()}
+                    onClick={async () => {
+                      try {
+                        const res = await apiClient.exchangeMetaToken(shortToken.trim());
+                        setExchangeResult(
+                          `Long-lived token (${res.expiresInDays} days). Update META_ACCESS_TOKEN on server, then pm2 restart metadashboard:\n\n${res.accessToken}`
+                        );
+                      } catch (err) {
+                        setExchangeResult(`Exchange failed: ${String(err)}`);
+                      }
+                    }}
+                    className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm disabled:opacity-50"
+                  >
+                    Exchange for long-lived token
+                  </button>
+                  {exchangeResult && (
+                    <textarea readOnly value={exchangeResult} rows={4} className="w-full filter-select text-xs font-mono bg-slate-50" />
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

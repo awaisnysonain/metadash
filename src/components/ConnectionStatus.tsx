@@ -1,26 +1,25 @@
 import React from 'react';
 import type { DataMode } from '../lib/config';
-import { Database, FlaskConical } from 'lucide-react';
 
 interface ConnectionStatusProps {
   dataMode: DataMode;
   isDemoMode: boolean;
 }
 
-export default function ConnectionStatus({ dataMode, isDemoMode }: ConnectionStatusProps) {
-  if (isDemoMode || dataMode === 'demo') {
+export default function ConnectionStatus({ isDemoMode }: ConnectionStatusProps) {
+  if (isDemoMode) {
     return (
-      <span className="inline-flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-0.5 text-[10px] text-amber-800 font-semibold">
-        <FlaskConical className="w-3 h-3" />
-        Demo Mode
+      <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+        Sample data
       </span>
     );
   }
 
   return (
-    <span className="inline-flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-0.5 text-[10px] text-emerald-800 font-semibold">
-      <Database className="w-3 h-3" />
-      Production · PostgreSQL
+    <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+      Connected
     </span>
   );
 }

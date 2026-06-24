@@ -295,6 +295,7 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
       const parsed = parseCreative(creative, ad.id);
       const campMetaId = ad.campaign?.id;
       const adsetMetaId = ad.adset?.id;
+      const postStoryId = creative?.effective_object_story_id ?? null;
 
       await upsertAd({
         id: `meta-ad-${ad.id}`,
@@ -313,6 +314,7 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
         headline: parsed.headline,
         description: parsed.description,
         cta: parsed.cta,
+        postStoryId,
       });
       syncedAds++;
     }

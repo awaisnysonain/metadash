@@ -32,7 +32,19 @@ export interface HealthStatus {
   metaAppId?: boolean;
   metaAccessToken?: boolean;
   metaVerifyToken?: boolean;
+  metaTokenValid?: boolean;
+  metaTokenExpiresAt?: string | null;
+  metaTokenMessage?: string | null;
   timestamp: string;
+}
+
+export interface MetaTokenStatus {
+  valid: boolean;
+  expiresAt: number | null;
+  expiresAtIso: string | null;
+  message: string;
+  scopes: string[];
+  appId: string | null;
 }
 
 export interface SyncResult {
@@ -136,5 +148,13 @@ export const apiClient = {
   getMetaStatusLatest: () =>
     request<{ latestAds: Array<{ adId: string; adName: string; campaignName: string }>; latestCampaigns: Array<{ campaignId: string; campaignName: string; platform: string; status: string }> }>(
       '/api/meta/status/latest'
+    ),
+
+  getMetaTokenStatus: () => request<MetaTokenStatus>('/api/meta/token/status'),
+
+  exchangeMetaToken: (shortLivedToken: string) =>
+    request<{ accessToken: string; expiresIn: number; expiresInDays: number; instructions: string; validation: MetaTokenStatus }>(
+      '/api/meta/token/exchange',
+      { method: 'POST', body: JSON.stringify({ shortLivedToken }) }
     ),
 };

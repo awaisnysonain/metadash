@@ -13,7 +13,7 @@ import { metaSyncRouter } from './routes/meta-sync.js';
 import { metaDebugRouter } from './routes/meta-debug.js';
 import { pagesRouter } from './routes/pages.js';
 import { getMetaSyncStatus, getMetaSyncStatusLatest } from './db/sync-repository.js';
-import { getMetaConfig, isMetaConfigured, isServerDemoMode } from './lib/meta.js';
+import { getMetaConfig, isMetaConfigured, isServerDemoMode, validateMetaAccessToken } from './lib/meta.js';
 import { startCommentSyncCron } from './lib/meta-comment-sync.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -27,6 +27,8 @@ const REGISTERED_META_ROUTES = [
   'GET  /api/meta/status/latest',
   'GET  /api/meta/debug',
   'GET  /api/meta/debug-pages',
+  'GET  /api/meta/token/status',
+  'POST /api/meta/token/exchange',
   'POST /api/meta/sync/ads',
   'POST /api/meta/sync/pages',
   'POST /api/meta/sync/instagram',
@@ -52,8 +54,9 @@ app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Health
-app.get('/api/health', (_req, res) => {
+app.get('/api/health', async (_req, res) => {
   const cfg = getMetaConfig();
+  const tokenStatus = cfg.accessToken ? await validateMetaAccessToken() : null;
   res.json({
     ok: true,
     mode: process.env.NODE_ENV || 'development',
@@ -64,6 +67,9 @@ app.get('/api/health', (_req, res) => {
     metaAppId: Boolean(cfg.appId),
     metaAccessToken: Boolean(cfg.accessToken),
     metaVerifyToken: Boolean(cfg.verifyToken),
+    metaTokenValid: tokenStatus?.valid ?? false,
+    metaTokenExpiresAt: tokenStatus?.expiresAtIso ?? null,
+    metaTokenMessage: tokenStatus?.message ?? null,
     domain: 'meta-dashboard.nysonik.com',
     timestamp: new Date().toISOString(),
   });

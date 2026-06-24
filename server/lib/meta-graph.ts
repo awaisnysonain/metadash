@@ -1,4 +1,4 @@
-import { metaGraphGet, metaGraphPaginate, metaGraphPaginateWithRaw, metaGraphPost } from './meta.js';
+import { metaGraphGet, metaGraphPaginate, metaGraphPaginateWithRaw, metaGraphPost, getMetaConfig, MetaApiError } from './meta.js';
 
 /* ── Meta Graph API response shapes ── */
 
@@ -407,28 +407,91 @@ export interface MetaComment {
   permalink_url?: string;
 }
 
-export async function fetchAdEffectiveStoryId(adId: string, accessToken?: string): Promise<string | null> {
+export interface ResolvedAdStory {
+  storyId: string | null;
+  pageId: string | null;
+  creativeId: string | null;
+}
+
+export function pageIdFromStoryId(storyId: string | null | undefined): string | null {
+  if (!storyId || !storyId.includes('_')) return null;
+  return storyId.split('_')[0] || null;
+}
+
+export async function resolveAdStoryId(adId: string, accessToken?: string): Promise<ResolvedAdStory> {
+  const empty: ResolvedAdStory = { storyId: null, pageId: null, creativeId: null };
+
   try {
-    const res = await metaGraphGet<{ creative?: { effective_object_story_id?: string } }>(
-      `/${adId}?fields=creative{effective_object_story_id}`,
-      accessToken
-    );
-    return res.creative?.effective_object_story_id ?? null;
+    const res = await metaGraphGet<{
+      creative?: {
+        id?: string;
+        effective_object_story_id?: string;
+        object_story_id?: string;
+      };
+    }>(`/${adId}?fields=creative{id,effective_object_story_id,object_story_id}`, accessToken);
+
+    const creative = res.creative;
+    let storyId = creative?.effective_object_story_id || creative?.object_story_id || null;
+
+    if (!storyId && creative?.id) {
+      const full = await metaGraphGet<{
+        effective_object_story_id?: string;
+        object_story_id?: string;
+      }>(
+        `/${creative.id}?fields=effective_object_story_id,object_story_id`,
+        accessToken
+      );
+      storyId = full.effective_object_story_id || full.object_story_id || null;
+    }
+
+    return {
+      storyId,
+      pageId: pageIdFromStoryId(storyId),
+      creativeId: creative?.id ?? null,
+    };
   } catch (err) {
+    if (err instanceof MetaApiError && err.code === 190) throw err;
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[comments] Could not resolve story for ad ${adId}: ${msg}`);
-    return null;
+    return empty;
   }
 }
 
-export async function fetchStoryComments(
+/** @deprecated use resolveAdStoryId */
+export async function fetchAdEffectiveStoryId(adId: string, accessToken?: string): Promise<string | null> {
+  const resolved = await resolveAdStoryId(adId, accessToken);
+  return resolved.storyId;
+}
+
+async function fetchStoryCommentsWithToken(
   storyId: string,
-  accessToken?: string,
+  token: string,
   opts?: { since?: number; until?: number; limit?: number }
 ): Promise<MetaComment[]> {
   const fields = 'id,message,from,created_time,permalink_url';
   let path = `/${storyId}/comments?fields=${fields}&limit=${opts?.limit ?? 100}&order=reverse_chronological`;
   if (opts?.since) path += `&since=${opts.since}`;
   if (opts?.until) path += `&until=${opts.until}`;
-  return metaGraphPaginate<MetaComment>(path, accessToken);
+  return metaGraphPaginate<MetaComment>(path, token);
+}
+
+export async function fetchStoryComments(
+  storyId: string,
+  accessToken?: string,
+  opts?: { since?: number; until?: number; limit?: number; pageAccessToken?: string | null }
+): Promise<MetaComment[]> {
+  const pageToken = opts?.pageAccessToken?.trim();
+  const userToken = accessToken || getMetaConfig().accessToken;
+
+  if (pageToken) {
+    try {
+      return await fetchStoryCommentsWithToken(storyId, pageToken, opts);
+    } catch (err) {
+      const code = err instanceof MetaApiError ? err.code : undefined;
+      console.warn(`[comments] Page token fetch failed for ${storyId}${code ? ` (${code})` : ''}, trying user token`);
+    }
+  }
+
+  if (!userToken) throw new MetaApiError('No access token available for comment fetch', { status: 400 });
+  return fetchStoryCommentsWithToken(storyId, userToken, opts);
 }

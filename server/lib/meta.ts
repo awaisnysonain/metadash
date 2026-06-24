@@ -156,6 +156,117 @@ export interface MetaPaginated<T> {
 export const ORGANIC_FEED_DISABLED_WARNING =
   'pages_read_user_content is missing, so organic feed/post reading is disabled. Ads sync and Page account discovery still work.';
 
+export interface MetaTokenStatus {
+  valid: boolean;
+  expiresAt: number | null;
+  expiresAtIso: string | null;
+  dataAccessExpiresAt: number | null;
+  message: string;
+  scopes: string[];
+  appId: string | null;
+  userId: string | null;
+}
+
+export async function validateMetaAccessToken(accessToken?: string): Promise<MetaTokenStatus> {
+  const token = (accessToken || getMetaConfig().accessToken)?.trim();
+  const cfg = getMetaConfig();
+
+  if (!token) {
+    return {
+      valid: false,
+      expiresAt: null,
+      expiresAtIso: null,
+      dataAccessExpiresAt: null,
+      message: 'META_ACCESS_TOKEN is not set',
+      scopes: [],
+      appId: cfg.appId || null,
+      userId: null,
+    };
+  }
+
+  if (!cfg.appId || !cfg.appSecret) {
+    return {
+      valid: false,
+      expiresAt: null,
+      expiresAtIso: null,
+      dataAccessExpiresAt: null,
+      message: 'META_APP_ID and META_APP_SECRET required to validate token',
+      scopes: [],
+      appId: cfg.appId || null,
+      userId: null,
+    };
+  }
+
+  try {
+    const appToken = `${cfg.appId}|${cfg.appSecret}`;
+    const res = await metaGraphGet<{
+      data?: {
+        is_valid?: boolean;
+        expires_at?: number;
+        data_access_expires_at?: number;
+        app_id?: string;
+        user_id?: string;
+        scopes?: string[];
+        error?: { message?: string; code?: number };
+      };
+    }>(`/debug_token?input_token=${encodeURIComponent(token)}`, appToken);
+
+    const d = res.data;
+    const errMsg = d?.error?.message;
+    const expiresAt = d?.expires_at && d.expires_at > 0 ? d.expires_at : null;
+
+    return {
+      valid: Boolean(d?.is_valid) && !errMsg,
+      expiresAt,
+      expiresAtIso: expiresAt ? new Date(expiresAt * 1000).toISOString() : null,
+      dataAccessExpiresAt: d?.data_access_expires_at ?? null,
+      message: errMsg || (d?.is_valid ? 'Token is valid' : 'Token is invalid or expired'),
+      scopes: d?.scopes ?? [],
+      appId: d?.app_id ?? null,
+      userId: d?.user_id ?? null,
+    };
+  } catch (err) {
+    const msg = err instanceof MetaApiError ? err.message : String(err);
+    return {
+      valid: false,
+      expiresAt: null,
+      expiresAtIso: null,
+      dataAccessExpiresAt: null,
+      message: msg,
+      scopes: [],
+      appId: cfg.appId || null,
+      userId: null,
+    };
+  }
+}
+
+export async function exchangeForLongLivedToken(shortLivedToken: string): Promise<{
+  accessToken: string;
+  tokenType: string;
+  expiresIn: number;
+}> {
+  const cfg = getMetaConfig();
+  if (!cfg.appId || !cfg.appSecret) {
+    throw new MetaApiError('META_APP_ID and META_APP_SECRET are required', { status: 400 });
+  }
+
+  const path =
+    `/oauth/access_token?grant_type=fb_exchange_token&client_id=${encodeURIComponent(cfg.appId)}` +
+    `&client_secret=${encodeURIComponent(cfg.appSecret)}` +
+    `&fb_exchange_token=${encodeURIComponent(shortLivedToken.trim())}`;
+
+  const res = await metaGraphGet<{ access_token?: string; token_type?: string; expires_in?: number }>(path);
+  if (!res.access_token) {
+    throw new MetaApiError('Meta did not return a long-lived access token', { status: 502 });
+  }
+
+  return {
+    accessToken: res.access_token,
+    tokenType: res.token_type ?? 'bearer',
+    expiresIn: res.expires_in ?? 0,
+  };
+}
+
 export async function tokenHasPermission(permission: string, accessToken?: string): Promise<boolean> {
   try {
     const token = accessToken || getMetaConfig().accessToken;

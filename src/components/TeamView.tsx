@@ -1,29 +1,15 @@
 import React from 'react';
 import { TeamMember, Comment } from '../types';
-import { 
-  Users, 
-  Mail, 
-  UserCheck, 
-  AlertTriangle, 
-  Clock, 
-  CheckCircle2, 
-  ShieldCheck, 
-  User, 
-  Bot,
-  PlusCircle,
-  X
-} from 'lucide-react';
+import { Users, PlusCircle, X, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface TeamViewProps {
   teamMembers: TeamMember[];
   comments: Comment[];
-  onNavigateToInbox: (filters?: any) => void;
+  onNavigateToInbox: (filters?: { assignedTo?: string }) => void;
   onAddTeamMember: (name: string, email: string, role: string) => void;
 }
 
 export default function TeamView({ teamMembers, comments, onNavigateToInbox, onAddTeamMember }: TeamViewProps) {
-  
-  // State for adding team members
   const [showAddForm, setShowAddForm] = React.useState(false);
   const [name, setName] = React.useState('');
   const [email, setEmail] = React.useState('');
@@ -39,182 +25,167 @@ export default function TeamView({ teamMembers, comments, onNavigateToInbox, onA
     setShowAddForm(false);
   };
 
-  // Compute stats for each team member
   const listData = teamMembers.map(member => {
     const assignedComments = comments.filter(c => c.assignedTo === member.id);
-    const completedCount = assignedComments.filter(c => c.status === 'Replied').length;
-    const urgentCount = assignedComments.filter(c => c.priority === 'Urgent' && c.status !== 'Replied').length;
-    
     return {
       ...member,
       assignedCount: assignedComments.length,
-      completedCount,
-      urgentCount
+      completedCount: assignedComments.filter(c => c.status === 'Replied').length,
+      urgentCount: assignedComments.filter(
+        c => c.priority === 'Urgent' && c.status !== 'Replied'
+      ).length,
     };
   });
 
   return (
-    <div className="space-y-4 animate-fadeIn text-xs" id="team-screen">
-      {/* Title */}
-      <div className="flex justify-between items-center">
+    <div className="space-y-6 animate-fade-in" id="team-screen">
+      <div className="flex justify-between items-start gap-4">
         <div>
-          <h2 className="text-xs font-bold text-slate-900 tracking-tight flex items-center gap-1.5">
-            <Users className="w-4 h-4 text-blue-600" /> Team Performance & Assignments
-          </h2>
-          <p className="text-[11px] text-slate-500">
-            Audit team workload capacities, monitor ticket assignment volumes, and coordinate customer care tasks.
+          <h2 className="text-lg font-semibold text-slate-900">Your team</h2>
+          <p className="text-sm text-slate-500 mt-1">
+            See who&apos;s handling comments and how much work they have.
           </p>
         </div>
-        
         <button
           onClick={() => setShowAddForm(!showAddForm)}
-          className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[11px] font-bold cursor-pointer flex items-center gap-1 transition-all shadow-sm select-none"
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium flex items-center gap-1.5 transition-colors shrink-0"
         >
-          <PlusCircle className="w-3.5 h-3.5" /> Add Team Member
+          <PlusCircle className="w-4 h-4" /> Add member
         </button>
       </div>
 
-      {/* Add team member modal/form banner */}
       {showAddForm && (
-        <form onSubmit={handleSubmit} className="p-4 bg-slate-50 border border-slate-205 rounded-lg animate-slideOver space-y-3">
-          <div className="flex justify-between items-center border-b border-slate-150 pb-1.5">
-            <h3 className="font-bold text-[9px] uppercase font-mono text-slate-600">Register New Team Member</h3>
-            <button type="button" onClick={() => setShowAddForm(false)} className="text-slate-400 hover:text-slate-700 cursor-pointer">
-              <X className="w-3.5 h-3.5" />
+        <form
+          onSubmit={handleSubmit}
+          className="p-5 bg-white border border-slate-200 rounded-2xl space-y-4"
+        >
+          <div className="flex justify-between items-center">
+            <h3 className="font-medium text-slate-900">Add team member</h3>
+            <button
+              type="button"
+              onClick={() => setShowAddForm(false)}
+              className="text-slate-400 hover:text-slate-600"
+            >
+              <X className="w-5 h-5" />
             </button>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="text-[9px] uppercase font-bold text-slate-400 block mb-0.5">Full Name</label>
+              <label className="text-sm text-slate-600 block mb-1.5">Name</label>
               <input
                 type="text"
                 required
-                placeholder="Marcus Aurelius"
+                placeholder="Jane Smith"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full text-xs px-2.5 py-1 border border-slate-200 rounded focus:ring-1 focus:ring-blue-500 bg-white text-slate-800 placeholder-slate-400 font-sans"
+                onChange={e => setName(e.target.value)}
+                className="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               />
             </div>
             <div>
-              <label className="text-[9px] uppercase font-bold text-slate-400 block mb-0.5">Job Role</label>
+              <label className="text-sm text-slate-600 block mb-1.5">Role</label>
               <input
                 type="text"
                 required
-                placeholder="Marketing coordinator"
+                placeholder="Community manager"
                 value={role}
-                onChange={(e) => setRole(e.target.value)}
-                className="w-full text-xs px-2.5 py-1 border border-slate-200 rounded focus:ring-1 focus:ring-blue-500 bg-white text-slate-800 placeholder-slate-400 font-sans"
+                onChange={e => setRole(e.target.value)}
+                className="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               />
             </div>
             <div>
-              <label className="text-[9px] uppercase font-bold text-slate-400 block mb-0.5">Corporate Email Address</label>
+              <label className="text-sm text-slate-600 block mb-1.5">Email</label>
               <input
                 type="email"
                 required
-                placeholder="marcus@growth.com"
+                placeholder="jane@company.com"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full text-xs px-2.5 py-1 border border-slate-200 rounded focus:ring-1 focus:ring-blue-500 bg-white text-slate-800 placeholder-slate-400 font-mono"
+                onChange={e => setEmail(e.target.value)}
+                className="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               />
             </div>
           </div>
-          <div className="flex justify-end gap-1.5 text-[11px] font-semibold mt-1">
-            <button 
-              type="button" 
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
               onClick={() => setShowAddForm(false)}
-              className="px-2.5 py-1 border border-slate-200 text-slate-500 rounded hover:bg-slate-100 cursor-pointer"
+              className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 rounded-lg transition-colors"
             >
               Cancel
             </button>
-            <button 
-              type="submit" 
-              className="px-3.5 py-1 bg-slate-900 border border-slate-800 text-white rounded hover:bg-slate-950 cursor-pointer"
+            <button
+              type="submit"
+              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
             >
-              Save Register
+              Save
             </button>
           </div>
         </form>
       )}
 
-      {/* Grid listing workloads */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {listData.map(member => (
-          <div 
+          <div
             key={member.id}
-            className="bg-white border border-slate-200 p-4 rounded-lg shadow-sm hover:shadow-md transition-all duration-150 relative overflow-hidden flex flex-col justify-between"
+            className="bg-white border border-slate-200 rounded-2xl p-5 hover:border-slate-300 transition-colors flex flex-col"
           >
-            {/* Background elements */}
-            <div className="absolute top-0 right-0 w-24 h-24 bg-slate-50/10 rounded-full blur-xl translate-x-1/2 -translate-y-1/2"></div>
-            
-            <div>
-              {/* Profile card */}
-              <div className="flex items-center space-x-2.5 mb-3.5">
-                <img 
-                  src={member.avatarUrl} 
-                  alt={member.name} 
-                  className="w-10 h-10 rounded-full object-cover border border-slate-200"
+            <div className="flex items-center gap-3 mb-4">
+              {member.avatarUrl ? (
+                <img
+                  src={member.avatarUrl}
+                  alt={member.name}
+                  className="w-11 h-11 rounded-full object-cover"
                 />
-                <div className="min-w-0">
-                  <h3 className="font-bold text-slate-950 text-xs truncate">{member.name}</h3>
-                  <span className="text-[9px] font-mono text-blue-650 block truncate font-bold">{member.role}</span>
+              ) : (
+                <div className="w-11 h-11 rounded-full bg-slate-100 flex items-center justify-center text-sm font-medium text-slate-600">
+                  {member.name.charAt(0)}
                 </div>
-              </div>
-
-              {/* Workload specs */}
-              <div className="space-y-1.5 mt-3.5 text-[11px] text-slate-500">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
-                  <div className="flex items-center space-x-1">
-                    <UserCheck className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Assigned Tickets:</span>
-                  </div>
-                  <strong className="text-slate-800">{member.assignedCount} comments</strong>
-                </div>
-
-                <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
-                  <div className="flex items-center space-x-1">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                    <span>Replied Resolved:</span>
-                  </div>
-                  <strong className="text-slate-800">{member.completedCount} replies</strong>
-                </div>
-
-                <div className="flex items-center justify-between pb-0.5">
-                  <div className="flex items-center space-x-1">
-                    <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
-                    <span>Active Urgent Backlog:</span>
-                  </div>
-                  <strong className={`${member.urgentCount > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'}`}>
-                    {member.urgentCount} items
-                  </strong>
-                </div>
+              )}
+              <div className="min-w-0">
+                <h3 className="font-medium text-slate-900 truncate">{member.name}</h3>
+                <p className="text-sm text-slate-500 truncate">{member.role}</p>
               </div>
             </div>
 
-            {/* Inspect workload button */}
-            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px]">
-              <span className="text-slate-400 font-mono italic truncate max-w-[120px]">{member.email}</span>
-              <button
-                onClick={() => onNavigateToInbox({ assignedTo: member.id })}
-                className="text-blue-650 font-bold hover:underline cursor-pointer"
-              >
-                Inspect Workload ➔
-              </button>
+            <div className="space-y-2.5 flex-1">
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">Assigned</span>
+                <span className="font-medium text-slate-900">{member.assignedCount}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500 flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Replied
+                </span>
+                <span className="font-medium text-slate-900">{member.completedCount}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500 flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-500" /> Urgent
+                </span>
+                <span
+                  className={`font-medium ${member.urgentCount > 0 ? 'text-rose-600' : 'text-slate-400'}`}
+                >
+                  {member.urgentCount}
+                </span>
+              </div>
             </div>
 
+            <button
+              onClick={() => onNavigateToInbox({ assignedTo: member.id })}
+              className="mt-4 pt-4 border-t border-slate-100 text-sm text-blue-600 font-medium hover:text-blue-700 flex items-center gap-1 transition-colors"
+            >
+              View their comments <ArrowRight className="w-4 h-4" />
+            </button>
           </div>
         ))}
       </div>
-      
-      {/* Simulation tips box */}
-      <div className="p-3 bg-blue-50/40 border border-blue-105 rounded text-blue-950 text-xs flex items-start gap-2">
-        <Bot className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-        <div>
-          <strong className="font-bold block mb-0.5">Mock Team Management Notes</strong>
-          <span className="text-[11px] text-slate-650">
-            You can reassign comments to any of these representatives inside target cards or within the comment detail overlays. Workload metrics update dynamically.
-          </span>
+
+      {listData.length === 0 && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center">
+          <Users className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+          <p className="text-base font-medium text-slate-700">No team members yet</p>
+          <p className="text-sm text-slate-500 mt-1">Add your first team member to start assigning comments.</p>
         </div>
-      </div>
+      )}
     </div>
   );
 }

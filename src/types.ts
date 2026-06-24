@@ -64,6 +64,7 @@ export interface Ad {
   likesCount?: number;
   sharesCount?: number;
   commentsCount?: number;
+  postStoryId?: string;
 }
 
 export interface Comment {

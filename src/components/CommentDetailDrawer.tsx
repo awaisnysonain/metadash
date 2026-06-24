@@ -8,7 +8,6 @@ import {
   ExternalLink,
   Tag,
   History,
-  Lock,
   Eye,
   CheckCircle,
   EyeOff,
@@ -71,13 +70,10 @@ export default function CommentDetailDrawer({
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
 
       <div className="relative w-full max-w-lg bg-white h-full shadow-2xl flex flex-col z-50 border-l border-slate-200 animate-slide-over">
-        <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/80">
-          <div>
-            <h3 className="font-bold text-slate-900 text-sm">Comment Details</h3>
-            <p className="text-[10px] font-mono text-slate-400">ID: {comment.commentId}</p>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors">
-            <X className="w-4 h-4" />
+        <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+          <h3 className="font-semibold text-slate-900">Comment details</h3>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors">
+            <X className="w-5 h-5" />
           </button>
         </div>
 
@@ -140,8 +136,8 @@ export default function CommentDetailDrawer({
           <AdPreviewPanel ad={matchingAd} comment={comment} compact />
 
           {/* Management controls */}
-          <div className="p-4 bg-white rounded-xl border border-slate-200">
-            <h4 className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-3">Management</h4>
+          <div className="p-4 bg-white rounded-2xl border border-slate-200">
+            <h4 className="text-sm font-medium text-slate-700 mb-3">Actions</h4>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[10px] font-bold text-slate-500 mb-1 block">Status</label>
@@ -186,8 +182,8 @@ export default function CommentDetailDrawer({
           </div>
 
           {/* Tags */}
-          <div className="p-4 bg-white rounded-xl border border-slate-200">
-            <h4 className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-2">Tags</h4>
+          <div className="p-4 bg-white rounded-2xl border border-slate-200">
+            <h4 className="text-sm font-medium text-slate-700 mb-2">Tags</h4>
             <div className="flex flex-wrap gap-1.5 mb-3">
               {comment.tags.length === 0 ? (
                 <span className="text-xs text-slate-400 italic">No tags</span>
@@ -216,9 +212,9 @@ export default function CommentDetailDrawer({
           </div>
 
           {/* Notes */}
-          <div className="p-4 bg-white rounded-xl border border-slate-200">
-            <h4 className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-2">
-              Internal Notes ({filteredNotes.length})
+          <div className="p-4 bg-white rounded-2xl border border-slate-200">
+            <h4 className="text-sm font-medium text-slate-700 mb-2">
+              Notes ({filteredNotes.length})
             </h4>
             <div className="space-y-2 mb-3 max-h-40 overflow-y-auto">
               {filteredNotes.length === 0 ? (
@@ -243,7 +239,7 @@ export default function CommentDetailDrawer({
             <form onSubmit={handleNoteSubmit}>
               <textarea
                 rows={2}
-                placeholder="Add internal note..."
+                placeholder="Add a note for your team..."
                 value={newNote}
                 onChange={e => setNewNote(e.target.value)}
                 className="w-full text-xs p-2 border border-slate-200 rounded-lg resize-none focus:ring-2 focus:ring-blue-500/20"
@@ -255,9 +251,9 @@ export default function CommentDetailDrawer({
           </div>
 
           {/* Activity timeline */}
-          <div className="p-4 bg-white rounded-xl border border-slate-200">
-            <h4 className="text-[10px] uppercase font-bold text-slate-400 tracking-wider flex items-center gap-1.5 mb-3">
-              <History className="w-3.5 h-3.5" /> Activity Timeline
+          <div className="p-4 bg-white rounded-2xl border border-slate-200">
+            <h4 className="text-sm font-medium text-slate-700 flex items-center gap-1.5 mb-3">
+              <History className="w-4 h-4 text-slate-400" /> History
             </h4>
             <div className="space-y-3">
               {filteredLogs.length === 0 ? (
@@ -269,7 +265,7 @@ export default function CommentDetailDrawer({
                     <p className="text-xs text-slate-700">
                       <strong>{log.userName}</strong>{' '}
                       {log.action === 'Status Change' && (
-                        <>changed status from <span className="font-mono text-slate-500">{log.oldValue}</span> to <span className="font-bold">{log.newValue}</span></>
+                        <>changed status from {log.oldValue} to <span className="font-medium">{log.newValue}</span></>
                       )}
                       {log.action === 'Assignment' && (
                         <>assigned to <span className="font-bold text-blue-600">{log.newValue}</span></>
@@ -277,10 +273,8 @@ export default function CommentDetailDrawer({
                       {log.action === 'Priority Change' && (
                         <>changed priority from {log.oldValue} to <span className="font-bold">{log.newValue}</span></>
                       )}
-                      {log.action === 'Context Note Addition' && <>added an internal note</>}
-                      {log.action === 'Webhook Received' && (
-                        <span className="text-emerald-600 font-semibold">{log.newValue}</span>
-                      )}
+                      {log.action === 'Context Note Addition' && <>added a note</>}
+                      {log.action === 'Webhook Received' && <>received a new comment</>}
                     </p>
                     <p className="text-[9px] text-slate-400 mt-0.5">{formatFullTime(log.createdAt)}</p>
                   </div>
@@ -288,11 +282,6 @@ export default function CommentDetailDrawer({
               )}
             </div>
           </div>
-        </div>
-
-        <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-center gap-1.5 text-slate-400">
-          <Lock className="w-3 h-3" />
-          <span className="text-[10px] uppercase tracking-widest font-mono">Internal Use Only</span>
         </div>
       </div>
     </div>

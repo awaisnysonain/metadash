@@ -1,10 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: 'Manrope', system-ui, -apple-system, sans-serif;
-  --font-display: 'Manrope', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', SFMono-Regular, monospace;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-display: 'Inter', system-ui, sans-serif;
 }
 
 ::-webkit-scrollbar {
@@ -17,7 +16,7 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(203, 213, 225, 1);
+  background: rgba(203, 213, 225, 0.8);
   border-radius: 9999px;
 }
 
@@ -26,19 +25,19 @@
 }
 
 .filter-select {
-  @apply w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors;
+  @apply w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors;
 }
 
 .label-text {
-  @apply text-[10px] uppercase font-bold text-slate-400 tracking-wide block mb-1.5;
+  @apply text-sm text-slate-600 block mb-1.5;
 }
 
 .action-btn {
-  @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors;
+  @apply inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors;
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
+  from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -48,17 +47,17 @@
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.25s ease-out;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
 }
 
 .animate-slide-over {
   animation: slideOver 0.3s ease-out;
 }
 
-.glow-facebook {
-  box-shadow: 0 0 20px rgba(24, 119, 242, 0.12);
-}
-
-.glow-instagram {
-  box-shadow: 0 0 20px rgba(236, 72, 153, 0.12);
+.animate-slideOver {
+  animation: slideOver 0.3s ease-out;
 }

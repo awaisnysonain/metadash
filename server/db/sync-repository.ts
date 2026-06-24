@@ -79,13 +79,14 @@ export async function upsertAd(row: {
   headline?: string;
   description?: string;
   cta?: string;
+  postStoryId?: string | null;
 }) {
   await query(
     `INSERT INTO ads (
        id, platform, ad_id, ad_name, adset_name, campaign_name,
        adset_id, campaign_id, original_ad_url, media_type, media_url, thumbnail_url,
-       ad_copy, headline, description, cta, synced_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,NOW())
+       ad_copy, headline, description, cta, post_story_id, synced_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW())
      ON CONFLICT (id) DO UPDATE SET
        ad_name = EXCLUDED.ad_name,
        adset_name = EXCLUDED.adset_name,
@@ -100,6 +101,7 @@ export async function upsertAd(row: {
        headline = EXCLUDED.headline,
        description = EXCLUDED.description,
        cta = EXCLUDED.cta,
+       post_story_id = COALESCE(EXCLUDED.post_story_id, ads.post_story_id),
        synced_at = NOW()`,
     [
       row.id,
@@ -118,6 +120,7 @@ export async function upsertAd(row: {
       row.headline ?? null,
       row.description ?? null,
       row.cta ?? null,
+      row.postStoryId ?? null,
     ]
   );
 }
@@ -186,6 +189,14 @@ export async function getAllConnectedPages() {
     isConnected: row.is_connected,
     syncedAt: row.synced_at,
   }));
+}
+
+export async function getPageAccessToken(pageId: string): Promise<string | null> {
+  const { rows } = await query<{ access_token: string | null }>(
+    'SELECT access_token FROM connected_pages WHERE page_id = $1 AND access_token IS NOT NULL LIMIT 1',
+    [pageId]
+  );
+  return rows[0]?.access_token ?? null;
 }
 
 export interface MetaSyncStatusLatest {

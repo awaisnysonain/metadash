@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getMetaConfig } from '../lib/meta.js';
+import { getMetaConfig, validateMetaAccessToken, exchangeForLongLivedToken } from '../lib/meta.js';
 import { PAGE_SYNC_FIELDS } from '../lib/meta-graph.js';
 
 export const metaDebugRouter = Router();
@@ -46,6 +46,36 @@ metaDebugRouter.get('/debug-pages', async (_req, res) => {
     res.status(status).json(body);
   } catch (err) {
     res.status(500).json({ error: String(err) });
+  }
+});
+
+metaDebugRouter.get('/token/status', async (_req, res) => {
+  try {
+    const status = await validateMetaAccessToken();
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+metaDebugRouter.post('/token/exchange', async (req, res) => {
+  const shortToken = String(req.body?.shortLivedToken ?? req.body?.token ?? '').trim();
+  if (!shortToken) {
+    return res.status(400).json({ error: 'shortLivedToken is required' });
+  }
+
+  try {
+    const exchanged = await exchangeForLongLivedToken(shortToken);
+    const status = await validateMetaAccessToken(exchanged.accessToken);
+    res.json({
+      ...exchanged,
+      expiresInDays: Math.round(exchanged.expiresIn / 86400),
+      validation: status,
+      instructions:
+        'Copy accessToken into META_ACCESS_TOKEN in server .env, then run: pm2 restart metadashboard',
+    });
+  } catch (err) {
+    res.status(400).json({ error: String(err) });
   }
 });
 

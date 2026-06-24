@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS ads (
   likes_count INT,
   shares_count INT,
   comments_count INT,
+  post_story_id TEXT,
   synced_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -157,3 +158,5 @@ CREATE INDEX IF NOT EXISTS idx_comments_status ON comments(status);
 CREATE INDEX IF NOT EXISTS idx_comments_platform ON comments(platform);
 CREATE INDEX IF NOT EXISTS idx_comments_created_at ON comments(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_comment ON activity_logs(comment_id);
+
+ALTER TABLE ads ADD COLUMN IF NOT EXISTS post_story_id TEXT;

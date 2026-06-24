@@ -140,6 +140,17 @@ export default function App() {
 
   const totalUnseenCount = comments.filter(c => c.status === 'Unseen').length;
 
+  const pageTitles: Record<string, string> = {
+    inbox: 'Inbox',
+    dashboard: 'Overview',
+    facebook: 'Facebook Comments',
+    instagram: 'Instagram Comments',
+    campaigns: 'Campaigns',
+    team: 'Team',
+    reports: 'Reports',
+    settings: 'Settings',
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -152,7 +163,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex bg-slate-50 min-h-screen text-slate-800 font-sans" id="app-root">
+    <div className="flex bg-[#f8f9fb] min-h-screen text-slate-800 font-sans" id="app-root">
       <Sidebar
         currentTab={currentTab}
         setCurrentTab={tab => {
@@ -164,25 +175,27 @@ export default function App() {
       />
 
       <div className="flex-1 flex flex-col min-w-0" id="main-content-area">
-        <header className="h-14 bg-white border-b border-slate-200 px-6 sticky top-0 z-40 flex items-center justify-between shadow-sm">
+        <header className="h-14 bg-white/80 backdrop-blur-sm border-b border-slate-200/80 px-6 sticky top-0 z-40 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <h2 className="text-sm font-bold text-slate-800 capitalize">
-              {currentTab === 'inbox' ? 'Comment Inbox' : currentTab.replace(/([A-Z])/g, ' $1').trim()}
+            <h2 className="text-base font-semibold text-slate-900">
+              {pageTitles[currentTab] || currentTab}
             </h2>
             <ConnectionStatus dataMode={dataMode} isDemoMode={isDemoMode} />
           </div>
 
-          <div className="flex items-center gap-4">
-            <span className="hidden md:inline text-xs text-slate-500">
-              Unseen: <strong className="text-slate-800">{totalUnseenCount}</strong>
-            </span>
-            {!isDemoMode && (
+          <div className="flex items-center gap-3">
+            {totalUnseenCount > 0 && (
+              <span className="hidden md:inline text-sm text-slate-500">
+                {totalUnseenCount} new {totalUnseenCount === 1 ? 'comment' : 'comments'}
+              </span>
+            )}
+            {!isDemoMode && currentTab !== 'settings' && (
               <button
                 onClick={() => void handleRefreshComments()}
                 disabled={isRefreshing}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 disabled:opacity-60"
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors"
               >
-                {isRefreshing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                 Refresh
               </button>
             )}

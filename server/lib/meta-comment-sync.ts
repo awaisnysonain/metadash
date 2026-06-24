@@ -1,10 +1,12 @@
 import { isDatabaseConfigured, hasDatabaseUrl } from '../db/pool.js';
-import { getAllAds } from '../db/repository.js';
-import { upsertComment, insertActivityLog, commentExistsByMetaId } from '../db/repository.js';
-import { getMetaConfig, isServerDemoMode, validateMetaSync } from './meta.js';
-import { fetchAdEffectiveStoryId, fetchStoryComments, type MetaComment } from './meta-graph.js';
+import { getAllAds, upsertComment, insertActivityLog, commentExistsByMetaId } from '../db/repository.js';
+import { getPageAccessToken } from '../db/sync-repository.js';
+import { getMetaConfig, isServerDemoMode, validateMetaSync, validateMetaAccessToken } from './meta.js';
+import { resolveAdStoryId, fetchStoryComments, pageIdFromStoryId, type MetaComment } from './meta-graph.js';
+import { MetaApiError } from './meta.js';
 import { mapSyncedComment } from './webhook.js';
 import { syncErrorMessage, syncPagesFromMeta, syncAdsFromMeta } from './meta-sync-service.js';
+import { query } from '../db/pool.js';
 
 export interface CommentSyncOutcome {
   ok: boolean;
@@ -12,6 +14,7 @@ export interface CommentSyncOutcome {
   message: string;
   adsProcessed?: number;
   adsSkipped?: number;
+  adsWithStory?: number;
   details?: Record<string, unknown>;
 }
 
@@ -22,11 +25,13 @@ export interface CommentSyncState {
   lastMessage: string;
   isRunning: boolean;
   nextRunAt: string | null;
+  tokenValid: boolean;
+  tokenMessage: string;
 }
 
 const BACKFILL_DAYS = 14;
 const INCREMENTAL_HOURS = 26;
-const AD_BATCH_DELAY_MS = 150;
+const AD_BATCH_DELAY_MS = 120;
 
 let syncState: CommentSyncState = {
   lastRunAt: null,
@@ -35,6 +40,8 @@ let syncState: CommentSyncState = {
   lastMessage: '',
   isRunning: false,
   nextRunAt: null,
+  tokenValid: true,
+  tokenMessage: '',
 };
 
 export function getCommentSyncState(): CommentSyncState {
@@ -57,6 +64,13 @@ function commentInRange(createdTime: string | undefined, since: number): boolean
   if (!createdTime) return true;
   const ts = Math.floor(new Date(createdTime).getTime() / 1000);
   return ts >= since;
+}
+
+async function saveAdStoryId(adDbId: string, storyId: string): Promise<void> {
+  await query('UPDATE ads SET post_story_id = $1 WHERE id = $2 AND (post_story_id IS NULL OR post_story_id = \'\')', [
+    storyId,
+    adDbId,
+  ]);
 }
 
 async function persistMetaComment(
@@ -131,9 +145,28 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
     return { ok: false, synced: 0, message: check.message! };
   }
 
+  const tokenStatus = await validateMetaAccessToken();
+  syncState.tokenValid = tokenStatus.valid;
+  syncState.tokenMessage = tokenStatus.message;
+
+  if (!tokenStatus.valid) {
+    return {
+      ok: false,
+      synced: 0,
+      message: `Meta access token is invalid or expired. ${tokenStatus.message} Generate a new token in Meta Graph API Explorer (app ${tokenStatus.appId ?? 'your app'}), then update META_ACCESS_TOKEN on the server and restart.`,
+      details: { tokenStatus },
+    };
+  }
+
   const token = getMetaConfig().accessToken?.trim();
   if (!token) {
     return { ok: false, synced: 0, message: 'META_ACCESS_TOKEN is not set.' };
+  }
+
+  // Refresh page tokens for comment reads
+  const pagesResult = await syncPagesFromMeta();
+  if (!pagesResult.ok) {
+    console.warn('[comment-sync] Page sync warning:', pagesResult.message);
   }
 
   const ads = await getAllAds();
@@ -149,17 +182,38 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
   let synced = 0;
   let adsProcessed = 0;
   let adsSkipped = 0;
+  let adsWithStory = 0;
   const errors: string[] = [];
+  const skipReasons: Record<string, number> = { no_story: 0, fetch_error: 0 };
 
   for (const ad of ads) {
     try {
-      const storyId = await fetchAdEffectiveStoryId(ad.adId, token);
+      let storyId = ad.postStoryId?.trim() || null;
+      let pageId = pageIdFromStoryId(storyId);
+
+      if (!storyId) {
+        const resolved = await resolveAdStoryId(ad.adId, token);
+        storyId = resolved.storyId;
+        pageId = resolved.pageId;
+        if (storyId) {
+          await saveAdStoryId(ad.id, storyId);
+        }
+      }
+
       if (!storyId) {
         adsSkipped++;
+        skipReasons.no_story++;
         continue;
       }
 
-      const comments = await fetchStoryComments(storyId, token, { since, limit: 100 });
+      adsWithStory++;
+      const pageToken = pageId ? await getPageAccessToken(pageId) : null;
+
+      const comments = await fetchStoryComments(storyId, token, {
+        since,
+        limit: 100,
+        pageAccessToken: pageToken,
+      });
 
       for (const c of comments) {
         const saved = await persistMetaComment(c, {
@@ -177,24 +231,42 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
       adsProcessed++;
       await sleep(AD_BATCH_DELAY_MS);
     } catch (err) {
+      if (err instanceof MetaApiError && err.code === 190) {
+        syncState.tokenValid = false;
+        syncState.tokenMessage = err.message;
+        return {
+          ok: false,
+          synced,
+          message: `Meta token expired during sync. ${err.message}`,
+          adsProcessed,
+          adsSkipped,
+          adsWithStory,
+        };
+      }
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(`${ad.adName}: ${msg}`);
       adsSkipped++;
+      skipReasons.fetch_error++;
     }
   }
 
   const label = mode === 'backfill' ? `${BACKFILL_DAYS}-day backfill` : 'incremental';
-  let message = `Comment ${label}: synced ${synced} comment(s) from ${adsProcessed} ad(s).`;
-  if (adsSkipped) message += ` Skipped ${adsSkipped} ad(s).`;
-  if (errors.length) message += ` ${errors.length} error(s).`;
+  let message = `Comment ${label}: synced ${synced} comment(s) from ${adsProcessed} ad(s) (${adsWithStory} with post IDs).`;
+  if (adsSkipped) {
+    message += ` Skipped ${adsSkipped} ad(s)`;
+    if (skipReasons.no_story) message += ` (${skipReasons.no_story} without post story ID)`;
+    message += '.';
+  }
+  if (errors.length) message += ` ${errors.length} fetch error(s).`;
 
   return {
     ok: true,
     synced,
     adsProcessed,
     adsSkipped,
+    adsWithStory,
     message,
-    details: { mode, since, errors: errors.slice(0, 10) },
+    details: { mode, since, skipReasons, errors: errors.slice(0, 10), pagesSync: pagesResult.message },
   };
 }
 
@@ -247,8 +319,23 @@ export function startCommentSyncCron(): void {
 
   syncState.nextRunAt = new Date(Date.now() + CRON_INTERVAL_MS).toISOString();
 
+  void validateMetaAccessToken().then(status => {
+    syncState.tokenValid = status.valid;
+    syncState.tokenMessage = status.message;
+    if (!status.valid) {
+      console.error(`[comment-sync] ${status.message}`);
+    }
+  });
+
   cronTimer = setInterval(async () => {
     syncState.nextRunAt = new Date(Date.now() + CRON_INTERVAL_MS).toISOString();
+    const status = await validateMetaAccessToken();
+    syncState.tokenValid = status.valid;
+    syncState.tokenMessage = status.message;
+    if (!status.valid) {
+      console.warn('[comment-sync] Cron skipped — invalid Meta token');
+      return;
+    }
     console.log('[comment-sync] Cron: starting incremental sync');
     await runCommentSync('incremental');
     syncState.nextRunAt = new Date(Date.now() + CRON_INTERVAL_MS).toISOString();
@@ -256,9 +343,16 @@ export function startCommentSyncCron(): void {
 
   console.log(`[comment-sync] Cron scheduled every ${CRON_INTERVAL_MS / 60000} minutes`);
 
-  // Bootstrap: sync ads if missing, then backfill comments for past 2 weeks
   setTimeout(async () => {
     try {
+      const status = await validateMetaAccessToken();
+      syncState.tokenValid = status.valid;
+      syncState.tokenMessage = status.message;
+      if (!status.valid) {
+        console.error('[comment-sync] Startup skipped — Meta token invalid:', status.message);
+        return;
+      }
+
       let ads = await getAllAds();
       if (!ads.length) {
         console.log('[comment-sync] No ads in DB — syncing pages and ads first');
