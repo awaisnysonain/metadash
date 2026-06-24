@@ -460,7 +460,7 @@ export async function syncPagesFromMeta(): Promise<SyncOutcome> {
       pagesFound: 0,
       pagesSaved: 0,
       message: 'No Facebook Pages returned. Ensure tokens have pages_show_list permission.',
-      details: { rawMetaResponses: rawResponses, accounts: configuredAccounts.map(a => a.label) },
+      details: { rawMetaResponseCount: rawResponses.length, accounts: configuredAccounts.map(a => a.label) },
     };
   }
 
@@ -479,7 +479,7 @@ export async function syncPagesFromMeta(): Promise<SyncOutcome> {
     pagesFound,
     pagesSaved,
     message,
-    details: { saveErrors, warnings, rawMetaResponses: rawResponses },
+    details: { saveErrors, warnings, rawMetaResponseCount: rawResponses.length },
   };
 }
 

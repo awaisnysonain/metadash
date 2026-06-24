@@ -315,7 +315,7 @@ export async function metaGraphPaginateWithRaw<T>(
     const fetchUrl = url.includes('access_token=') ? url : withToken(url, token);
     const res = await fetch(fetchUrl);
     const text = await res.text();
-    console.log(`[${logLabel}] raw Meta response (${fetchUrl.split('?')[0]}):`, text.slice(0, 12000));
+    console.log(`[${logLabel}] Meta response (${fetchUrl.split('?')[0]}): ${res.status} ${res.statusText}`);
 
     let body: MetaPaginated<T> & MetaGraphErrorBody;
     try {
@@ -324,7 +324,7 @@ export async function metaGraphPaginateWithRaw<T>(
       throw new MetaApiError(`${logLabel}: ${text || res.statusText}`, { status: res.status });
     }
 
-    rawPages.push(body);
+    rawPages.push(redactMetaResponse(body));
 
     if (!res.ok || body.error) {
       throw new MetaApiError(friendlyMetaMessage(body, `${logLabel} failed`), {
@@ -341,6 +341,16 @@ export async function metaGraphPaginateWithRaw<T>(
   }
 
   return { items, rawPages };
+}
+
+function redactMetaResponse(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactMetaResponse);
+  if (!value || typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(value)) {
+    out[key] = key.toLowerCase().includes('access_token') ? '[redacted]' : redactMetaResponse(val);
+  }
+  return out;
 }
 
 export async function metaGraphPaginate<T>(path: string, accessToken?: string): Promise<T[]> {
