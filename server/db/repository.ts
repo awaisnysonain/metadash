@@ -11,7 +11,7 @@ import {
 } from '../db/mappers.js';
 
 export async function getAllComments() {
-  const { rows } = await query('SELECT * FROM comments ORDER BY created_at DESC');
+  const { rows } = await query('SELECT * FROM comments ORDER BY created_at DESC LIMIT 1000');
   return rows.map(rowToComment);
 }
 
@@ -164,7 +164,7 @@ export async function updateCommentFields(id: string, fields: Record<string, unk
 }
 
 export async function getAllNotes() {
-  const { rows } = await query('SELECT * FROM comment_notes ORDER BY created_at DESC');
+  const { rows } = await query('SELECT * FROM comment_notes ORDER BY created_at DESC LIMIT 1000');
   return rows.map(rowToNote);
 }
 
@@ -178,7 +178,7 @@ export async function insertNote(note: Record<string, unknown>) {
 }
 
 export async function getAllActivityLogs() {
-  const { rows } = await query('SELECT * FROM activity_logs ORDER BY created_at DESC');
+  const { rows } = await query('SELECT * FROM activity_logs ORDER BY created_at DESC LIMIT 1000');
   return rows.map(rowToLog);
 }
 

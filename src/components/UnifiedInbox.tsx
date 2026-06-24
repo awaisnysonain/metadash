@@ -48,6 +48,8 @@ const STATUS_TABS = [
   { id: 'Unreplied', label: 'Unreplied' },
 ] as const;
 
+const MAX_VISIBLE_COMMENTS = 250;
+
 export default function UnifiedInbox({
   comments,
   teamMembers,
@@ -108,6 +110,7 @@ export default function UnifiedInbox({
   const previewComment = filteredComments.find(c => c.id === previewCommentId)
     || comments.find(c => c.id === previewCommentId);
   const previewAd = previewComment ? getAdForComment(previewComment, ads) : undefined;
+  const visibleComments = filteredComments.slice(0, MAX_VISIBLE_COMMENTS);
 
   const unseenCount = comments.filter(c => c.status === 'Unseen').length;
 
@@ -136,7 +139,7 @@ export default function UnifiedInbox({
         <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between mb-4">
           <div>
             <p className="text-sm text-slate-500">
-              <span className="font-semibold text-slate-800">{comments.length}</span> comments
+              <span className="font-semibold text-slate-800">{comments.length}</span> loaded comments
               {unseenCount > 0 && (
                 <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs font-semibold">
                   <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
@@ -211,7 +214,8 @@ export default function UnifiedInbox({
               <p className="text-sm text-slate-500 mt-1">Comments from your Facebook and Instagram ads will show up here.</p>
             </div>
           ) : (
-            filteredComments.map(comment => {
+            <>
+            {visibleComments.map(comment => {
               const isSelected = previewCommentId === comment.id;
               const isUnseen = comment.status === 'Unseen';
               const wasJustViewed = recentlyViewed.has(comment.id);
@@ -333,7 +337,13 @@ export default function UnifiedInbox({
                   </div>
                 </div>
               );
-            })
+            })}
+            {filteredComments.length > visibleComments.length && (
+              <div className="p-4 text-center bg-white border border-slate-200 rounded-2xl text-sm text-slate-500">
+                Showing the newest {visibleComments.length} of {filteredComments.length} matching comments. Use search or filters to narrow the list.
+              </div>
+            )}
+            </>
           )}
         </div>
 

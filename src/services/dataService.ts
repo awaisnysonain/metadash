@@ -62,7 +62,7 @@ async function fetchAllComments(): Promise<Comment[]> {
   let offset = 0;
   let total = Infinity;
 
-  while (offset < total && offset < 20000) {
+  while (offset < total && offset < 1000) {
     const res = await apiClient.getComments({ limit: pageSize, offset });
     if (Array.isArray(res)) return res;
     all.push(...res.items);
