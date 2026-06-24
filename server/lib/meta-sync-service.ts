@@ -227,6 +227,7 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
   let syncedCampaigns = 0;
   let syncedAdSets = 0;
   let syncedAds = 0;
+  const warnings: string[] = [];
 
   for (const config of configuredAccounts) {
     const token = config.accessToken;
@@ -256,9 +257,23 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
       const adsetIdMap = new Map<string, string>();
       const adsetByMetaId = new Map<string, MetaAdSet>();
 
-      const spendMap = await fetchAdSpendInsights(account.id, token);
+      let spendMap = new Map<string, number>();
+      try {
+        spendMap = await fetchAdSpendInsights(account.id, token);
+      } catch (err) {
+        const msg = err instanceof MetaApiError ? err.message : String(err);
+        warnings.push(`Spend skipped for ${config.label} ${account.id}: ${msg}`);
+      }
 
-      const campaigns = await fetchCampaigns(account.id, token);
+      let campaigns: Awaited<ReturnType<typeof fetchCampaigns>>;
+      try {
+        campaigns = await fetchCampaigns(account.id, token);
+      } catch (err) {
+        const msg = err instanceof MetaApiError ? err.message : String(err);
+        warnings.push(`Campaigns skipped for ${config.label} ${account.id}: ${msg}`);
+        console.warn(`[sync] Skipping account ${config.label} ${account.id}: ${msg}`);
+        continue;
+      }
       for (const camp of campaigns) {
         const campDbId = `meta-camp-${camp.id}`;
         campaignIdMap.set(camp.id, campDbId);
@@ -276,7 +291,15 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
         syncedCampaigns++;
       }
 
-      const adsets = await fetchAdSets(account.id, token);
+      let adsets: Awaited<ReturnType<typeof fetchAdSets>>;
+      try {
+        adsets = await fetchAdSets(account.id, token);
+      } catch (err) {
+        const msg = err instanceof MetaApiError ? err.message : String(err);
+        warnings.push(`Ad sets skipped for ${config.label} ${account.id}: ${msg}`);
+        console.warn(`[sync] Skipping ad sets for ${config.label} ${account.id}: ${msg}`);
+        adsets = [];
+      }
       const instagramActorIds = new Set(
         adsets.map(a => a.instagram_actor_id).filter((id): id is string => Boolean(id))
       );
@@ -372,7 +395,7 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
     ok: true,
     synced: total,
     message: `Synced from Meta: ${syncedAccounts} ad accounts, ${syncedCampaigns} campaigns, ${syncedAdSets} ad sets, ${syncedAds} ads (${configuredAccounts.map(a => a.label).join(', ')})`,
-    details: { syncedAccounts, syncedCampaigns, syncedAdSets, syncedAds, accounts: configuredAccounts.map(a => a.label) },
+    details: { syncedAccounts, syncedCampaigns, syncedAdSets, syncedAds, accounts: configuredAccounts.map(a => a.label), warnings },
   };
 }
 
