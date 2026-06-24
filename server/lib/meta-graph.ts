@@ -469,7 +469,7 @@ async function fetchStoryCommentsWithToken(
   opts?: { since?: number; until?: number; limit?: number }
 ): Promise<MetaComment[]> {
   const fields = 'id,message,from,created_time,permalink_url';
-  let path = `/${storyId}/comments?fields=${fields}&limit=${opts?.limit ?? 100}&order=reverse_chronological`;
+  let path = `/${storyId}/comments?fields=${fields}&limit=${opts?.limit ?? 100}`;
   if (opts?.since) path += `&since=${opts.since}`;
   if (opts?.until) path += `&until=${opts.until}`;
   return metaGraphPaginate<MetaComment>(path, token);

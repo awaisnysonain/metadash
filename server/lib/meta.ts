@@ -165,6 +165,8 @@ export interface MetaTokenStatus {
   scopes: string[];
   appId: string | null;
   userId: string | null;
+  hasPagesReadUserContent: boolean;
+  canSyncComments: boolean;
 }
 
 export async function validateMetaAccessToken(accessToken?: string): Promise<MetaTokenStatus> {
@@ -181,6 +183,8 @@ export async function validateMetaAccessToken(accessToken?: string): Promise<Met
       scopes: [],
       appId: cfg.appId || null,
       userId: null,
+      hasPagesReadUserContent: false,
+      canSyncComments: false,
     };
   }
 
@@ -194,6 +198,8 @@ export async function validateMetaAccessToken(accessToken?: string): Promise<Met
       scopes: [],
       appId: cfg.appId || null,
       userId: null,
+      hasPagesReadUserContent: false,
+      canSyncComments: false,
     };
   }
 
@@ -215,15 +221,21 @@ export async function validateMetaAccessToken(accessToken?: string): Promise<Met
     const errMsg = d?.error?.message;
     const expiresAt = d?.expires_at && d.expires_at > 0 ? d.expires_at : null;
 
+    const scopes = d?.scopes ?? [];
+    const hasPagesReadUserContent = scopes.includes('pages_read_user_content');
+    const valid = Boolean(d?.is_valid) && !errMsg;
+
     return {
-      valid: Boolean(d?.is_valid) && !errMsg,
+      valid,
       expiresAt,
       expiresAtIso: expiresAt ? new Date(expiresAt * 1000).toISOString() : null,
       dataAccessExpiresAt: d?.data_access_expires_at ?? null,
-      message: errMsg || (d?.is_valid ? 'Token is valid' : 'Token is invalid or expired'),
-      scopes: d?.scopes ?? [],
+      message: errMsg || (valid ? 'Token is valid' : 'Token is invalid or expired'),
+      scopes,
       appId: d?.app_id ?? null,
       userId: d?.user_id ?? null,
+      hasPagesReadUserContent,
+      canSyncComments: valid && hasPagesReadUserContent,
     };
   } catch (err) {
     const msg = err instanceof MetaApiError ? err.message : String(err);
@@ -236,6 +248,8 @@ export async function validateMetaAccessToken(accessToken?: string): Promise<Met
       scopes: [],
       appId: cfg.appId || null,
       userId: null,
+      hasPagesReadUserContent: false,
+      canSyncComments: false,
     };
   }
 }

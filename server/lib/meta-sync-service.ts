@@ -409,7 +409,6 @@ export async function syncPagesFromMeta(): Promise<SyncOutcome> {
         'No Facebook Pages returned from Meta /me/accounts. Ensure META_ACCESS_TOKEN has pages_show_list (same token as Graph API Explorer).',
       details: {
         warnings,
-        rawMetaResponses: rawResponses,
         tokenLength: token.length,
       },
     };
@@ -429,16 +428,15 @@ export async function syncPagesFromMeta(): Promise<SyncOutcome> {
     pagesFound,
     pagesSaved,
     message,
-    details: {
-      warnings,
-      saveErrors,
-      rawMetaResponses: rawResponses,
-      pages: pages.map(p => ({
-        id: p.id,
-        name: p.name,
-        hasAccessToken: Boolean(p.access_token),
-      })),
-    },
+      details: {
+        warnings,
+        saveErrors,
+        pages: pages.map(p => ({
+          id: p.id,
+          name: p.name,
+          hasAccessToken: Boolean(p.access_token),
+        })),
+      },
   };
 }
 

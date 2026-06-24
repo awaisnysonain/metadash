@@ -158,6 +158,16 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
     };
   }
 
+  if (!tokenStatus.hasPagesReadUserContent) {
+    return {
+      ok: false,
+      synced: 0,
+      message:
+        'Missing pages_read_user_content permission. Ad comment sync requires this permission. In Meta App Dashboard → Permissions, add pages_read_user_content, then regenerate your access token in Graph API Explorer with ads_read, pages_show_list, pages_read_engagement, and pages_read_user_content.',
+      details: { tokenStatus },
+    };
+  }
+
   const token = getMetaConfig().accessToken?.trim();
   if (!token) {
     return { ok: false, synced: 0, message: 'META_ACCESS_TOKEN is not set.' };
@@ -232,16 +242,20 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
       await sleep(AD_BATCH_DELAY_MS);
     } catch (err) {
       if (err instanceof MetaApiError && err.code === 190) {
-        syncState.tokenValid = false;
-        syncState.tokenMessage = err.message;
-        return {
-          ok: false,
-          synced,
-          message: `Meta token expired during sync. ${err.message}`,
-          adsProcessed,
-          adsSkipped,
-          adsWithStory,
-        };
+        // Re-check if user token is globally invalid vs. a single ad/post permission issue
+        const recheck = await validateMetaAccessToken();
+        if (!recheck.valid) {
+          syncState.tokenValid = false;
+          syncState.tokenMessage = recheck.message;
+          return {
+            ok: false,
+            synced,
+            message: `Meta token expired during sync. ${recheck.message}`,
+            adsProcessed,
+            adsSkipped,
+            adsWithStory,
+          };
+        }
       }
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(`${ad.adName}: ${msg}`);

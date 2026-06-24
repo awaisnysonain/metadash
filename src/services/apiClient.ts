@@ -45,6 +45,8 @@ export interface MetaTokenStatus {
   message: string;
   scopes: string[];
   appId: string | null;
+  hasPagesReadUserContent?: boolean;
+  canSyncComments?: boolean;
 }
 
 export interface SyncResult {

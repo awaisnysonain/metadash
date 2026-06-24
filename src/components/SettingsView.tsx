@@ -116,6 +116,13 @@ export default function SettingsView({
         <p className="text-sm text-slate-500 mb-4">
           Pull in your latest campaigns, pages, and comments from Facebook & Instagram.
         </p>
+        {!isDemoMode && tokenStatus?.valid && !tokenStatus.canSyncComments && (
+          <div className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+            <strong>Comment sync blocked:</strong> your token is missing <code className="text-xs">pages_read_user_content</code>.
+            Add it in Meta App Dashboard → Permissions, then regenerate the token in Graph API Explorer with:
+            ads_read, pages_show_list, pages_read_engagement, pages_read_user_content.
+          </div>
+        )}
         {!isDemoMode && tokenStatus && !tokenStatus.valid && (
           <div className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg p-3 mb-4">
             Your Meta connection needs to be refreshed. Ask your admin to reconnect in Advanced setup below.
