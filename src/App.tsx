@@ -5,15 +5,15 @@ import UnifiedInbox from './components/UnifiedInbox';
 import CommentDetailDrawer from './components/CommentDetailDrawer';
 import CampaignsView from './components/CampaignsView';
 import TeamView from './components/TeamView';
-import WebhookSimulator from './components/WebhookSimulator';
 import SettingsView from './components/SettingsView';
 import ReportsView from './components/ReportsView';
 import ConnectionStatus from './components/ConnectionStatus';
 
 import { Comment, CommentStatus, CommentPriority, ActivityLog } from './types';
-import { Bot, Loader2 } from 'lucide-react';
+import { Loader2, RefreshCw } from 'lucide-react';
 import type { InboxFilters } from './components/UnifiedInbox';
 import { useAppData } from './hooks/useAppData';
+import { fetchCommentsNow } from './services/dataService';
 
 export default function App() {
   const {
@@ -27,7 +27,6 @@ export default function App() {
     team,
     campaigns,
     ads,
-    saveComments,
     saveComment,
     updateStatus,
     updateAssign,
@@ -41,9 +40,10 @@ export default function App() {
     reload,
   } = useAppData();
 
-  const [currentTab, setCurrentTab] = useState<string>('dashboard');
+  const [currentTab, setCurrentTab] = useState<string>('inbox');
   const [selectedComment, setSelectedComment] = useState<Comment | undefined>(undefined);
   const [preconfiguredFilters, setPreconfiguredFilters] = useState<InboxFilters | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
     if (selectedComment) {
@@ -65,7 +65,7 @@ export default function App() {
         id: `log-${Date.now()}`,
         commentId,
         userId: 'team-1',
-        userName: 'Sarah Jenkins',
+        userName: 'Team',
         action: 'Status Change',
         oldValue: comment.status,
         newValue: status,
@@ -78,18 +78,6 @@ export default function App() {
     const comment = comments.find(c => c.id === commentId);
     if (!comment) return;
     await updatePriority(commentId, priority, comment.priority);
-    if (isDemoMode) {
-      logActivity({
-        id: `log-${Date.now()}`,
-        commentId,
-        userId: 'team-1',
-        userName: 'Sarah Jenkins',
-        action: 'Priority Change',
-        oldValue: comment.priority,
-        newValue: priority,
-        createdAt: new Date().toISOString(),
-      });
-    }
   };
 
   const handleAssignTeam = async (commentId: string, teamUserId?: string) => {
@@ -98,34 +86,10 @@ export default function App() {
     const oldName = comment.assignedTo ? team.find(t => t.id === comment.assignedTo)?.name || 'Someone' : 'Unassigned';
     const newName = teamUserId ? team.find(t => t.id === teamUserId)?.name || 'Someone' : 'Unassigned';
     await updateAssign(commentId, teamUserId, { oldAssignee: oldName, assigneeName: newName });
-    if (isDemoMode) {
-      logActivity({
-        id: `log-${Date.now()}`,
-        commentId,
-        userId: 'team-1',
-        userName: 'Sarah Jenkins',
-        action: 'Assignment',
-        oldValue: oldName,
-        newValue: newName,
-        createdAt: new Date().toISOString(),
-      });
-    }
   };
 
   const handleAddNote = async (commentId: string, noteText: string) => {
     await addNote(commentId, noteText);
-    if (isDemoMode) {
-      logActivity({
-        id: `log-${Date.now()}`,
-        commentId,
-        userId: 'team-1',
-        userName: 'Sarah Jenkins',
-        action: 'Context Note Addition',
-        oldValue: '',
-        newValue: 'Note logged',
-        createdAt: new Date().toISOString(),
-      });
-    }
   };
 
   const handleAddCommentTag = async (commentId: string, tag: string) => {
@@ -140,21 +104,15 @@ export default function App() {
     await updateTags(commentId, comment.tags.filter(t => t !== tag));
   };
 
-  const handleAddSimulatedComment = (newComment: Comment) => {
-    if (isDemoMode) {
-      saveComments([newComment, ...comments]);
-      logActivity({
-        id: `log-${Date.now()}`,
-        commentId: newComment.id,
-        userId: 'system',
-        userName: 'Webhook',
-        action: 'Webhook Received',
-        oldValue: '',
-        newValue: 'New comment received from webhook',
-        createdAt: new Date().toISOString(),
-      });
-    } else {
-      saveComment(newComment);
+  const handleRefreshComments = async () => {
+    setIsRefreshing(true);
+    try {
+      if (!isDemoMode) {
+        await fetchCommentsNow(dataMode);
+      }
+      await reload();
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -164,7 +122,7 @@ export default function App() {
       name,
       email,
       role,
-      avatarUrl: `https://images.unsplash.com/photo-${1500000000000 + Math.floor(Math.random() * 999999)}?auto=format&fit=crop&q=80&w=120`,
+      avatarUrl: '',
     });
   };
 
@@ -181,14 +139,13 @@ export default function App() {
   };
 
   const totalUnseenCount = comments.filter(c => c.status === 'Unseen').length;
-  const urgentPriorityCount = comments.filter(c => c.priority === 'Urgent').length;
 
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-          <p className="text-sm text-slate-500">Loading inbox data…</p>
+          <p className="text-sm text-slate-500">Loading inbox…</p>
         </div>
       </div>
     );
@@ -203,7 +160,6 @@ export default function App() {
           setCurrentTab(tab);
         }}
         unseenCount={totalUnseenCount}
-        urgentCount={urgentPriorityCount}
         dataMode={dataMode}
       />
 
@@ -211,30 +167,25 @@ export default function App() {
         <header className="h-14 bg-white border-b border-slate-200 px-6 sticky top-0 z-40 flex items-center justify-between shadow-sm">
           <div className="flex items-center gap-3">
             <h2 className="text-sm font-bold text-slate-800 capitalize">
-              {currentTab === 'inbox' ? 'Unified Inbox' : currentTab.replace(/([A-Z])/g, ' $1').trim()}
+              {currentTab === 'inbox' ? 'Comment Inbox' : currentTab.replace(/([A-Z])/g, ' $1').trim()}
             </h2>
             <ConnectionStatus dataMode={dataMode} isDemoMode={isDemoMode} />
           </div>
 
-          <div className="flex items-center space-x-5">
-            <div className="hidden md:flex items-center space-x-4 text-xs font-semibold text-slate-500">
-              <div className="flex items-center space-x-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />
-                <span>Unseen: <strong className="text-slate-800">{totalUnseenCount}</strong></span>
-              </div>
-              <div className="flex items-center space-x-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-                <span>Urgent: <strong className="text-red-700">{urgentPriorityCount}</strong></span>
-              </div>
-            </div>
-            <div className="h-5 w-px bg-slate-200 hidden md:block" />
-            <button
-              onClick={() => setCurrentTab('simulator')}
-              className="flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-bold cursor-pointer transition-all shadow-sm hover:bg-blue-700"
-            >
-              <Bot className="w-3.5 h-3.5 shrink-0" />
-              <span>Inject Simulated comment</span>
-            </button>
+          <div className="flex items-center gap-4">
+            <span className="hidden md:inline text-xs text-slate-500">
+              Unseen: <strong className="text-slate-800">{totalUnseenCount}</strong>
+            </span>
+            {!isDemoMode && (
+              <button
+                onClick={() => void handleRefreshComments()}
+                disabled={isRefreshing}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 disabled:opacity-60"
+              >
+                {isRefreshing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                Refresh
+              </button>
+            )}
           </div>
         </header>
 
@@ -257,8 +208,8 @@ export default function App() {
               onSelectComment={setSelectedComment}
               selectedCommentId={selectedComment?.id}
               onUpdateStatus={handleUpdateStatus}
-              onAssignTeam={handleAssignTeam}
-              onAddNote={handleAddNote}
+              onRefresh={!isDemoMode ? handleRefreshComments : undefined}
+              isRefreshing={isRefreshing}
               preconfiguredFilters={
                 currentTab === 'facebook'
                   ? { platform: 'facebook' }
@@ -286,10 +237,6 @@ export default function App() {
 
           {currentTab === 'reports' && (
             <ReportsView comments={comments} teamMembers={team} campaigns={campaigns} onNavigateToInbox={handleNavigateWithFilters} />
-          )}
-
-          {currentTab === 'simulator' && (
-            <WebhookSimulator campaigns={campaigns} ads={ads} onAddSimulatedComment={handleAddSimulatedComment} />
           )}
 
           {currentTab === 'settings' && (

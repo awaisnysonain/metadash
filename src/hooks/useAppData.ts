@@ -153,7 +153,7 @@ export function useAppData(): UseAppDataReturn {
       id: `note-${Date.now()}`,
       commentId,
       userId: 'team-1',
-      userName: 'Sarah Jenkins',
+      userName: 'Team',
       userAvatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=120',
       note: noteText,
       createdAt: dateStr,

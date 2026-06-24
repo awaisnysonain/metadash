@@ -42,7 +42,16 @@ export default function SettingsView({
         setAdAccountsList(mockAdAccounts);
       });
     } else {
-      setPagesList([]);
+      apiClient.getPages().then(pages =>
+        setPagesList(pages.map(p => ({
+          id: p.id,
+          name: p.pageName,
+          fans: '',
+          avatar: '📄',
+          platform: 'facebook',
+          isConnected: p.isConnected,
+        })))
+      ).catch(() => setPagesList([]));
       setAdAccountsList([]);
     }
   }, [isDemoMode]);
@@ -113,15 +122,14 @@ export default function SettingsView({
           <CloudDownload className="w-4 h-4 text-indigo-600" /> Meta Sync
         </h3>
         <p className="text-xs text-slate-500 mb-3">
-          Page discovery uses <code className="font-mono">/me/accounts</code> only — no organic feed reads.
-          Comment webhooks are configured separately in Meta App Dashboard.
+          Sync ads & pages from Meta, then fetch comments. Comments auto-sync every 10 minutes on the server.
         </p>
         <div className="flex flex-wrap gap-2 mb-3">
           {[
             { label: 'Ads', fn: apiClient.syncAds },
             { label: 'Pages', fn: apiClient.syncPages },
-            { label: 'Instagram', fn: apiClient.syncInstagram },
-            { label: 'Campaigns', fn: apiClient.syncCampaigns },
+            { label: 'Comments', fn: apiClient.syncComments },
+            { label: 'Backfill 2 weeks', fn: apiClient.syncCommentsBackfill },
           ].map(item => (
             <button key={item.label} disabled={syncing || isDemoMode} onClick={() => runSync(item.fn, item.label)}
               className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold disabled:opacity-50">

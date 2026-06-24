@@ -4,9 +4,13 @@ import {
   syncPagesFromMeta,
   syncInstagramFromMeta,
   syncCampaignsFromMeta,
-  syncAllFromMeta,
   syncErrorMessage,
 } from '../lib/meta-sync-service.js';
+import {
+  syncCommentsIncremental,
+  syncCommentsBackfill,
+  getCommentSyncState,
+} from '../lib/meta-comment-sync.js';
 
 export const metaSyncRouter = Router();
 
@@ -36,7 +40,61 @@ metaSyncRouter.post('/instagram', (_req, res) => handleSync(res, syncInstagramFr
 
 metaSyncRouter.post('/campaigns', (_req, res) => handleSync(res, syncCampaignsFromMeta));
 
-metaSyncRouter.post('/all', (_req, res) => handleSync(res, syncAllFromMeta));
+metaSyncRouter.post('/comments', (_req, res) => handleSync(res, syncCommentsIncremental));
+
+metaSyncRouter.post('/comments/backfill', (_req, res) => handleSync(res, syncCommentsBackfill));
+
+metaSyncRouter.get('/comments/status', (_req, res) => {
+  res.json(getCommentSyncState());
+});
+
+metaSyncRouter.post('/all', async (_req, res) => {
+  try {
+    const pages = await syncPagesFromMeta();
+    if (!pages.ok) return sendSyncResult(res, pages);
+
+    const instagram = await syncInstagramFromMeta();
+    if (!instagram.ok) return sendSyncResult(res, instagram);
+
+    const ads = await syncAdsFromMeta();
+    if (!ads.ok) return sendSyncResult(res, ads);
+
+    const comments = await syncCommentsIncremental();
+
+    sendSyncResult(res, {
+      ok: true,
+      synced: pages.synced + instagram.synced + ads.synced + comments.synced,
+      message: `Full sync complete. ${pages.message} ${instagram.message} ${ads.message} ${comments.message}`,
+      details: { pages, instagram, ads, comments },
+    });
+  } catch (err) {
+    const { message, status } = syncErrorMessage(err);
+    res.status(status).json({ ok: false, synced: 0, message });
+  }
+});
 
 // Legacy alias
-metaSyncRouter.post('/', (_req, res) => handleSync(res, syncAllFromMeta));
+metaSyncRouter.post('/', async (_req, res) => {
+  try {
+    const pages = await syncPagesFromMeta();
+    if (!pages.ok) return sendSyncResult(res, pages);
+
+    const instagram = await syncInstagramFromMeta();
+    if (!instagram.ok) return sendSyncResult(res, instagram);
+
+    const ads = await syncAdsFromMeta();
+    if (!ads.ok) return sendSyncResult(res, ads);
+
+    const comments = await syncCommentsIncremental();
+
+    sendSyncResult(res, {
+      ok: true,
+      synced: pages.synced + instagram.synced + ads.synced + comments.synced,
+      message: `Full sync complete. ${pages.message} ${instagram.message} ${ads.message} ${comments.message}`,
+      details: { pages, instagram, ads, comments },
+    });
+  } catch (err) {
+    const { message, status } = syncErrorMessage(err);
+    res.status(status).json({ ok: false, synced: 0, message });
+  }
+});

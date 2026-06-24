@@ -396,3 +396,39 @@ export function detectAdPlatform(campaign?: MetaCampaign): 'facebook' | 'instagr
   if (objective.includes('instagram')) return 'instagram';
   return 'facebook';
 }
+
+/* ── Comment fetch ── */
+
+export interface MetaComment {
+  id: string;
+  message?: string;
+  from?: { id?: string; name?: string };
+  created_time?: string;
+  permalink_url?: string;
+}
+
+export async function fetchAdEffectiveStoryId(adId: string, accessToken?: string): Promise<string | null> {
+  try {
+    const res = await metaGraphGet<{ creative?: { effective_object_story_id?: string } }>(
+      `/${adId}?fields=creative{effective_object_story_id}`,
+      accessToken
+    );
+    return res.creative?.effective_object_story_id ?? null;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[comments] Could not resolve story for ad ${adId}: ${msg}`);
+    return null;
+  }
+}
+
+export async function fetchStoryComments(
+  storyId: string,
+  accessToken?: string,
+  opts?: { since?: number; until?: number; limit?: number }
+): Promise<MetaComment[]> {
+  const fields = 'id,message,from,created_time,permalink_url';
+  let path = `/${storyId}/comments?fields=${fields}&limit=${opts?.limit ?? 100}&order=reverse_chronological`;
+  if (opts?.since) path += `&since=${opts.since}`;
+  if (opts?.until) path += `&until=${opts.until}`;
+  return metaGraphPaginate<MetaComment>(path, accessToken);
+}

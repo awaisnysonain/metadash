@@ -38,7 +38,7 @@ export function autoTagComment(text: string): AutoTagResult {
   };
 }
 
-export function mapWebhookComment(payload: {
+function buildCommentRow(payload: {
   platform: 'facebook' | 'instagram';
   commentId: string;
   message: string;
@@ -46,6 +46,7 @@ export function mapWebhookComment(payload: {
   fromId?: string;
   createdTime?: string;
   postId?: string;
+  permalinkUrl?: string;
   pageId?: string;
   pageName?: string;
   instagramAccountId?: string;
@@ -54,10 +55,19 @@ export function mapWebhookComment(payload: {
   adsetName?: string;
   adId?: string;
   adName?: string;
+  idPrefix?: string;
 }) {
   const tagging = autoTagComment(payload.message);
   const now = payload.createdTime || new Date().toISOString();
-  const id = `wh-${payload.platform}-${payload.commentId}`;
+  const prefix = payload.idPrefix ?? 'wh';
+  const id = `${prefix}-${payload.platform}-${payload.commentId}`;
+
+  let originalCommentUrl = payload.permalinkUrl ?? '';
+  if (!originalCommentUrl) {
+    originalCommentUrl = payload.platform === 'facebook'
+      ? `https://www.facebook.com/${payload.postId}?comment_id=${payload.commentId}`
+      : `https://www.instagram.com/p/${payload.postId}/#${payload.commentId}`;
+  }
 
   return {
     id,
@@ -68,9 +78,7 @@ export function mapWebhookComment(payload: {
     commenter_profile_url: payload.fromId
       ? `https://graph.facebook.com/${payload.fromId}/picture?type=square`
       : '',
-    original_comment_url: payload.platform === 'facebook'
-      ? `https://facebook.com/${payload.postId}?comment_id=${payload.commentId}`
-      : `https://instagram.com/p/${payload.postId}/#${payload.commentId}`,
+    original_comment_url: originalCommentUrl,
     campaign_id: payload.campaignName ? `camp-${payload.campaignName.slice(0, 8)}` : null,
     campaign_name: payload.campaignName ?? 'Unknown Campaign',
     adset_id: payload.adsetName ? `adset-${payload.adsetName.slice(0, 8)}` : null,
@@ -91,4 +99,41 @@ export function mapWebhookComment(payload: {
     replied_at: null,
     seen_at: null,
   };
+}
+
+export function mapWebhookComment(payload: {
+  platform: 'facebook' | 'instagram';
+  commentId: string;
+  message: string;
+  fromName: string;
+  fromId?: string;
+  createdTime?: string;
+  postId?: string;
+  pageId?: string;
+  pageName?: string;
+  instagramAccountId?: string;
+  instagramAccountName?: string;
+  campaignName?: string;
+  adsetName?: string;
+  adId?: string;
+  adName?: string;
+}) {
+  return buildCommentRow(payload);
+}
+
+export function mapSyncedComment(payload: {
+  platform: 'facebook' | 'instagram';
+  commentId: string;
+  message: string;
+  fromName: string;
+  fromId?: string;
+  createdTime?: string;
+  postId?: string;
+  permalinkUrl?: string;
+  adId: string;
+  adName: string;
+  adsetName: string;
+  campaignName: string;
+}) {
+  return buildCommentRow({ ...payload, idPrefix: 'sync' });
 }

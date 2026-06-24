@@ -120,11 +120,18 @@ export const apiClient = {
   syncCampaigns: () => request<SyncResult>('/api/meta/sync/campaigns', { method: 'POST' }),
   syncAll: () => request<SyncResult>('/api/meta/sync/all', { method: 'POST' }),
 
+  syncComments: () => request<SyncResult>('/api/meta/sync/comments', { method: 'POST' }),
+  syncCommentsBackfill: () => request<SyncResult>('/api/meta/sync/comments/backfill', { method: 'POST' }),
+  getCommentSyncStatus: () =>
+    request<{ lastRunAt: string | null; lastRunOk: boolean; lastSynced: number; lastMessage: string; isRunning: boolean; nextRunAt: string | null }>(
+      '/api/meta/sync/comments/status'
+    ),
+
   // Legacy aliases for Settings UI
   syncAdSets: () => request<SyncResult>('/api/meta/sync/campaigns', { method: 'POST' }),
   syncCreatives: () => request<SyncResult>('/api/meta/sync/ads', { method: 'POST' }),
-  syncFacebookComments: () => request<SyncResult>('/api/meta/sync/pages', { method: 'POST' }),
-  syncInstagramComments: () => request<SyncResult>('/api/meta/sync/instagram', { method: 'POST' }),
+  syncFacebookComments: () => request<SyncResult>('/api/meta/sync/comments', { method: 'POST' }),
+  syncInstagramComments: () => request<SyncResult>('/api/meta/sync/comments', { method: 'POST' }),
 
   getMetaStatusLatest: () =>
     request<{ latestAds: Array<{ adId: string; adName: string; campaignName: string }>; latestCampaigns: Array<{ campaignId: string; campaignName: string; platform: string; status: string }> }>(

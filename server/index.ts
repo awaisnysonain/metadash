@@ -14,6 +14,7 @@ import { metaDebugRouter } from './routes/meta-debug.js';
 import { pagesRouter } from './routes/pages.js';
 import { getMetaSyncStatus, getMetaSyncStatusLatest } from './db/sync-repository.js';
 import { getMetaConfig, isMetaConfigured, isServerDemoMode } from './lib/meta.js';
+import { startCommentSyncCron } from './lib/meta-comment-sync.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 5011);
@@ -30,6 +31,9 @@ const REGISTERED_META_ROUTES = [
   'POST /api/meta/sync/pages',
   'POST /api/meta/sync/instagram',
   'POST /api/meta/sync/campaigns',
+  'POST /api/meta/sync/comments',
+  'POST /api/meta/sync/comments/backfill',
+  'GET  /api/meta/sync/comments/status',
   'POST /api/meta/sync/all',
   'GET  /api/pages',
 ] as const;
@@ -138,6 +142,10 @@ if (isProd) {
 async function start() {
   const dbOk = await initDatabase();
   if (dbOk) await seedIfEmpty();
+
+  if (dbOk && !isServerDemoMode()) {
+    startCommentSyncCron();
+  }
 
   const httpServer = app.listen(PORT, '0.0.0.0', () => {
     console.log(`[server] Meta Dashboard API on port ${PORT} (${isProd ? 'production' : 'development'})`);

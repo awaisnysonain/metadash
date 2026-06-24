@@ -136,7 +136,7 @@ export async function persistNote(mode: DataMode, commentId: string, noteText: s
   return apiClient.addCommentNote(commentId, {
     note: noteText,
     userId: 'team-1',
-    userName: 'Sarah Jenkins',
+    userName: 'Team',
     userAvatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=120',
   });
 }
@@ -168,6 +168,14 @@ export function subscribeToComments(
     } catch {
       /* ignore poll errors */
     }
-  }, 30000);
+  }, 60000);
   return () => clearInterval(interval);
+}
+
+export async function fetchCommentsNow(mode: DataMode): Promise<Comment[]> {
+  if (mode === 'demo') return initialComments;
+  if (mode === 'live') {
+    await apiClient.syncComments();
+  }
+  return apiClient.getComments();
 }

@@ -20,6 +20,11 @@ export async function getCommentById(id: string) {
   return rows[0] ? rowToComment(rows[0]) : null;
 }
 
+export async function commentExistsByMetaId(commentId: string): Promise<boolean> {
+  const { rows } = await query('SELECT 1 FROM comments WHERE comment_id = $1 LIMIT 1', [commentId]);
+  return rows.length > 0;
+}
+
 export async function upsertComment(row: Record<string, unknown>) {
   await query(
     `INSERT INTO comments (
