@@ -4,7 +4,7 @@ import { upsertComment, insertActivityLog, commentExistsByMetaId } from '../db/r
 import { getMetaConfig, isServerDemoMode, validateMetaSync } from './meta.js';
 import { fetchAdEffectiveStoryId, fetchStoryComments, type MetaComment } from './meta-graph.js';
 import { mapSyncedComment } from './webhook.js';
-import { syncErrorMessage } from './meta-sync-service.js';
+import { syncErrorMessage, syncPagesFromMeta, syncAdsFromMeta } from './meta-sync-service.js';
 
 export interface CommentSyncOutcome {
   ok: boolean;
@@ -256,14 +256,26 @@ export function startCommentSyncCron(): void {
 
   console.log(`[comment-sync] Cron scheduled every ${CRON_INTERVAL_MS / 60000} minutes`);
 
-  // Initial sync shortly after startup (pages + ads first if empty)
+  // Bootstrap: sync ads if missing, then backfill comments for past 2 weeks
   setTimeout(async () => {
-    const ads = await getAllAds();
-    if (ads.length > 0) {
-      console.log('[comment-sync] Startup: running backfill for past 2 weeks');
-      await runCommentSync('backfill');
+    try {
+      let ads = await getAllAds();
+      if (!ads.length) {
+        console.log('[comment-sync] No ads in DB — syncing pages and ads first');
+        await syncPagesFromMeta();
+        await syncAdsFromMeta();
+        ads = await getAllAds();
+      }
+      if (ads.length > 0) {
+        console.log('[comment-sync] Startup: running 2-week comment backfill');
+        await runCommentSync('backfill');
+      } else {
+        console.warn('[comment-sync] Still no ads after sync — check META_ACCESS_TOKEN permissions');
+      }
+    } catch (err) {
+      console.error('[comment-sync] Startup bootstrap failed:', err);
     }
-  }, 5000);
+  }, 10000);
 }
 
 export function stopCommentSyncCron(): void {
