@@ -415,11 +415,7 @@ export function detectAdPlatformForAd(opts: {
   const { campaign, adset, creative, storyId, instagramPageIds } = opts;
 
   if (detectAdPlatform(campaign) === 'instagram') return 'instagram';
-  if (hasInstagramPlacement(adset?.publisher_platforms)) {
-    const platforms = adset!.publisher_platforms!.map(p => p.toLowerCase());
-    if (!platforms.includes('facebook') && platforms.includes('instagram')) return 'instagram';
-    if (platforms.includes('instagram') && !platforms.includes('facebook')) return 'instagram';
-  }
+  if (hasInstagramPlacement(adset?.publisher_platforms)) return 'instagram';
   if (adset?.instagram_actor_id) return 'instagram';
 
   const spec = creative?.object_story_spec;

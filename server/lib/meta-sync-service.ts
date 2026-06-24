@@ -167,10 +167,10 @@ async function syncCampaignsDemo(): Promise<SyncOutcome> {
 
 /* ── Live Meta sync ── */
 
-function hasInstagramOnlyPlacement(platforms?: string[]): boolean {
+function hasInstagramPlacement(platforms?: string[]): boolean {
   if (!platforms?.length) return false;
   const normalized = platforms.map(p => p.toLowerCase());
-  return normalized.includes('instagram') && !normalized.includes('facebook');
+  return normalized.includes('instagram');
 }
 
 async function upsertPagesAndInstagramFromAccounts(pages: MetaPage[]): Promise<{
@@ -285,7 +285,7 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
         adsetIdMap.set(adset.id, adsetDbId);
         adsetByMetaId.set(adset.id, adset);
         const campDbId = adset.campaign_id ? campaignIdMap.get(adset.campaign_id) ?? null : null;
-        const adsetPlatform = hasInstagramOnlyPlacement(adset.publisher_platforms) ? 'instagram' : 'facebook';
+        const adsetPlatform = hasInstagramPlacement(adset.publisher_platforms) ? 'instagram' : 'facebook';
         await upsertAdSet({
           id: adsetDbId,
           campaignId: campDbId,
