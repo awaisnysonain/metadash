@@ -20,10 +20,11 @@ interface DashboardOverviewProps {
   comments: Comment[];
   campaigns: Campaign[];
   teamMembers: TeamMember[];
+  currentUserId?: string;
   onNavigateToInbox: (filters?: InboxFilters) => void;
 }
 
-export default function DashboardOverview({ comments, campaigns, onNavigateToInbox }: DashboardOverviewProps) {
+export default function DashboardOverview({ comments, campaigns, currentUserId, onNavigateToInbox }: DashboardOverviewProps) {
   const totalComments = comments.length;
   const unseenCount = comments.filter(c => c.status === 'Unseen').length;
   const seenCount = comments.filter(c => c.status === 'Seen').length;
@@ -33,7 +34,7 @@ export default function DashboardOverview({ comments, campaigns, onNavigateToInb
   const urgentCount = comments.filter(c => c.priority === 'Urgent').length;
   const fbCount = comments.filter(c => c.platform === 'facebook').length;
   const igCount = comments.filter(c => c.platform === 'instagram').length;
-  const assignedToMeCount = comments.filter(c => c.assignedTo === 'team-1').length;
+  const assignedToMeCount = currentUserId ? comments.filter(c => c.assignedTo === currentUserId).length : 0;
 
   const positiveCount = comments.filter(c => c.sentiment === 'Positive').length;
   const neutralCount = comments.filter(c => c.sentiment === 'Neutral').length;
@@ -94,7 +95,7 @@ export default function DashboardOverview({ comments, campaigns, onNavigateToInb
       value: assignedToMeCount,
       icon: User,
       color: 'text-purple-600 bg-purple-50',
-      action: () => onNavigateToInbox({ assignedTo: 'team-1' }),
+      action: () => currentUserId && onNavigateToInbox({ assignedTo: currentUserId }),
     },
   ];
 

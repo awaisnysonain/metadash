@@ -56,21 +56,38 @@ function emptyLiveSnapshot(): AppDataSnapshot {
   };
 }
 
+async function fetchAllComments(): Promise<Comment[]> {
+  const pageSize = 500;
+  const all: Comment[] = [];
+  let offset = 0;
+  let total = Infinity;
+
+  while (offset < total && offset < 20000) {
+    const res = await apiClient.getComments({ limit: pageSize, offset });
+    if (Array.isArray(res)) return res;
+    all.push(...res.items);
+    total = res.total;
+    if (res.items.length < pageSize) break;
+    offset += pageSize;
+  }
+  return all;
+}
+
 export async function loadAppData(mode: DataMode): Promise<AppDataSnapshot> {
   if (mode === 'demo') return demoSnapshot();
 
   try {
     const [comments, notes, activityLogs, autoTaggingRules, team, campaigns, ads] = await Promise.all([
-      apiClient.getComments(),
+      fetchAllComments(),
       apiClient.getNotes(),
       apiClient.getActivityLogs(),
       apiClient.getRules(),
       apiClient.getTeam(),
       apiClient.getCampaigns(),
-      apiClient.getAds(),
+      apiClient.getAds({ summary: true }),
     ]);
 
-    console.log('Using live PostgreSQL API data');
+    console.log(`Using live API data (${comments.length} comments, ${ads.length} ads)`);
 
     return {
       comments,
@@ -82,8 +99,8 @@ export async function loadAppData(mode: DataMode): Promise<AppDataSnapshot> {
       ads,
     };
   } catch (err) {
-    console.error('[dataService] API load failed in production mode — showing empty state', err);
-    return emptyLiveSnapshot();
+    console.error('[dataService] API load failed in production mode', err);
+    throw err;
   }
 }
 
@@ -169,8 +186,7 @@ export function subscribeToComments(
   if (mode === 'demo') return undefined;
   const interval = setInterval(async () => {
     try {
-      const comments = await apiClient.getComments();
-      onChange(comments);
+      onChange(await fetchAllComments());
     } catch {
       /* ignore poll errors */
     }
@@ -183,5 +199,5 @@ export async function fetchCommentsNow(mode: DataMode): Promise<Comment[]> {
   if (mode === 'live') {
     await apiClient.syncComments();
   }
-  return apiClient.getComments();
+  return fetchAllComments();
 }

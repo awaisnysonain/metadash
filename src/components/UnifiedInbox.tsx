@@ -33,7 +33,7 @@ interface UnifiedInboxProps {
   ads: Ad[];
   onSelectComment: (comment: Comment) => void;
   selectedCommentId?: string;
-  onUpdateStatus: (id: string, status: CommentStatus) => void;
+  onUpdateStatus: (id: string, status: CommentStatus) => Promise<void>;
   onViewComment?: (id: string) => void;
   onRefresh?: () => Promise<void>;
   isRefreshing?: boolean;
@@ -69,8 +69,8 @@ export default function UnifiedInbox({
   const [recentlyViewed, setRecentlyViewed] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (preconfiguredFilters?.platform !== undefined) setPlatformFilter(preconfiguredFilters.platform);
-    if (preconfiguredFilters?.status !== undefined) setStatusFilter(preconfiguredFilters.status);
+    setPlatformFilter(preconfiguredFilters?.platform ?? 'All');
+    setStatusFilter(preconfiguredFilters?.status ?? 'All');
   }, [preconfiguredFilters]);
 
   useEffect(() => {
@@ -90,6 +90,10 @@ export default function UnifiedInbox({
 
       if (!textMatches) return false;
       if (platformFilter !== 'All' && comment.platform !== platformFilter) return false;
+      if (preconfiguredFilters?.priority && comment.priority !== preconfiguredFilters.priority) return false;
+      if (preconfiguredFilters?.sentiment && comment.sentiment !== preconfiguredFilters.sentiment) return false;
+      if (preconfiguredFilters?.assignedTo && comment.assignedTo !== preconfiguredFilters.assignedTo) return false;
+      if (preconfiguredFilters?.campaign && comment.campaignName !== preconfiguredFilters.campaign && comment.campaignId !== preconfiguredFilters.campaign) return false;
 
       if (statusFilter !== 'All') {
         if (statusFilter === 'Unreplied') {
@@ -99,7 +103,7 @@ export default function UnifiedInbox({
 
       return true;
     });
-  }, [comments, searchTerm, platformFilter, statusFilter]);
+  }, [comments, searchTerm, platformFilter, statusFilter, preconfiguredFilters]);
 
   const previewComment = filteredComments.find(c => c.id === previewCommentId)
     || comments.find(c => c.id === previewCommentId);
@@ -111,16 +115,17 @@ export default function UnifiedInbox({
     setPreviewCommentId(comment.id);
     onSelectComment(comment);
 
-    if (comment.status === 'Unseen') {
-      setRecentlyViewed(prev => new Set(prev).add(comment.id));
-      onUpdateStatus(comment.id, 'Seen');
-    }
-
-    onViewComment?.(comment.id);
     try {
       await apiClient.recordCommentView(comment.id);
+      if (comment.status === 'Unseen') {
+        setRecentlyViewed(prev => new Set(prev).add(comment.id));
+        onViewComment?.(comment.id);
+      }
     } catch {
-      /* offline or demo */
+      if (comment.status === 'Unseen') {
+        setRecentlyViewed(prev => new Set(prev).add(comment.id));
+        await onUpdateStatus(comment.id, 'Seen');
+      }
     }
   };
 

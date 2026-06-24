@@ -42,6 +42,7 @@ const REGISTERED_META_ROUTES = [
   'POST /api/meta/sync/comments/backfill',
   'GET  /api/meta/sync/comments/status',
   'POST /api/meta/sync/all',
+  'GET  /api/meta/sync/all/status',
   'GET  /api/pages',
 ] as const;
 

@@ -1,4 +1,4 @@
-import type { CommentPriority, CommentSentiment } from '../../src/types';
+import type { CommentPriority, CommentSentiment } from '../../src/types.js';
 
 interface AutoTagResult {
   tags: string[];
@@ -82,9 +82,9 @@ function buildCommentRow(payload: {
       payload.profileUrl ||
       (payload.fromId ? `https://www.facebook.com/profile.php?id=${payload.fromId}` : ''),
     original_comment_url: originalCommentUrl,
-    campaign_id: payload.campaignMetaId ?? payload.campaignName ?? null,
+    campaign_id: payload.campaignMetaId ?? null,
     campaign_name: payload.campaignName ?? 'Unknown Campaign',
-    adset_id: payload.adsetMetaId ?? payload.adsetName ?? null,
+    adset_id: payload.adsetMetaId ?? null,
     adset_name: payload.adsetName ?? 'Unknown Ad Set',
     ad_id: payload.adId ?? null,
     ad_name: payload.adName ?? 'Unknown Ad',

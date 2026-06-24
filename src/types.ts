@@ -91,7 +91,9 @@ export interface Ad {
   platform: Platform;
   adId: string;
   adName: string;
+  adsetId?: string;
   adsetName: string;
+  campaignId?: string;
   campaignName: string;
   originalAdUrl: string;
   originalCommentUrl?: string;

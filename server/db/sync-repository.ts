@@ -93,6 +93,7 @@ export async function upsertAd(row: {
        ad_copy, headline, description, cta, post_story_id, spend, account_label, meta_account_id, synced_at
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NOW())
      ON CONFLICT (id) DO UPDATE SET
+       platform = EXCLUDED.platform,
        ad_name = EXCLUDED.ad_name,
        adset_name = EXCLUDED.adset_name,
        campaign_name = EXCLUDED.campaign_name,
@@ -107,7 +108,7 @@ export async function upsertAd(row: {
        description = EXCLUDED.description,
        cta = EXCLUDED.cta,
        post_story_id = COALESCE(EXCLUDED.post_story_id, ads.post_story_id),
-       spend = COALESCE(EXCLUDED.spend, ads.spend),
+       spend = CASE WHEN EXCLUDED.spend > 0 THEN EXCLUDED.spend ELSE ads.spend END,
        account_label = COALESCE(EXCLUDED.account_label, ads.account_label),
        meta_account_id = COALESCE(EXCLUDED.meta_account_id, ads.meta_account_id),
        synced_at = NOW()`,
@@ -129,7 +130,7 @@ export async function upsertAd(row: {
       row.description ?? null,
       row.cta ?? null,
       row.postStoryId ?? null,
-      row.spend ?? 0,
+      row.spend != null && row.spend > 0 ? row.spend : 0,
       row.accountLabel ?? null,
       row.metaAccountId ?? null,
     ]
@@ -216,7 +217,11 @@ export async function getAllInstagramAccounts() {
     avatar: string | null;
     is_connected: boolean;
     synced_at: string | null;
-  }>('SELECT * FROM connected_instagram_accounts ORDER BY username');
+  }>(
+    `SELECT * FROM connected_instagram_accounts
+     WHERE id LIKE 'meta-ig-%'
+     ORDER BY username`
+  );
 
   return rows.map(row => ({
     id: row.id,
@@ -227,6 +232,42 @@ export async function getAllInstagramAccounts() {
     isConnected: row.is_connected,
     syncedAt: row.synced_at,
   }));
+}
+
+export async function pruneStaleInstagramAccounts(validAccountIds: string[]): Promise<number> {
+  const { rows } = await query<{ id: string }>(
+    `DELETE FROM connected_instagram_accounts
+     WHERE id NOT LIKE 'meta-ig-%'
+        OR (
+          cardinality($1::text[]) > 0
+          AND id LIKE 'meta-ig-%'
+          AND NOT (account_id = ANY($1::text[]))
+        )
+     RETURNING id`,
+    [validAccountIds]
+  );
+  return rows.length;
+}
+
+/** Re-align comment platform from linked ads and Instagram URL/username signals. */
+export async function realignCommentPlatformsFromAds(): Promise<number> {
+  const { rowCount } = await query(`
+    UPDATE comments c
+    SET platform = 'instagram', updated_at = NOW()
+    WHERE c.platform = 'facebook'
+      AND (
+        c.original_comment_url ILIKE '%instagram.com%'
+        OR c.commenter_profile_url ILIKE '%instagram.com%'
+        OR c.commenter_name LIKE '@%'
+        OR c.instagram_account_id IS NOT NULL
+        OR c.instagram_account_name IS NOT NULL
+        OR EXISTS (
+          SELECT 1 FROM ads a
+          WHERE a.ad_id = c.ad_id AND a.platform = 'instagram'
+        )
+      )
+  `);
+  return rowCount ?? 0;
 }
 
 export async function getTopAdsBySpend(limit = 20) {
@@ -244,7 +285,9 @@ export async function getTopAdsBySpend(limit = 20) {
     comments_count: number | null;
   }>(
     `SELECT id, ad_id, ad_name, campaign_name, platform, spend, account_label, media_type, thumbnail_url, media_url, comments_count
-     FROM ads WHERE spend > 0 ORDER BY spend DESC LIMIT $1`,
+     FROM ads
+     ORDER BY COALESCE(spend, 0) DESC, COALESCE(comments_count, 0) DESC, ad_name
+     LIMIT $1`,
     [limit]
   );
 

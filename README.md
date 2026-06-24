@@ -1,20 +1,21 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# MetaDash
 
-# Run and deploy your AI Studio app
+Internal dashboard for managing Facebook and Instagram ad comments, connected Meta ad accounts, pages, Instagram accounts, campaigns, ads, and comment sync jobs.
 
-This contains everything you need to run your app locally.
+## Local Setup
 
-View your app in AI Studio: https://ai.studio/apps/5eff3ecb-a5ee-46bd-b4aa-912abb749a38
+1. Install dependencies: `npm install`
+2. Copy `.env.example` to `.env` and set `DATABASE_URL`, auth settings, and Meta credentials.
+3. Start PostgreSQL if using Docker: `npm run db:up`
+4. Start the app and API together: `npm run dev:all`
 
-## Run Locally
+## Checks
 
-**Prerequisites:**  Node.js
+- Typecheck frontend and server: `npm run lint`
+- Build the production web bundle: `npm run build`
 
+## Meta Sync
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+- Full sync runs pages, Instagram accounts, ads, and comments.
+- Comment cron starts on the API server when PostgreSQL is connected and demo mode is disabled.
+- Webhook endpoint: `/api/meta/webhook`

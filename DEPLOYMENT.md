@@ -117,6 +117,21 @@ server {
 
     client_max_body_size 10M;
 
+    # Long-running Meta sync (default 60s causes 504 on /api/meta/sync/all)
+    proxy_connect_timeout 600s;
+    proxy_send_timeout 600s;
+    proxy_read_timeout 600s;
+
+    location /api/meta/sync/ {
+        proxy_pass http://127.0.0.1:5011;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 600s;
+    }
+
     location / {
         proxy_pass http://127.0.0.1:5011;
         proxy_http_version 1.1;

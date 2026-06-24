@@ -59,3 +59,13 @@ export function getTokenForAccount(accountIdOrLabel: string): string | null {
 export function isAnyMetaAccountConfigured(): boolean {
   return getConfiguredMetaAccounts().length > 0;
 }
+
+/** Tokens to use for /me/accounts page discovery (includes META_ACCESS_TOKEN when distinct from NOBL/FLO). */
+export function getPageSyncTokenSources(): Array<{ label: string; accessToken: string }> {
+  const sources = getConfiguredMetaAccounts().map(a => ({ label: a.label, accessToken: a.accessToken }));
+  const defaultToken = process.env.META_ACCESS_TOKEN?.trim();
+  if (defaultToken && !sources.some(s => s.accessToken === defaultToken)) {
+    sources.push({ label: 'META', accessToken: defaultToken });
+  }
+  return sources;
+}

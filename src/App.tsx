@@ -14,7 +14,7 @@ import ProfileView from './components/ProfileView';
 import ConnectionStatus from './components/ConnectionStatus';
 
 import { Comment, CommentStatus, CommentPriority, ActivityLog } from './types';
-import { Loader2, RefreshCw, Bell } from 'lucide-react';
+import { Loader2, RefreshCw, Bell, Facebook, Instagram, Megaphone } from 'lucide-react';
 import type { InboxFilters } from './components/UnifiedInbox';
 import { useAppData } from './hooks/useAppData';
 import { fetchCommentsNow } from './services/dataService';
@@ -25,6 +25,7 @@ export default function App() {
   const {
     dataMode,
     isLoading,
+    loadError,
     isDemoMode,
     comments,
     notes,
@@ -37,6 +38,7 @@ export default function App() {
     updateAssign,
     updatePriority,
     updateTags,
+    saveComments,
     addNote,
     addActivityLogLocal,
     saveRules,
@@ -120,6 +122,15 @@ export default function App() {
     }
   };
 
+  const handleViewComment = (commentId: string) => {
+    const now = new Date().toISOString();
+    saveComments(comments.map(c => (
+      c.id === commentId && c.status === 'Unseen'
+        ? { ...c, status: 'Seen', seenAt: c.seenAt ?? now, updatedAt: now }
+        : c
+    )));
+  };
+
   const handleAddRule = (keyword: string, tag: string, priority: string) => {
     saveRules([
       ...autoTaggingRules,
@@ -133,6 +144,8 @@ export default function App() {
   };
 
   const totalUnseenCount = comments.filter(c => c.status === 'Unseen').length;
+  const facebookCount = comments.filter(c => c.platform === 'facebook').length;
+  const instagramCount = comments.filter(c => c.platform === 'instagram').length;
 
   const pageTitles: Record<string, string> = {
     inbox: 'Inbox',
@@ -173,6 +186,23 @@ export default function App() {
     );
   }
 
+  if (loadError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+        <div className="max-w-md w-full bg-white border border-red-200 rounded-2xl p-6 text-center space-y-4">
+          <p className="text-red-700 font-medium">Could not load dashboard data</p>
+          <p className="text-sm text-slate-600">{loadError}</p>
+          <button
+            onClick={() => void reload()}
+            className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex bg-[#f4f6f9] min-h-screen text-slate-800 font-sans" id="app-root">
       <Sidebar
@@ -185,8 +215,8 @@ export default function App() {
         dataMode={dataMode}
       />
 
-      <div className="flex-1 flex flex-col min-w-0" id="main-content-area">
-        <header className="h-14 bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-6 sticky top-0 z-40 flex items-center justify-between">
+      <div className="flex-1 flex flex-col min-w-0 pb-20 md:pb-0" id="main-content-area">
+        <header className="min-h-14 bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-4 md:px-6 sticky top-0 z-40 flex flex-col gap-3 py-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
             <h2 className="text-base font-semibold text-slate-900">
               {pageTitles[currentTab] || currentTab}
@@ -194,7 +224,18 @@ export default function App() {
             <ConnectionStatus dataMode={dataMode} isDemoMode={isDemoMode} />
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+            <div className="hidden sm:flex items-center gap-2 text-xs">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 font-medium text-blue-700">
+                <Facebook className="w-3.5 h-3.5" /> {facebookCount} FB
+              </span>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-pink-100 bg-pink-50 px-2.5 py-1 font-medium text-pink-700">
+                <Instagram className="w-3.5 h-3.5" /> {instagramCount} IG
+              </span>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-medium text-slate-600">
+                <Megaphone className="w-3.5 h-3.5" /> {ads.length} ads
+              </span>
+            </div>
             {totalUnseenCount > 0 && (
               <button
                 onClick={() => { setPreconfiguredFilters({ status: 'Unseen' }); setCurrentTab('inbox'); }}
@@ -225,7 +266,7 @@ export default function App() {
           }`}
         >
           {currentTab === 'dashboard' && hasPermission('inbox.view') && (
-            <DashboardOverview comments={comments} campaigns={campaigns} teamMembers={team} onNavigateToInbox={handleNavigateWithFilters} />
+            <DashboardOverview comments={comments} campaigns={campaigns} teamMembers={team} currentUserId={user?.id} onNavigateToInbox={handleNavigateWithFilters} />
           )}
 
           {(currentTab === 'inbox' || currentTab === 'facebook' || currentTab === 'instagram') && hasPermission('inbox.view') && (
@@ -236,6 +277,7 @@ export default function App() {
               onSelectComment={setSelectedComment}
               selectedCommentId={selectedComment?.id}
               onUpdateStatus={handleUpdateStatus}
+              onViewComment={handleViewComment}
               onRefresh={!isDemoMode && hasPermission('sync.run') ? handleRefreshComments : undefined}
               isRefreshing={isRefreshing}
               preconfiguredFilters={

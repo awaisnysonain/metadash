@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Ad, Comment } from '../types';
+import { apiClient } from '../services/apiClient';
 import { PlatformBadge } from './ui/Badges';
 import {
   ExternalLink,
@@ -23,10 +24,40 @@ interface AdPreviewPanelProps {
   className?: string;
 }
 
-export default function AdPreviewPanel({ ad, comment, compact = false, className = '' }: AdPreviewPanelProps) {
+export default function AdPreviewPanel({ ad: adProp, comment, compact = false, className = '' }: AdPreviewPanelProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(true);
+  const [ad, setAd] = useState<Ad | undefined>(adProp);
+  const [loadingAd, setLoadingAd] = useState(false);
+
+  useEffect(() => {
+    setAd(adProp);
+  }, [adProp]);
+
+  useEffect(() => {
+    if (!comment?.adId) return;
+    if (adProp?.mediaUrl || adProp?.thumbnailUrl) {
+      setAd(adProp);
+      return;
+    }
+    let cancelled = false;
+    setLoadingAd(true);
+    apiClient
+      .getAdById(comment.adId)
+      .then(full => {
+        if (!cancelled) setAd(full);
+      })
+      .catch(() => {
+        if (!cancelled) setAd(adProp);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingAd(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [comment?.adId, adProp?.id, adProp?.mediaUrl, adProp?.thumbnailUrl]);
 
   useEffect(() => {
     setIsPlaying(true);
@@ -61,7 +92,16 @@ export default function AdPreviewPanel({ ad, comment, compact = false, className
   const BrandIcon = platform === 'facebook' ? Facebook : Instagram;
 
   const renderMedia = () => {
-    if (!ad?.mediaUrl) {
+    if (loadingAd) {
+      return (
+        <div className="relative aspect-video bg-slate-100 rounded-lg flex items-center justify-center border border-slate-200">
+          <p className="text-sm text-slate-500">Loading ad preview…</p>
+        </div>
+      );
+    }
+
+    const mediaSrc = ad?.mediaUrl || ad?.thumbnailUrl;
+    if (!mediaSrc) {
       return (
         <div className="relative aspect-video bg-gradient-to-br from-slate-100 to-slate-200 rounded-lg overflow-hidden flex flex-col items-center justify-center border border-slate-200">
           <ImageOff className="w-10 h-10 text-slate-400 mb-2" />
@@ -71,11 +111,11 @@ export default function AdPreviewPanel({ ad, comment, compact = false, className
       );
     }
 
-    if (ad.mediaType === 'image') {
+    if (ad.mediaType === 'image' || !ad.mediaUrl) {
       return (
         <div className="relative aspect-video bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
           <img
-            src={ad.mediaUrl}
+            src={mediaSrc}
             alt={ad.adName}
             className="w-full h-full object-cover"
             referrerPolicy="no-referrer"

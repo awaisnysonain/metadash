@@ -49,8 +49,8 @@ export default function Sidebar({ currentTab, setCurrentTab, unseenCount }: Side
     .toUpperCase() ?? '?';
 
   return (
-    <aside className="w-60 bg-white flex flex-col border-r border-slate-200/80 h-screen sticky top-0 shrink-0" id="app-sidebar">
-      <div className="px-5 py-5 border-b border-slate-100">
+    <aside className="fixed bottom-0 left-0 right-0 z-50 h-16 bg-white border-t border-slate-200/80 md:sticky md:top-0 md:h-screen md:w-60 md:shrink-0 md:flex md:flex-col md:border-r md:border-t-0" id="app-sidebar">
+      <div className="hidden md:block px-5 py-5 border-b border-slate-100">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-blue-500/25">
             M
@@ -62,7 +62,7 @@ export default function Sidebar({ currentTab, setCurrentTab, unseenCount }: Side
         </div>
       </div>
 
-      <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
+      <nav className="flex h-full items-center gap-1 overflow-x-auto px-2 py-2 md:block md:h-auto md:flex-1 md:space-y-0.5 md:overflow-y-auto md:px-3 md:py-3">
         {visibleItems.map(item => {
           const Icon = item.icon;
           const isActive = currentTab === item.id;
@@ -72,13 +72,13 @@ export default function Sidebar({ currentTab, setCurrentTab, unseenCount }: Side
             <button
               key={item.id}
               onClick={() => setCurrentTab(item.id)}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all text-left text-sm group ${
+              className={`relative min-w-[70px] flex h-full flex-col items-center justify-center gap-1 rounded-xl px-2 py-1.5 text-center text-[11px] transition-all md:h-auto md:w-full md:min-w-0 md:flex-row md:justify-between md:px-3 md:py-2.5 md:text-left md:text-sm group ${
                 isActive
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-500/25 font-medium'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
               }`}
             >
-              <div className="flex items-center gap-2.5">
+              <div className="flex flex-col items-center gap-1 md:flex-row md:gap-2.5">
                 <Icon
                   className={`w-[18px] h-[18px] transition-colors ${
                     item.iconColor && !isActive
@@ -88,10 +88,10 @@ export default function Sidebar({ currentTab, setCurrentTab, unseenCount }: Side
                         : 'text-slate-400 group-hover:text-slate-600'
                   }`}
                 />
-                <span>{item.label}</span>
+                <span className="leading-none md:leading-normal">{item.label}</span>
               </div>
               {badge !== undefined && (
-                <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold min-w-[20px] text-center ${
+                <span className={`absolute -mt-9 ml-9 rounded-md px-1.5 py-0.5 text-[10px] font-bold min-w-[20px] text-center md:static md:mt-0 md:ml-0 ${
                   isActive ? 'bg-white/25 text-white' : 'bg-blue-600 text-white'
                 }`}>
                   {badge}
@@ -103,7 +103,7 @@ export default function Sidebar({ currentTab, setCurrentTab, unseenCount }: Side
       </nav>
 
       {/* User profile footer */}
-      <div className="p-3 border-t border-slate-100 space-y-1">
+      <div className="hidden md:block p-3 border-t border-slate-100 space-y-1">
         <button
           onClick={() => setCurrentTab('profile')}
           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-left ${

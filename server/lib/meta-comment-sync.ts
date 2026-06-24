@@ -1,9 +1,10 @@
 import { isDatabaseConfigured, hasDatabaseUrl } from '../db/pool.js';
 import { getAllAds, upsertComment, insertActivityLog, commentExistsByMetaId } from '../db/repository.js';
+import { realignCommentPlatformsFromAds, pruneStaleInstagramAccounts } from '../db/sync-repository.js';
 import { getPageAccessToken } from '../db/sync-repository.js';
-import { getMetaConfig, isServerDemoMode, validateMetaSync, validateMetaAccessToken } from './meta.js';
+import { getMetaConfig, isServerDemoMode, validateMetaSync, validateMetaAccessToken, metaGraphGet } from './meta.js';
 import { getTokenForAccount, getConfiguredMetaAccounts } from './meta-accounts.js';
-import { resolveAdStoryId, fetchStoryComments, enrichMetaCommentAuthor, pageIdFromStoryId, resolveCommenterInfo, type MetaComment } from './meta-graph.js';
+import { resolveAdStoryId, fetchStoryComments, enrichMetaCommentAuthor, pageIdFromStoryId, resolveCommenterInfo, inferCommentPlatform, type MetaComment } from './meta-graph.js';
 import { MetaApiError } from './meta.js';
 import { mapSyncedComment } from './webhook.js';
 import { syncErrorMessage, syncPagesFromMeta, syncAdsFromMeta } from './meta-sync-service.js';
@@ -33,6 +34,8 @@ export interface CommentSyncState {
 const BACKFILL_DAYS = 730;
 const INCREMENTAL_HOURS = 26;
 const AD_BATCH_DELAY_MS = 120;
+const STUCK_SYNC_MS = 45 * 60 * 1000;
+let syncRunStartedAt: number | null = null;
 
 let syncState: CommentSyncState = {
   lastRunAt: null,
@@ -51,6 +54,63 @@ export function getCommentSyncState(): CommentSyncState {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/** Pick a token that can sync comments — tolerates debug_token app-id mismatch for NOBL/FLO tokens. */
+async function resolveCommentSyncToken(): Promise<{ token: string; status: Awaited<ReturnType<typeof validateMetaAccessToken>> } | null> {
+  const candidates = [
+    ...getConfiguredMetaAccounts().map(a => a.accessToken),
+    getMetaConfig().accessToken?.trim(),
+  ].filter((t): t is string => Boolean(t));
+
+  const unique = [...new Set(candidates)];
+  let lastStatus: Awaited<ReturnType<typeof validateMetaAccessToken>> | null = null;
+
+  for (const token of unique) {
+    const status = await validateMetaAccessToken(token);
+    lastStatus = status;
+    if (status.valid && status.canSyncComments) {
+      return { token, status };
+    }
+
+    if (!status.valid && status.message.includes('App_id')) {
+      try {
+        await metaGraphGet<{ id?: string }>('/me?fields=id', token);
+        const perms = await metaGraphGet<{ data?: Array<{ permission: string; status: string }> }>(
+          '/me/permissions',
+          token
+        );
+        const granted = (perms.data ?? []).filter(p => p.status === 'granted').map(p => p.permission);
+        const hasPagesReadUserContent = granted.includes('pages_read_user_content');
+        if (hasPagesReadUserContent) {
+          return {
+            token,
+            status: {
+              ...status,
+              valid: true,
+              canSyncComments: true,
+              hasPagesReadUserContent: true,
+              message: 'Token valid for comment sync (account token)',
+            },
+          };
+        }
+        lastStatus = {
+          ...status,
+          message: 'Token works but missing pages_read_user_content permission.',
+          hasPagesReadUserContent: false,
+          canSyncComments: false,
+        };
+      } catch {
+        /* try next token */
+      }
+    }
+  }
+
+  if (lastStatus) {
+    syncState.tokenValid = lastStatus.valid;
+    syncState.tokenMessage = lastStatus.message;
+  }
+  return null;
 }
 
 function sinceTimestamp(mode: 'incremental' | 'backfill'): number {
@@ -83,6 +143,7 @@ async function persistMetaComment(
     adsetName: string;
     campaignName: string;
     campaignMetaId?: string;
+    adsetMetaId?: string;
     storyId: string;
     since: number;
     pageAccessToken?: string | null;
@@ -102,7 +163,7 @@ async function persistMetaComment(
   const author = resolveCommenterInfo(enriched.from, enriched.username);
 
   const row = mapSyncedComment({
-    platform: ctx.platform,
+    platform: inferCommentPlatform(ctx.platform, enriched),
     commentId: enriched.id,
     message: enriched.message || metaComment.message || '',
     fromName: author.name,
@@ -116,6 +177,7 @@ async function persistMetaComment(
     adsetName: ctx.adsetName,
     campaignName: ctx.campaignName,
     campaignMetaId: ctx.campaignMetaId,
+    adsetMetaId: ctx.adsetMetaId,
   });
 
   await upsertComment(row);
@@ -153,22 +215,21 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
     return { ok: false, synced: 0, message: check.message! };
   }
 
-  const tokenStatus = await validateMetaAccessToken(
-    getConfiguredMetaAccounts()[0]?.accessToken || getMetaConfig().accessToken
-  );
-  syncState.tokenValid = tokenStatus.valid;
-  syncState.tokenMessage = tokenStatus.message;
-
-  if (!tokenStatus.valid) {
+  const resolved = await resolveCommentSyncToken();
+  if (!resolved) {
+    const msg = syncState.tokenMessage || 'No valid Meta token available for comment sync.';
     return {
       ok: false,
       synced: 0,
-      message: `Meta access token is invalid or expired. ${tokenStatus.message} Generate a new token in Meta Graph API Explorer (app ${tokenStatus.appId ?? 'your app'}), then update META_ACCESS_TOKEN on the server and restart.`,
-      details: { tokenStatus },
+      message: `Meta access token is invalid or expired. ${msg} Update NOBL_META_ACCESS_TOKEN / FLO_META_ACCESS_TOKEN or META_ACCESS_TOKEN on the server and restart.`,
     };
   }
 
-  if (!tokenStatus.hasPagesReadUserContent) {
+  const { token: primaryToken, status: tokenStatus } = resolved;
+  syncState.tokenValid = tokenStatus.valid;
+  syncState.tokenMessage = tokenStatus.message;
+
+  if (!tokenStatus.canSyncComments) {
     return {
       ok: false,
       synced: 0,
@@ -178,14 +239,9 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
     };
   }
 
-  const primaryToken = getConfiguredMetaAccounts()[0]?.accessToken || getMetaConfig().accessToken?.trim();
-  if (!primaryToken) {
-    return { ok: false, synced: 0, message: 'No Meta access token configured.' };
-  }
-
-  // Refresh page tokens for comment reads
-  const pagesResult = await syncPagesFromMeta();
-  if (!pagesResult.ok) {
+  // Refresh page tokens only when needed (not on every incremental run — avoids slow/no-op page fetches).
+  const pagesResult = mode === 'backfill' ? await syncPagesFromMeta() : null;
+  if (pagesResult && !pagesResult.ok) {
     console.warn('[comment-sync] Page sync warning:', pagesResult.message);
   }
 
@@ -208,6 +264,9 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
 
   for (const ad of ads) {
     try {
+      if (adsProcessed > 0 && adsProcessed % 25 === 0) {
+        syncState.lastMessage = `Comment ${mode}: ${adsProcessed}/${ads.length} ads processed, ${synced} comment(s) synced…`;
+      }
       const adToken = ad.metaAccountId ? getTokenForAccount(ad.metaAccountId) : getMetaConfig().accessToken?.trim();
       const token = adToken ?? getMetaConfig().accessToken?.trim();
       if (!token) continue;
@@ -246,7 +305,8 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
           adName: ad.adName,
           adsetName: ad.adsetName,
           campaignName: ad.campaignName,
-          campaignMetaId: ad.campaignName,
+          campaignMetaId: ad.campaignId,
+          adsetMetaId: ad.adsetId,
           storyId,
           since,
           pageAccessToken: pageToken,
@@ -296,20 +356,27 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
     adsSkipped,
     adsWithStory,
     message,
-    details: { mode, since, skipReasons, errors: errors.slice(0, 10), pagesSync: pagesResult.message },
+    details: { mode, since, skipReasons, errors: errors.slice(0, 10), pagesSync: pagesResult?.message },
   };
 }
 
 export async function runCommentSync(mode: 'incremental' | 'backfill' = 'incremental'): Promise<CommentSyncOutcome> {
   if (syncState.isRunning) {
-    return {
-      ok: false,
-      synced: 0,
-      message: 'Comment sync already in progress. Try again shortly.',
-    };
+    if (syncRunStartedAt && Date.now() - syncRunStartedAt > STUCK_SYNC_MS) {
+      console.warn('[comment-sync] Resetting stuck sync flag after timeout');
+      syncState.isRunning = false;
+      syncRunStartedAt = null;
+    } else {
+      return {
+        ok: false,
+        synced: 0,
+        message: 'Comment sync already in progress. Try again shortly.',
+      };
+    }
   }
 
   syncState.isRunning = true;
+  syncRunStartedAt = Date.now();
   syncState.lastMessage = `Running ${mode} comment sync…`;
 
   try {
@@ -319,6 +386,12 @@ export async function runCommentSync(mode: 'incremental' | 'backfill' = 'increme
     syncState.lastSynced = result.synced;
     syncState.lastMessage = result.message;
     console.log(`[comment-sync] ${result.message}`);
+    if (result.ok) {
+      const realigned = await realignCommentPlatformsFromAds();
+      if (realigned > 0) {
+        console.log(`[comment-sync] Reclassified ${realigned} comment(s) as Instagram`);
+      }
+    }
     return result;
   } catch (err) {
     const { message } = syncErrorMessage(err);
@@ -330,6 +403,7 @@ export async function runCommentSync(mode: 'incremental' | 'backfill' = 'increme
     return { ok: false, synced: 0, message };
   } finally {
     syncState.isRunning = false;
+    syncRunStartedAt = null;
   }
 }
 
@@ -349,23 +423,24 @@ export function startCommentSyncCron(): void {
 
   syncState.nextRunAt = new Date(Date.now() + CRON_INTERVAL_MS).toISOString();
 
-  void validateMetaAccessToken().then(status => {
-    syncState.tokenValid = status.valid;
-    syncState.tokenMessage = status.message;
-    if (!status.valid) {
-      console.error(`[comment-sync] ${status.message}`);
+  void resolveCommentSyncToken().then(resolved => {
+    if (!resolved) {
+      console.error(`[comment-sync] ${syncState.tokenMessage || 'No valid token'}`);
+      return;
     }
+    syncState.tokenValid = resolved.status.valid;
+    syncState.tokenMessage = resolved.status.message;
   });
 
   cronTimer = setInterval(async () => {
     syncState.nextRunAt = new Date(Date.now() + CRON_INTERVAL_MS).toISOString();
-    const status = await validateMetaAccessToken();
-    syncState.tokenValid = status.valid;
-    syncState.tokenMessage = status.message;
-    if (!status.valid) {
-      console.warn('[comment-sync] Cron skipped — invalid Meta token');
+    const resolved = await resolveCommentSyncToken();
+    if (!resolved?.status.canSyncComments) {
+      console.warn('[comment-sync] Cron skipped — no valid token for comment sync');
       return;
     }
+    syncState.tokenValid = resolved.status.valid;
+    syncState.tokenMessage = resolved.status.message;
     console.log('[comment-sync] Cron: starting incremental sync');
     await runCommentSync('incremental');
     syncState.nextRunAt = new Date(Date.now() + CRON_INTERVAL_MS).toISOString();
@@ -375,13 +450,13 @@ export function startCommentSyncCron(): void {
 
   setTimeout(async () => {
     try {
-      const status = await validateMetaAccessToken();
-      syncState.tokenValid = status.valid;
-      syncState.tokenMessage = status.message;
-      if (!status.valid) {
-        console.error('[comment-sync] Startup skipped — Meta token invalid:', status.message);
+      const resolved = await resolveCommentSyncToken();
+      if (!resolved?.status.canSyncComments) {
+        console.error('[comment-sync] Startup skipped — no valid comment sync token:', syncState.tokenMessage);
         return;
       }
+      syncState.tokenValid = resolved.status.valid;
+      syncState.tokenMessage = resolved.status.message;
 
       let ads = await getAllAds();
       if (!ads.length) {
@@ -391,8 +466,8 @@ export function startCommentSyncCron(): void {
         ads = await getAllAds();
       }
       if (ads.length > 0) {
-        console.log('[comment-sync] Startup: running 2-week comment backfill');
-        await runCommentSync('backfill');
+        console.log('[comment-sync] Startup: running incremental comment sync');
+        await runCommentSync('incremental');
       } else {
         console.warn('[comment-sync] Still no ads after sync — check META_ACCESS_TOKEN permissions');
       }

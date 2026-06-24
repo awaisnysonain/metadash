@@ -24,6 +24,8 @@ export interface MetaAdSet {
   name: string;
   campaign_id?: string;
   status?: string;
+  publisher_platforms?: string[];
+  instagram_actor_id?: string;
 }
 
 export interface MetaCreative {
@@ -37,6 +39,7 @@ export interface MetaCreative {
   call_to_action_type?: string;
   effective_object_story_id?: string;
   object_story_spec?: {
+    instagram_user_id?: string;
     link_data?: {
       message?: string;
       name?: string;
@@ -107,7 +110,7 @@ export interface WebhookSubscribeResult {
 
 const AD_ACCOUNT_FIELDS = 'id,name,account_status,amount_spent,currency';
 const CAMPAIGN_FIELDS = 'id,name,status,daily_budget,lifetime_budget,objective';
-const ADSET_FIELDS = 'id,name,campaign_id,status';
+const ADSET_FIELDS = 'id,name,campaign_id,status,publisher_platforms,instagram_actor_id';
 // Keep ad list queries light — object_story_spec on many ads triggers Meta "reduce data" errors.
 const AD_LIST_FIELDS = [
   'id',
@@ -397,27 +400,80 @@ export function detectAdPlatform(campaign?: MetaCampaign): 'facebook' | 'instagr
   return 'facebook';
 }
 
-/** Fetch per-ad spend for an ad account (last 30 days by default). */
+function hasInstagramPlacement(platforms?: string[]): boolean {
+  return Boolean(platforms?.some(p => p.toLowerCase() === 'instagram'));
+}
+
+/** Best-effort platform for an ad using campaign objective, ad set placements, and creative signals. */
+export function detectAdPlatformForAd(opts: {
+  campaign?: MetaCampaign;
+  adset?: MetaAdSet;
+  creative?: MetaCreative;
+  storyId?: string | null;
+  instagramPageIds?: Set<string>;
+}): 'facebook' | 'instagram' {
+  const { campaign, adset, creative, storyId, instagramPageIds } = opts;
+
+  if (detectAdPlatform(campaign) === 'instagram') return 'instagram';
+  if (hasInstagramPlacement(adset?.publisher_platforms)) {
+    const platforms = adset!.publisher_platforms!.map(p => p.toLowerCase());
+    if (!platforms.includes('facebook') && platforms.includes('instagram')) return 'instagram';
+    if (platforms.includes('instagram') && !platforms.includes('facebook')) return 'instagram';
+  }
+  if (adset?.instagram_actor_id) return 'instagram';
+
+  const spec = creative?.object_story_spec;
+  if (spec?.instagram_user_id) return 'instagram';
+
+  const storyPageId = pageIdFromStoryId(storyId ?? creative?.effective_object_story_id ?? null);
+  if (storyPageId && instagramPageIds?.has(storyPageId)) return 'instagram';
+
+  const url = (creative?.object_story_spec?.link_data?.link || '').toLowerCase();
+  if (url.includes('instagram.com')) return 'instagram';
+
+  return 'facebook';
+}
+
+export function inferCommentPlatform(
+  adPlatform: 'facebook' | 'instagram',
+  comment?: { permalink_url?: string; username?: string }
+): 'facebook' | 'instagram' {
+  const link = (comment?.permalink_url || '').toLowerCase();
+  if (link.includes('instagram.com')) return 'instagram';
+  if (comment?.username?.trim()) return 'instagram';
+  return adPlatform;
+}
+
+/** Fetch per-ad spend for an ad account (paginated; tries last_30d then maximum). */
 export async function fetchAdSpendInsights(
   adAccountId: string,
   accessToken?: string,
-  datePreset = 'last_30d'
+  datePresets: string[] = ['last_30d', 'maximum']
 ): Promise<Map<string, number>> {
   const actId = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
   const spendMap = new Map<string, number>();
 
-  try {
-    const rows = await metaGraphPaginate<{ ad_id?: string; spend?: string }>(
-      `/${actId}/insights?level=ad&fields=ad_id,spend&date_preset=${datePreset}&limit=500`,
-      accessToken
-    );
-    for (const row of rows) {
-      if (row.ad_id && row.spend) {
-        spendMap.set(row.ad_id, parseFloat(row.spend));
+  for (const preset of datePresets) {
+    try {
+      const rows = await metaGraphPaginate<{ ad_id?: string; spend?: string }>(
+        `/${actId}/insights?level=ad&fields=ad_id,spend&date_preset=${preset}&limit=500`,
+        accessToken
+      );
+      for (const row of rows) {
+        if (row.ad_id && row.spend) {
+          const amount = parseFloat(row.spend);
+          if (amount > 0) {
+            spendMap.set(row.ad_id, Math.max(spendMap.get(row.ad_id) ?? 0, amount));
+          }
+        }
       }
+      if (spendMap.size > 0) break;
+    } catch (err) {
+      console.warn(
+        `[insights] Could not fetch spend for ${actId} (${preset}):`,
+        err instanceof Error ? err.message : err
+      );
     }
-  } catch (err) {
-    console.warn(`[insights] Could not fetch spend for ${actId}:`, err instanceof Error ? err.message : err);
   }
 
   return spendMap;

@@ -71,6 +71,26 @@ export interface SyncResult {
   };
 }
 
+export interface FullSyncJobStatus {
+  isRunning: boolean;
+  startedAt: string | null;
+  finishedAt: string | null;
+  ok: boolean | null;
+  message: string;
+  synced: number;
+}
+
+async function requestRaw(path: string, options?: RequestInit): Promise<Response> {
+  const url = API_BASE ? `${API_BASE}${path}` : path;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(options?.headers as Record<string, string>) };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+  return fetch(url, { ...options, headers });
+}
+
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export interface ReportsSummary {
   total: number;
   unseen: number;
@@ -135,7 +155,17 @@ export const apiClient = {
 
   health: () => request<HealthStatus>('/api/health'),
 
-  getComments: () => request<Comment[]>('/api/comments'),
+  getComments: (opts?: { limit?: number; offset?: number; platform?: string; status?: string }) => {
+    const params = new URLSearchParams();
+    if (opts?.limit != null) params.set('limit', String(opts.limit));
+    if (opts?.offset != null) params.set('offset', String(opts.offset));
+    if (opts?.platform) params.set('platform', opts.platform);
+    if (opts?.status) params.set('status', opts.status);
+    const qs = params.toString();
+    return request<Comment[] | { items: Comment[]; total: number; limit: number; offset: number }>(
+      `/api/comments${qs ? `?${qs}` : ''}`
+    );
+  },
   createComment: (comment: Comment) =>
     request<Comment>('/api/comments', { method: 'POST', body: JSON.stringify(comment) }),
 
@@ -163,7 +193,9 @@ export const apiClient = {
   addCommentNote: (id: string, note: { note: string; userId?: string; userName?: string; userAvatar?: string }) =>
     request<CommentNote>(`/api/comments/${id}/notes`, { method: 'POST', body: JSON.stringify(note) }),
 
-  getAds: () => request<Ad[]>('/api/ads'),
+  getAds: (opts?: { summary?: boolean }) =>
+    request<Ad[]>(`/api/ads${opts?.summary ? '?summary=1' : ''}`),
+  getAdById: (id: string) => request<Ad>(`/api/ads/${encodeURIComponent(id)}`),
   getPages: () =>
     request<Array<{ id: string; pageId: string; pageName: string; pageAccessToken: string | null; isConnected: boolean; syncedAt: string | null }>>(
       '/api/pages'
@@ -191,7 +223,34 @@ export const apiClient = {
   syncPages: () => request<SyncResult>('/api/meta/sync/pages', { method: 'POST' }),
   syncInstagram: () => request<SyncResult>('/api/meta/sync/instagram', { method: 'POST' }),
   syncCampaigns: () => request<SyncResult>('/api/meta/sync/campaigns', { method: 'POST' }),
-  syncAll: () => request<SyncResult>('/api/meta/sync/all', { method: 'POST' }),
+  syncAll: async (): Promise<SyncResult> => {
+    const res = await requestRaw('/api/meta/sync/all', {
+      method: 'POST',
+      body: JSON.stringify({ async: true }),
+    });
+
+    if (res.status === 202) {
+      const started = (await res.json()) as SyncResult & { job?: FullSyncJobStatus };
+      for (let i = 0; i < 180; i++) {
+        await sleep(5000);
+        const job = await request<FullSyncJobStatus>('/api/meta/sync/all/status');
+        if (!job.isRunning) {
+          return {
+            ok: job.ok ?? false,
+            synced: job.synced,
+            message: job.message || started.message,
+          };
+        }
+      }
+      return { ok: true, synced: 0, message: 'Sync is still running in the background. Refresh in a few minutes.' };
+    }
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(body || `API error ${res.status}`);
+    }
+    return res.json() as Promise<SyncResult>;
+  },
 
   syncComments: () => request<SyncResult>('/api/meta/sync/comments', { method: 'POST' }),
   syncCommentsBackfill: () => request<SyncResult>('/api/meta/sync/comments/backfill', { method: 'POST' }),

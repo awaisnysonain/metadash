@@ -15,6 +15,52 @@ export async function getAllComments() {
   return rows.map(rowToComment);
 }
 
+export interface CommentsQuery {
+  limit?: number;
+  offset?: number;
+  platform?: string;
+  status?: string;
+}
+
+export async function getCommentsPaginated(opts: CommentsQuery = {}) {
+  const limit = Math.min(Math.max(opts.limit ?? 500, 1), 2000);
+  const offset = Math.max(opts.offset ?? 0, 0);
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+
+  if (opts.platform && opts.platform !== 'all') {
+    params.push(opts.platform);
+    conditions.push(`platform = $${params.length}`);
+  }
+  if (opts.status && opts.status !== 'All' && opts.status !== 'Unreplied') {
+    params.push(opts.status);
+    conditions.push(`status = $${params.length}`);
+  }
+  if (opts.status === 'Unreplied') {
+    conditions.push(`status IN ('Unseen', 'Seen')`);
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const countRes = await query<{ count: string }>(
+    `SELECT COUNT(*)::int AS count FROM comments ${where}`,
+    params
+  );
+
+  params.push(limit, offset);
+  const { rows } = await query(
+    `SELECT * FROM comments ${where} ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
+  );
+
+  return {
+    items: rows.map(rowToComment),
+    total: Number(countRes.rows[0]?.count ?? 0),
+    limit,
+    offset,
+  };
+}
+
 export async function getCommentById(id: string) {
   const { rows } = await query('SELECT * FROM comments WHERE id = $1', [id]);
   return rows[0] ? rowToComment(rows[0]) : null;
@@ -35,6 +81,7 @@ export async function upsertComment(row: Record<string, unknown>) {
     ) VALUES (
       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26
     ) ON CONFLICT (comment_id) DO UPDATE SET
+      platform = EXCLUDED.platform,
       comment_text = EXCLUDED.comment_text,
       commenter_name = CASE
         WHEN EXCLUDED.commenter_name NOT IN ('Unknown User', 'Commenter', 'Facebook commenter')
@@ -46,6 +93,33 @@ export async function upsertComment(row: Record<string, unknown>) {
         THEN EXCLUDED.commenter_profile_url
         ELSE comments.commenter_profile_url
       END,
+      original_comment_url = CASE
+        WHEN EXCLUDED.original_comment_url IS NOT NULL AND EXCLUDED.original_comment_url <> ''
+        THEN EXCLUDED.original_comment_url
+        ELSE comments.original_comment_url
+      END,
+      campaign_id = COALESCE(NULLIF(EXCLUDED.campaign_id, ''), comments.campaign_id),
+      campaign_name = CASE
+        WHEN EXCLUDED.campaign_name IS NOT NULL AND EXCLUDED.campaign_name NOT IN ('', 'Unknown Campaign')
+        THEN EXCLUDED.campaign_name
+        ELSE comments.campaign_name
+      END,
+      adset_id = COALESCE(NULLIF(EXCLUDED.adset_id, ''), comments.adset_id),
+      adset_name = CASE
+        WHEN EXCLUDED.adset_name IS NOT NULL AND EXCLUDED.adset_name NOT IN ('', 'Unknown Ad Set')
+        THEN EXCLUDED.adset_name
+        ELSE comments.adset_name
+      END,
+      ad_id = COALESCE(NULLIF(EXCLUDED.ad_id, ''), comments.ad_id),
+      ad_name = CASE
+        WHEN EXCLUDED.ad_name IS NOT NULL AND EXCLUDED.ad_name NOT IN ('', 'Unknown Ad')
+        THEN EXCLUDED.ad_name
+        ELSE comments.ad_name
+      END,
+      page_id = COALESCE(NULLIF(EXCLUDED.page_id, ''), comments.page_id),
+      page_name = COALESCE(NULLIF(EXCLUDED.page_name, ''), comments.page_name),
+      instagram_account_id = COALESCE(NULLIF(EXCLUDED.instagram_account_id, ''), comments.instagram_account_id),
+      instagram_account_name = COALESCE(NULLIF(EXCLUDED.instagram_account_name, ''), comments.instagram_account_name),
       updated_at = EXCLUDED.updated_at`,
     [
       row.id, row.platform, row.comment_id, row.comment_text, row.commenter_name,
@@ -148,6 +222,27 @@ export async function getCampaignsWithAds() {
 export async function getAllAds() {
   const { rows } = await query('SELECT * FROM ads ORDER BY ad_name');
   return rows.map(rowToAd);
+}
+
+/** Lightweight ads for inbox/campaign views — omits large copy/media fields. */
+export async function getAdsSummaries() {
+  const { rows } = await query(`
+    SELECT id, platform, ad_id, ad_name, adset_id, adset_name, campaign_id, campaign_name, original_ad_url,
+           media_type, thumbnail_url, comments_count, spend, account_label,
+           meta_account_id, post_story_id, headline, cta
+    FROM ads ORDER BY ad_name
+  `);
+  return rows.map(row => ({
+    ...rowToAd(row),
+    mediaUrl: undefined,
+    adCopy: '',
+    description: undefined,
+  }));
+}
+
+export async function getAdById(id: string) {
+  const { rows } = await query('SELECT * FROM ads WHERE id = $1 OR ad_id = $1 LIMIT 1', [id]);
+  return rows[0] ? rowToAd(rows[0]) : null;
 }
 
 export async function getAllRules() {

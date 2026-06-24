@@ -1,4 +1,4 @@
-import { Comment, TeamMember, Campaign, Ad, AutoTaggingRule, CommentPriority } from './types';
+import type { Comment, TeamMember, Campaign, Ad, AutoTaggingRule, CommentPriority } from './types.js';
 
 export const teamMembers: TeamMember[] = [
   {

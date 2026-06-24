@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   getAllComments,
+  getCommentsPaginated,
   getCommentById,
   updateCommentStatus,
   updateCommentAssign,
@@ -22,9 +23,20 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 
 export const commentsRouter = Router();
 
-commentsRouter.get('/', async (_req, res) => {
+commentsRouter.get('/', async (req, res) => {
   try {
     if (!isDatabaseConfigured()) return res.status(503).json({ error: 'Database not configured' });
+
+    const limit = req.query.limit != null ? Number(req.query.limit) : undefined;
+    const offset = req.query.offset != null ? Number(req.query.offset) : undefined;
+    const platform = typeof req.query.platform === 'string' ? req.query.platform : undefined;
+    const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+
+    if (limit != null || offset != null || platform || status) {
+      const page = await getCommentsPaginated({ limit, offset, platform, status });
+      return res.json(page);
+    }
+
     const comments = await getAllComments();
     res.json(comments);
   } catch (err) {

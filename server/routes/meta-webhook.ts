@@ -6,6 +6,12 @@ import { mapWebhookComment } from '../lib/webhook.js';
 
 export const metaWebhookRouter = Router();
 
+function isCommentWebhookChange(field: string, value: Record<string, unknown>): boolean {
+  if (field !== 'feed' && field !== 'comments' && field !== 'feed_comments') return false;
+  if (field === 'feed' && value.item && value.item !== 'comment') return false;
+  return Boolean(value.comment_id || value.id) && Boolean(String(value.message || value.text || '').trim());
+}
+
 /** GET /api/meta/webhook — Meta verification */
 metaWebhookRouter.get('/', (req, res) => {
   const mode = req.query['hub.mode'];
@@ -46,7 +52,7 @@ metaWebhookRouter.post('/', (req, res) => {
           const platform: 'facebook' | 'instagram' =
             body.object === 'instagram' ? 'instagram' : 'facebook';
 
-          if (field === 'feed' || field === 'comments' || field === 'feed_comments') {
+          if (isCommentWebhookChange(field, value)) {
             const row = mapWebhookComment({
               platform,
               commentId: String(value.comment_id || value.id),

@@ -30,6 +30,7 @@ import {
 export interface UseAppDataReturn {
   dataMode: DataMode;
   isLoading: boolean;
+  loadError: string | null;
   isDemoMode: boolean;
   isLiveMode: boolean;
   comments: Comment[];
@@ -57,6 +58,7 @@ export function useAppData(currentUser?: AppUser | null): UseAppDataReturn {
   const config = getAppConfig();
   const dataMode = resolveDataMode();
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [notes, setNotes] = useState<CommentNote[]>([]);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
@@ -79,8 +81,13 @@ export function useAppData(currentUser?: AppUser | null): UseAppDataReturn {
 
   const reload = useCallback(async () => {
     setIsLoading(true);
+    setLoadError(null);
     try {
       applySnapshot(await loadAppData(modeRef.current));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load dashboard data';
+      setLoadError(message);
+      console.error('[useAppData] reload failed:', err);
     } finally {
       setIsLoading(false);
     }
@@ -127,9 +134,8 @@ export function useAppData(currentUser?: AppUser | null): UseAppDataReturn {
     );
     if (modeRef.current === 'live') {
       await updateCommentStatusApi('live', id, status, oldStatus);
-      await reload();
     }
-  }, [reload]);
+  }, []);
 
   const updateAssign = useCallback(async (id: string, assignedTo: string | undefined, meta?: { oldAssignee?: string; assigneeName?: string }) => {
     const now = new Date().toISOString();
@@ -140,9 +146,8 @@ export function useAppData(currentUser?: AppUser | null): UseAppDataReturn {
     );
     if (modeRef.current === 'live') {
       await updateCommentAssignApi('live', id, assignedTo, meta);
-      await reload();
     }
-  }, [reload]);
+  }, []);
 
   const updatePriority = useCallback(async (id: string, priority: CommentPriority, oldPriority?: string) => {
     setComments(prev => prev.map(c => (c.id === id ? { ...c, priority, updatedAt: new Date().toISOString() } : c)));
@@ -200,6 +205,7 @@ export function useAppData(currentUser?: AppUser | null): UseAppDataReturn {
   return {
     dataMode,
     isLoading,
+    loadError,
     isDemoMode: config.isDemoMode,
     isLiveMode: config.isLiveMode,
     comments,

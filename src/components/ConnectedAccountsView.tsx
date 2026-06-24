@@ -55,7 +55,7 @@ export default function ConnectedAccountsView({ comments, ads, onNavigateToInbox
 
   const fbComments = comments.filter(c => c.platform === 'facebook').length;
   const igComments = comments.filter(c => c.platform === 'instagram').length;
-  const topAds = data?.topAds ?? ads.sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0)).slice(0, 15);
+  const topAds = data?.topAds ?? [...ads].sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0)).slice(0, 15);
 
   return (
     <div className="space-y-6 animate-fade-in">

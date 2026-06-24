@@ -6,6 +6,8 @@ import {
   upsertAd,
   upsertConnectedPage,
   upsertInstagramAccount,
+  pruneStaleInstagramAccounts,
+  realignCommentPlatformsFromAds,
 } from '../db/sync-repository.js';
 import {
   MetaApiError,
@@ -27,15 +29,17 @@ import {
   fetchAdSpendInsights,
   extractInstagramBusinessAccountId,
   type MetaPage,
+  type MetaAdSet,
   parseCreative,
   mapCampaignStatus,
   mapAccountStatus,
   formatBudget,
   formatSpend,
   detectAdPlatform,
+  detectAdPlatformForAd,
   PAGE_ACCOUNT_FIELDS,
 } from './meta-graph.js';
-import { getConfiguredMetaAccounts } from './meta-accounts.js';
+import { getConfiguredMetaAccounts, getPageSyncTokenSources } from './meta-accounts.js';
 import { mockAds, mockCampaigns, connectedPages } from '../../src/data.js';
 
 export interface SyncOutcome {
@@ -163,6 +167,12 @@ async function syncCampaignsDemo(): Promise<SyncOutcome> {
 
 /* ── Live Meta sync ── */
 
+function hasInstagramOnlyPlacement(platforms?: string[]): boolean {
+  if (!platforms?.length) return false;
+  const normalized = platforms.map(p => p.toLowerCase());
+  return normalized.includes('instagram') && !normalized.includes('facebook');
+}
+
 async function upsertPagesAndInstagramFromAccounts(pages: MetaPage[]): Promise<{
   syncedPages: number;
   syncedInstagram: number;
@@ -244,6 +254,7 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
 
       const campaignIdMap = new Map<string, string>();
       const adsetIdMap = new Map<string, string>();
+      const adsetByMetaId = new Map<string, MetaAdSet>();
 
       const spendMap = await fetchAdSpendInsights(account.id, token);
 
@@ -266,16 +277,21 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
       }
 
       const adsets = await fetchAdSets(account.id, token);
+      const instagramActorIds = new Set(
+        adsets.map(a => a.instagram_actor_id).filter((id): id is string => Boolean(id))
+      );
       for (const adset of adsets) {
         const adsetDbId = `meta-adset-${adset.id}`;
         adsetIdMap.set(adset.id, adsetDbId);
+        adsetByMetaId.set(adset.id, adset);
         const campDbId = adset.campaign_id ? campaignIdMap.get(adset.campaign_id) ?? null : null;
+        const adsetPlatform = hasInstagramOnlyPlacement(adset.publisher_platforms) ? 'instagram' : 'facebook';
         await upsertAdSet({
           id: adsetDbId,
           campaignId: campDbId,
           adsetId: adset.id,
           adsetName: adset.name,
-          platform: 'facebook',
+          platform: adsetPlatform,
         });
         syncedAdSets++;
       }
@@ -309,9 +325,16 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
         const campMetaId = ad.campaign?.id;
         const adsetMetaId = ad.adset?.id;
         const postStoryId = creative?.effective_object_story_id ?? null;
-        const platform = campMetaId && campaignIdMap.has(campMetaId)
-          ? detectAdPlatform(campaigns.find(c => c.id === campMetaId))
-          : 'facebook';
+        const campaign = campMetaId ? campaigns.find(c => c.id === campMetaId) : undefined;
+        const adset = adsetMetaId ? adsetByMetaId.get(adsetMetaId) : undefined;
+        const platform = detectAdPlatformForAd({
+          campaign,
+          adset,
+          creative,
+          storyId: postStoryId,
+          instagramPageIds: instagramActorIds,
+        });
+        const adSpend = spendMap.get(ad.id);
 
         await upsertAd({
           id: `meta-ad-${ad.id}`,
@@ -331,7 +354,7 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
           description: parsed.description,
           cta: parsed.cta,
           postStoryId,
-          spend: spendMap.get(ad.id) ?? 0,
+          spend: adSpend,
           accountLabel: config.label,
           metaAccountId: account.id,
         });
@@ -341,6 +364,10 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
   }
 
   const total = syncedAccounts + syncedCampaigns + syncedAdSets + syncedAds;
+  const realigned = await realignCommentPlatformsFromAds();
+  if (realigned > 0) {
+    console.log(`[sync/ads] Reclassified ${realigned} comment(s) as Instagram`);
+  }
   return {
     ok: true,
     synced: total,
@@ -357,12 +384,13 @@ export async function syncPagesFromMeta(): Promise<SyncOutcome> {
   const metaErr = validateOrError();
   if (metaErr) return metaErr;
 
-  const configuredAccounts = getConfiguredMetaAccounts();
+  const configuredAccounts = getPageSyncTokenSources();
   if (!configuredAccounts.length) {
     return { ok: false, synced: 0, pagesFound: 0, pagesSaved: 0, message: 'No Meta tokens configured.' };
   }
 
   const seenPageIds = new Set<string>();
+  const syncedIgAccountIds: string[] = [];
   let pagesFound = 0;
   let pagesSaved = 0;
   const saveErrors: string[] = [];
@@ -409,6 +437,7 @@ export async function syncPagesFromMeta(): Promise<SyncOutcome> {
             isConnected: true,
             accessToken: page.access_token,
           });
+          syncedIgAccountIds.push(igId);
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -435,6 +464,11 @@ export async function syncPagesFromMeta(): Promise<SyncOutcome> {
     };
   }
 
+  const pruned = await pruneStaleInstagramAccounts(syncedIgAccountIds);
+  if (pruned > 0) {
+    console.log(`[sync/pages] Removed ${pruned} stale Instagram account row(s)`);
+  }
+
   let message = `Synced ${pagesSaved}/${pagesFound} Facebook Page(s) from ${configuredAccounts.map(a => a.label).join(', ')}.`;
   if (saveErrors.length) message += ` ${saveErrors.length} save error(s).`;
   if (warnings.length) message += ` ${warnings.join(' ')}`;
@@ -457,18 +491,45 @@ export async function syncInstagramFromMeta(): Promise<SyncOutcome> {
   const metaErr = validateOrError();
   if (metaErr) return metaErr;
 
-  const token = getMetaConfig().accessToken?.trim() ?? '';
-  const { pages } = await fetchManagedPages(token);
-
-  if (!pages.length) {
-    return {
-      ok: true,
-      synced: 0,
-      message: 'No Facebook Pages found. Sync Pages first — Instagram accounts are discovered from /me/accounts.',
-    };
+  const configuredAccounts = getPageSyncTokenSources();
+  if (!configuredAccounts.length) {
+    return { ok: false, synced: 0, message: 'No Meta tokens configured.' };
   }
 
-  const { syncedInstagram } = await upsertPagesAndInstagramFromAccounts(pages);
+  const seenPageIds = new Set<string>();
+  const syncedIgAccountIds: string[] = [];
+  let syncedInstagram = 0;
+
+  for (const config of configuredAccounts) {
+    const { pages } = await fetchManagedPages(config.accessToken);
+    for (const page of pages) {
+      if (seenPageIds.has(page.id)) continue;
+      seenPageIds.add(page.id);
+
+      const igId = extractInstagramBusinessAccountId(page.instagram_business_account);
+      if (!igId) continue;
+
+      let username = `@${page.name.replace(/\s+/g, '').toLowerCase()}`;
+      let followers = '';
+      const igProfile = await fetchInstagramProfile(igId, page.access_token || config.accessToken);
+      if (igProfile?.username) username = `@${igProfile.username}`;
+      if (igProfile?.followers_count) followers = `${igProfile.followers_count.toLocaleString()} followers`;
+
+      await upsertInstagramAccount({
+        id: `meta-ig-${igId}`,
+        accountId: igId,
+        username,
+        followers,
+        avatar: igProfile?.profile_picture_url ? igProfile.profile_picture_url : '📸',
+        isConnected: true,
+        accessToken: page.access_token,
+      });
+      syncedIgAccountIds.push(igId);
+      syncedInstagram++;
+    }
+  }
+
+  await pruneStaleInstagramAccounts(syncedIgAccountIds);
 
   if (!syncedInstagram) {
     return {
@@ -481,7 +542,7 @@ export async function syncInstagramFromMeta(): Promise<SyncOutcome> {
   return {
     ok: true,
     synced: syncedInstagram,
-    message: `Synced ${syncedInstagram} Instagram Business account(s) from /me/accounts (via linked Pages).`,
+    message: `Synced ${syncedInstagram} Instagram Business account(s) from linked Pages (${configuredAccounts.map(a => a.label).join(', ')}).`,
   };
 }
 

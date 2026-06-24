@@ -11,6 +11,7 @@ import {
   syncCommentsBackfill,
   getCommentSyncState,
 } from '../lib/meta-comment-sync.js';
+import { getFullSyncJobState, startFullSyncJob } from '../lib/sync-job.js';
 
 export const metaSyncRouter = Router();
 
@@ -48,7 +49,47 @@ metaSyncRouter.get('/comments/status', (_req, res) => {
   res.json(getCommentSyncState());
 });
 
-metaSyncRouter.post('/all', async (_req, res) => {
+metaSyncRouter.get('/all/status', (_req, res) => {
+  res.json(getFullSyncJobState());
+});
+
+metaSyncRouter.post('/all', (req, res) => {
+  const asyncMode = req.query.async !== '0' && req.body?.async !== false;
+  if (asyncMode) {
+    const { accepted, message } = startFullSyncJob();
+    if (!accepted) {
+      return res.status(409).json({ ok: false, synced: 0, message, job: getFullSyncJobState() });
+    }
+    return res.status(202).json({
+      ok: true,
+      synced: 0,
+      message,
+      job: getFullSyncJobState(),
+    });
+  }
+
+  void runBlockingFullSync(res);
+});
+
+metaSyncRouter.post('/', (req, res) => {
+  const asyncMode = req.query.async !== '0' && req.body?.async !== false;
+  if (asyncMode) {
+    const { accepted, message } = startFullSyncJob();
+    if (!accepted) {
+      return res.status(409).json({ ok: false, synced: 0, message, job: getFullSyncJobState() });
+    }
+    return res.status(202).json({
+      ok: true,
+      synced: 0,
+      message,
+      job: getFullSyncJobState(),
+    });
+  }
+
+  void runBlockingFullSync(res);
+});
+
+async function runBlockingFullSync(res: import('express').Response): Promise<void> {
   try {
     const pages = await syncPagesFromMeta();
     if (!pages.ok) return sendSyncResult(res, pages);
@@ -71,30 +112,4 @@ metaSyncRouter.post('/all', async (_req, res) => {
     const { message, status } = syncErrorMessage(err);
     res.status(status).json({ ok: false, synced: 0, message });
   }
-});
-
-// Legacy alias
-metaSyncRouter.post('/', async (_req, res) => {
-  try {
-    const pages = await syncPagesFromMeta();
-    if (!pages.ok) return sendSyncResult(res, pages);
-
-    const instagram = await syncInstagramFromMeta();
-    if (!instagram.ok) return sendSyncResult(res, instagram);
-
-    const ads = await syncAdsFromMeta();
-    if (!ads.ok) return sendSyncResult(res, ads);
-
-    const comments = await syncCommentsIncremental();
-
-    sendSyncResult(res, {
-      ok: true,
-      synced: pages.synced + instagram.synced + ads.synced + comments.synced,
-      message: `Full sync complete. ${pages.message} ${instagram.message} ${ads.message} ${comments.message}`,
-      details: { pages, instagram, ads, comments },
-    });
-  } catch (err) {
-    const { message, status } = syncErrorMessage(err);
-    res.status(status).json({ ok: false, synced: 0, message });
-  }
-});
+}
