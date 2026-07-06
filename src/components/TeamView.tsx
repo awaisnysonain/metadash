@@ -207,9 +207,12 @@ export default function TeamView({ teamMembers, comments, onNavigateToInbox }: T
     <div className="space-y-4 animate-fade-in" id="team-screen">
       <div className="flex justify-between items-start gap-4">
         <div>
-          <h2 className="text-base font-semibold text-slate-950">Users</h2>
-          <p className="text-sm text-slate-500">
-            {canManage ? 'Admin-only user creation, edits, and deletion.' : 'See who\'s handling comments and their workload.'}
+          <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-slate-500">Users</p>
+          <h2 className="font-editorial mt-1" style={{ fontSize: 28, lineHeight: 1.1, letterSpacing: '-0.015em' }}>
+            Who's on the desk.
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            {canManage ? 'Create teammates, adjust permissions, and set retention policies.' : 'Everyone who\'s helping triage today, and how their workload is stacked.'}
           </p>
         </div>
         {canManage && (

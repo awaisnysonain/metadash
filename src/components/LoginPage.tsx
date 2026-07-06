@@ -24,68 +24,126 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex">
-      {/* Left panel — branding */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950">
-        <div className="absolute inset-0 opacity-30">
-          <div className="absolute top-20 left-20 w-72 h-72 bg-blue-500 rounded-full blur-[100px]" />
-          <div className="absolute bottom-20 right-20 w-96 h-96 bg-indigo-500 rounded-full blur-[120px]" />
+    <div className="min-h-screen flex" style={{ background: 'var(--color-ground)' }}>
+      {/* Left panel — editorial branding */}
+      <div
+        className="hidden lg:flex lg:w-1/2 relative overflow-hidden flex-col justify-between p-16"
+        style={{ background: 'var(--color-ink)', color: 'var(--color-ground)' }}
+      >
+        {/* Ambient teal wash — restrained, one accent used once. */}
+        <div className="absolute inset-0 pointer-events-none">
+          <div
+            className="absolute -bottom-40 -right-40 h-[520px] w-[520px] rounded-full"
+            style={{ background: 'radial-gradient(closest-side, rgba(15, 91, 77, 0.55), transparent 70%)' }}
+          />
+          <div
+            className="absolute -top-32 -left-24 h-[420px] w-[420px] rounded-full"
+            style={{ background: 'radial-gradient(closest-side, rgba(15, 91, 77, 0.28), transparent 70%)' }}
+          />
         </div>
-        <div className="relative z-10 flex flex-col justify-center px-16 text-white">
-          <div className="mb-8 flex items-center gap-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-[24px] bg-white shadow-2xl shadow-blue-950/30 ring-1 ring-white/40">
-              <img src="/metadash-icon.svg" alt="MetaDash" className="h-12 w-12 rounded-[20px] object-contain" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-extrabold tracking-tight">MetaDash</h1>
-              <p className="text-sm text-blue-200/80">Unified Social Comment Inbox</p>
-            </div>
+
+        {/* Brand mark */}
+        <div className="relative z-10 flex items-center gap-3">
+          <div
+            className="flex h-11 w-11 items-center justify-center rounded-[12px]"
+            style={{ background: 'var(--color-ground)' }}
+          >
+            <img src="/metadash-icon.svg" alt="" className="h-7 w-7 object-contain" />
           </div>
-          <h2 className="text-4xl font-bold leading-tight mb-4">
-            Manage Facebook &<br />Instagram ad comments
-          </h2>
-          <p className="text-lg text-blue-100/70 max-w-md leading-relaxed">
-            Track, assign, and respond to comments across all your Meta ad campaigns — in one beautiful dashboard.
+          <div>
+            <p className="font-editorial italic text-xl" style={{ letterSpacing: '-0.01em' }}>MetaDash</p>
+            <p className="text-[10.5px] font-medium tracking-[0.14em] uppercase" style={{ color: 'rgba(246, 245, 240, 0.55)' }}>
+              Comment operations
+            </p>
+          </div>
+        </div>
+
+        {/* Editorial thesis */}
+        <div className="relative z-10 max-w-lg">
+          <p className="text-[10px] font-bold uppercase tracking-[0.22em]" style={{ color: 'rgba(246, 245, 240, 0.5)' }}>
+            An inbox that reads like a desk
           </p>
-          <div className="mt-12 grid grid-cols-3 gap-6">
-            {[
-              { label: 'Real-time sync', desc: 'Live comment feed' },
-              { label: 'Team workflow', desc: 'Assign & collaborate' },
-              { label: 'Ad preview', desc: 'Video & image ads' },
-            ].map(item => (
-              <div key={item.label} className="p-4 rounded-xl bg-white/5 border border-white/10">
-                <p className="font-semibold text-sm">{item.label}</p>
-                <p className="text-xs text-blue-200/60 mt-1">{item.desc}</p>
-              </div>
-            ))}
-          </div>
+          <h1
+            className="font-editorial mt-4"
+            style={{ fontSize: 48, lineHeight: 1.05, letterSpacing: '-0.02em', textWrap: 'balance' }}
+          >
+            Every comment on every ad,{' '}
+            <em style={{ color: '#7FB29F' }}>triaged</em>{' '}
+            in one place.
+          </h1>
+          <p className="mt-5 max-w-md text-[15px] leading-relaxed" style={{ color: 'rgba(246, 245, 240, 0.72)' }}>
+            Facebook and Instagram, paid and organic. Assigned, replied to, or hidden — with the source, spend, and history in view.
+          </p>
+        </div>
+
+        {/* Footer meta */}
+        <div className="relative z-10 grid grid-cols-3 gap-8">
+          {[
+            { k: 'Under', v: '15 min', label: 'Median first response' },
+            { k: 'Across', v: '24 accounts', label: 'FB &amp; IG business' },
+            { k: 'Kept for', v: '3 days', label: 'Live retention window' },
+          ].map(item => (
+            <div key={item.label}>
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: 'rgba(246, 245, 240, 0.5)' }}>
+                {item.k}
+              </p>
+              <p className="font-editorial mt-1 tabular" style={{ fontSize: 22, lineHeight: 1.1, color: '#EFEDE7' }}>
+                {item.v}
+              </p>
+              <p
+                className="mt-1 text-[11px]"
+                style={{ color: 'rgba(246, 245, 240, 0.55)' }}
+                dangerouslySetInnerHTML={{ __html: item.label }}
+              />
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Right panel — login form */}
-      <div className="flex-1 flex items-center justify-center p-8 bg-[#f4f6fa]">
+      {/* Right panel — sign in */}
+      <div
+        className="flex-1 flex items-center justify-center p-8"
+        style={{ background: 'var(--color-ground)' }}
+      >
         <div className="w-full max-w-md">
           <div className="lg:hidden mb-8 flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
-              <img src="/metadash-icon.svg" alt="MetaDash" className="h-10 w-10 rounded-xl object-contain" />
+            <div
+              className="flex h-11 w-11 items-center justify-center rounded-[12px]"
+              style={{ background: 'var(--color-ink)' }}
+            >
+              <img src="/metadash-icon.svg" alt="" className="h-7 w-7 object-contain" />
             </div>
             <div>
-              <h1 className="text-lg font-extrabold tracking-tight text-slate-950">MetaDash</h1>
-              <p className="text-xs text-slate-500">Social comments inbox</p>
+              <p className="font-editorial italic text-lg" style={{ color: 'var(--color-ink)' }}>MetaDash</p>
+              <p className="text-[10.5px] font-medium tracking-[0.14em] uppercase" style={{ color: 'var(--color-muted)' }}>
+                Comment operations
+              </p>
             </div>
           </div>
 
-          <div className="bg-white rounded-[20px] border border-slate-200 shadow-2xl shadow-slate-200/60 p-8">
-            <div className="mb-8">
-              <h2 className="text-2xl font-bold text-slate-900">Welcome back</h2>
-              <p className="text-sm text-slate-500 mt-1">Sign in to your team dashboard</p>
+          <div
+            className="rounded-2xl p-8"
+            style={{ background: 'var(--color-panel)', border: '1px solid var(--color-line)', boxShadow: '0 20px 40px -30px rgba(15,18,24,0.15)' }}
+          >
+            <div className="mb-7">
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: 'var(--color-muted)' }}>
+                Sign in
+              </p>
+              <h2 className="font-editorial mt-1" style={{ fontSize: 26, lineHeight: 1.15, letterSpacing: '-0.015em', color: 'var(--color-ink)' }}>
+                Welcome back.
+              </h2>
+              <p className="mt-1 text-[13px]" style={{ color: 'var(--color-muted)' }}>
+                Use your team account to continue.
+              </p>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="text-sm font-medium text-slate-700 block mb-1.5">Username</label>
+                <label className="text-[11px] font-bold uppercase tracking-[0.12em] block mb-1.5" style={{ color: 'var(--color-muted)' }}>
+                  Username
+                </label>
                 <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: 'var(--color-muted-2)' }} />
                   <input
                     type="text"
                     value={username}
@@ -93,15 +151,24 @@ export default function LoginPage() {
                     placeholder="your.username"
                     required
                     autoComplete="username"
-                    className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl text-[13.5px] focus:outline-none transition-all"
+                    style={{
+                      background: 'var(--color-ground-2)',
+                      border: '1px solid var(--color-line)',
+                      color: 'var(--color-ink)',
+                    }}
+                    onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(15,91,77,0.12)'; }}
+                    onBlur={e => { e.currentTarget.style.borderColor = 'var(--color-line)'; e.currentTarget.style.boxShadow = 'none'; }}
                   />
                 </div>
               </div>
 
               <div>
-                <label className="text-sm font-medium text-slate-700 block mb-1.5">Password</label>
+                <label className="text-[11px] font-bold uppercase tracking-[0.12em] block mb-1.5" style={{ color: 'var(--color-muted)' }}>
+                  Password
+                </label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: 'var(--color-muted-2)' }} />
                   <input
                     type={showPassword ? 'text' : 'password'}
                     value={password}
@@ -109,12 +176,23 @@ export default function LoginPage() {
                     placeholder="••••••••"
                     required
                     autoComplete="current-password"
-                    className="w-full pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                    className="w-full pl-10 pr-10 py-2.5 rounded-xl text-[13.5px] focus:outline-none transition-all"
+                    style={{
+                      background: 'var(--color-ground-2)',
+                      border: '1px solid var(--color-line)',
+                      color: 'var(--color-ink)',
+                    }}
+                    onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(15,91,77,0.12)'; }}
+                    onBlur={e => { e.currentTarget.style.borderColor = 'var(--color-line)'; e.currentTarget.style.boxShadow = 'none'; }}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors"
+                    style={{ color: 'var(--color-muted-2)' }}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    onMouseEnter={e => e.currentTarget.style.color = 'var(--color-ink)'}
+                    onMouseLeave={e => e.currentTarget.style.color = 'var(--color-muted-2)'}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -122,7 +200,10 @@ export default function LoginPage() {
               </div>
 
               {error && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+                <div
+                  className="p-3 rounded-xl text-[13px]"
+                  style={{ background: 'var(--color-sem-red-soft)', border: '1px solid rgba(181,69,69,0.2)', color: 'var(--color-sem-red)' }}
+                >
                   {error}
                 </div>
               )}
@@ -130,7 +211,10 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                className="w-full py-2.5 rounded-xl text-[13.5px] font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+                style={{ background: 'var(--color-accent)', color: '#FFFFFF' }}
+                onMouseEnter={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = 'var(--color-accent-ink)'; }}
+                onMouseLeave={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = 'var(--color-accent)'; }}
               >
                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                 {isSubmitting ? 'Signing in…' : 'Sign in'}
@@ -138,7 +222,7 @@ export default function LoginPage() {
             </form>
           </div>
 
-          <p className="text-center text-xs text-slate-400 mt-6">
+          <p className="text-center text-[11px] mt-5" style={{ color: 'var(--color-muted-2)' }}>
             Authorized team members only. Contact your admin for access.
           </p>
         </div>

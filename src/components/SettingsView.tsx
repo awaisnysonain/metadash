@@ -158,10 +158,13 @@ export default function SettingsView({
   return (
     <div className="space-y-4 animate-fade-in" id="settings-screen">
       <div>
-        <h2 className="text-base font-semibold text-slate-950 flex items-center gap-2">
-          <Settings className="w-5 h-5 text-slate-400" /> Settings
+        <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-slate-500 flex items-center gap-2">
+          <Settings className="w-3.5 h-3.5" /> Settings
+        </p>
+        <h2 className="font-editorial mt-1" style={{ fontSize: 28, lineHeight: 1.1, letterSpacing: '-0.015em' }}>
+          Tune the desk.
         </h2>
-        <p className="text-sm text-slate-500">Manage connected accounts, sync, labels, and notifications.</p>
+        <p className="mt-1 text-sm text-slate-500">Manage connected accounts, sync cadence, auto-tagging, and notifications.</p>
       </div>
 
       {/* Sync section */}

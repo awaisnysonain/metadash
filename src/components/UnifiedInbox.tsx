@@ -305,16 +305,19 @@ export default function UnifiedInbox({
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-sm font-semibold text-slate-950 leading-5">Comment queue</h3>
+              <h3 className="font-editorial" style={{ fontSize: 20, lineHeight: 1.15, letterSpacing: '-0.015em', color: 'var(--color-ink)' }}>The queue</h3>
               {unseenCount > 0 && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-700 rounded-full text-xs font-semibold">
-                  <span className="w-1.5 h-1.5 bg-slate-500 rounded-full animate-pulse" />
-                  {unseenCount} new
+                <span
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold tabular"
+                  style={{ background: 'var(--color-accent-soft)', color: 'var(--color-accent)' }}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--color-accent)' }} />
+                  {unseenCount.toLocaleString()} new
                 </span>
               )}
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              <span className="font-semibold text-slate-800">{comments.length}</span> loaded comments
+            <p className="text-xs mt-0.5" style={{ color: 'var(--color-muted)' }}>
+              <span className="font-semibold tabular" style={{ color: 'var(--color-ink-2)' }}>{comments.length.toLocaleString()}</span> loaded comments
             </p>
           </div>
           {onRefresh && (

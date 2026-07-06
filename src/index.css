@@ -27,6 +27,35 @@
   --color-sem-green-soft: #E8EFE7;
   --color-brand-fb: #1E4B8F;
   --color-brand-ig: #B4326B;
+
+  /* --- Global palette remap ------------------------------------------------
+   * Every existing utility class like `text-slate-900`, `border-slate-200`,
+   * `bg-blue-600` in the codebase automatically renders in the new palette
+   * without touching individual files. Semantic scales (red/amber/emerald)
+   * are left alone — they're used for status meaning.
+   * -------------------------------------------------------------------- */
+  --color-slate-50: #F6F5F0;   /* → ground */
+  --color-slate-100: #EFEDE7;  /* → line-soft */
+  --color-slate-200: #E7E5DE;  /* → line */
+  --color-slate-300: #D6D3CA;
+  --color-slate-400: #9BA1AB;  /* → muted-2 */
+  --color-slate-500: #6B7280;  /* → muted */
+  --color-slate-600: #4B5058;
+  --color-slate-700: #2A2E38;  /* → ink-2 */
+  --color-slate-800: #1A1E28;
+  --color-slate-900: #0F1218;  /* → ink */
+  --color-slate-950: #0F1218;
+
+  --color-blue-50:  #E6EFEA;   /* → accent-soft */
+  --color-blue-100: #C4DBD3;
+  --color-blue-200: #A2C6BC;
+  --color-blue-300: #6FA598;
+  --color-blue-400: #2E7A6A;
+  --color-blue-500: #0F5B4D;   /* → accent */
+  --color-blue-600: #0F5B4D;   /* → accent */
+  --color-blue-700: #0E4E42;   /* → accent-ink */
+  --color-blue-800: #0C3F35;
+  --color-blue-900: #0A332B;
 }
 
 ::-webkit-scrollbar {

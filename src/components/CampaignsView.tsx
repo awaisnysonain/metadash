@@ -56,9 +56,12 @@ export default function CampaignsView({
   return (
     <div className="space-y-4 animate-fade-in" id="campaigns-screen">
       <div>
-        <h2 className="text-base font-semibold text-slate-950">Ads & Campaigns</h2>
-        <p className="text-sm text-slate-500">
-          Campaigns from NOBL & FLO ad accounts — Facebook and Instagram.
+        <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-slate-500">Ads &amp; campaigns</p>
+        <h2 className="font-editorial mt-1" style={{ fontSize: 28, lineHeight: 1.1, letterSpacing: '-0.015em' }}>
+          Everything you're running.
+        </h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Campaigns from NOBL &amp; FLO ad accounts — Facebook and Instagram.
         </p>
       </div>
 

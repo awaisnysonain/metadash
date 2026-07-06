@@ -58,13 +58,16 @@ export default function ProfileView() {
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
-        <h2 className="text-xl font-bold text-slate-900">Your Profile</h2>
-        <p className="text-sm text-slate-500 mt-1">Manage how you appear to your team</p>
+        <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-slate-500">Profile</p>
+        <h2 className="font-editorial mt-1" style={{ fontSize: 28, lineHeight: 1.1, letterSpacing: '-0.015em' }}>
+          How you show up to the team.
+        </h2>
+        <p className="mt-1 text-sm text-slate-500">Your name, avatar, and short bio — visible on assigned comments and activity logs.</p>
       </div>
 
       <form onSubmit={handleSave} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-        {/* Cover / avatar section */}
-        <div className="h-32 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 relative">
+        {/* Cover / avatar section — teal to ink gradient matches the sign-in hero */}
+        <div className="h-32 relative" style={{ background: 'linear-gradient(135deg, var(--color-accent) 0%, #14332B 60%, var(--color-ink) 100%)' }}>
           <div className="absolute -bottom-10 left-6">
             <div className="relative group">
               {avatarUrl ? (

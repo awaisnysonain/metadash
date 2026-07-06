@@ -71,9 +71,12 @@ export default function ReportsView({ comments, teamMembers, campaigns, onNaviga
   return (
     <div className="space-y-4 animate-fade-in" id="reports-screen">
       <div>
-        <h2 className="text-base font-semibold text-slate-950">Insights</h2>
-        <p className="text-sm text-slate-500">
-          Comment trends, team performance, and items that need attention.
+        <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-slate-500">Insights</p>
+        <h2 className="font-editorial mt-1" style={{ fontSize: 28, lineHeight: 1.1, letterSpacing: '-0.015em' }}>
+          Trends, team load, and what needs attention.
+        </h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Where volume is going, how the team is keeping up, and where the SLA is drifting.
         </p>
       </div>
 
