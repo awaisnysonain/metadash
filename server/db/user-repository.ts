@@ -176,6 +176,14 @@ export async function updateUserByAdmin(
   return updateUserProfile(id, fields);
 }
 
+export async function deleteUserByAdmin(id: string): Promise<boolean> {
+  const user = await getUserById(id);
+  if (!user) return false;
+  await query('DELETE FROM app_users WHERE id = $1', [id]);
+  await query('DELETE FROM team_members WHERE id = $1', [id]);
+  return true;
+}
+
 export async function recordCommentView(commentId: string, userId: string, userName: string) {
   const id = `view-${commentId}-${userId}`;
   await query(
@@ -195,6 +203,10 @@ export async function getCommentViews(commentId: string) {
     userName: r.user_name as string,
     viewedAt: String(r.viewed_at),
   }));
+}
+
+export async function clearCommentViews(commentId: string) {
+  await query('DELETE FROM comment_views WHERE comment_id = $1', [commentId]);
 }
 
 export async function removeStaleAdminFromDb() {

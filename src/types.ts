@@ -107,8 +107,12 @@ export interface Ad {
   likesCount?: number;
   sharesCount?: number;
   commentsCount?: number;
+  effectiveStatus?: string;
+  configuredStatus?: string;
+  instagramMediaId?: string;
   postStoryId?: string;
   spend?: number;
+  recentSpend?: number;
   accountLabel?: string;
   metaAccountId?: string;
 }
@@ -140,6 +144,7 @@ export interface Comment {
   updatedAt: string;
   repliedAt?: string;
   seenAt?: string;
+  views?: CommentView[];
 }
 
 export interface AutoTaggingRule {

@@ -1,7 +1,11 @@
 import { getConfigValue, setConfigValue } from '../db/repository.js';
 import type { CommentAnalysis } from './ai-analysis.js';
+import { fetchWithTimeout } from './meta.js';
 
 const SLACK_CONFIG_KEY = 'slack_alerts_enabled';
+const TOKEN_EXPIRY_REMINDER_PREFIX = 'meta_token_expiry_reminder_sent';
+const TOKEN_EXPIRY_CHECK_MS = 24 * 60 * 60 * 1000;
+let tokenExpiryTimer: ReturnType<typeof setInterval> | null = null;
 
 export interface SlackStatus {
   enabled: boolean;
@@ -19,6 +23,100 @@ export async function getSlackStatus(): Promise<SlackStatus> {
 export async function setSlackEnabled(enabled: boolean): Promise<SlackStatus> {
   await setConfigValue(SLACK_CONFIG_KEY, enabled);
   return getSlackStatus();
+}
+
+export async function sendSlackDirectMessage(input: {
+  slackUserId: string;
+  text: string;
+  blocks?: unknown[];
+}): Promise<{ sent: boolean; reason?: string }> {
+  const token = process.env.SLACK_BOT_TOKEN?.trim();
+  if (!token) return { sent: false, reason: 'not_configured' };
+
+  try {
+    const res = await fetchWithTimeout('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json; charset=utf-8',
+      },
+      body: JSON.stringify({
+        channel: input.slackUserId,
+        text: input.text,
+        unfurl_links: false,
+        unfurl_media: false,
+        blocks: input.blocks,
+      }),
+    }, Math.max(Number(process.env.SLACK_FETCH_TIMEOUT_MS || 8000), 1000));
+    const body = await res.json() as { ok?: boolean; error?: string };
+    if (!res.ok || !body.ok) return { sent: false, reason: body.error || `http_${res.status}` };
+    return { sent: true };
+  } catch (err) {
+    return { sent: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+interface TokenExpiryConfig {
+  label: string;
+  expiresAt: Date;
+  rawDate: string;
+}
+
+function getTokenExpiryConfigs(): TokenExpiryConfig[] {
+  const configs: TokenExpiryConfig[] = [];
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!key.endsWith('_EXPIRES_AT') || !value?.trim()) continue;
+    const labelKey = key.replace(/_EXPIRES_AT$/, '_LABEL');
+    const label = process.env[labelKey]?.trim() || key.replace(/_EXPIRES_AT$/, '');
+    const expiresAt = new Date(value.trim());
+    if (Number.isNaN(expiresAt.getTime())) continue;
+    configs.push({ label, expiresAt, rawDate: value.trim() });
+  }
+  return configs;
+}
+
+export async function checkMetaTokenExpiryReminders(): Promise<void> {
+  const slackUserId = process.env.META_TOKEN_EXPIRY_SLACK_USER_ID?.trim();
+  if (!slackUserId) return;
+
+  const now = Date.now();
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  for (const config of getTokenExpiryConfigs()) {
+    const daysUntilExpiry = Math.ceil((config.expiresAt.getTime() - now) / oneDayMs);
+    if (daysUntilExpiry > 7 || daysUntilExpiry < 0) continue;
+
+    const reminderKey = `${TOKEN_EXPIRY_REMINDER_PREFIX}_${config.label}_${config.rawDate}`.replace(/[^a-zA-Z0-9:_-]/g, '_');
+    const alreadySent = await getConfigValue<boolean>(reminderKey, false);
+    if (alreadySent) continue;
+
+    const expiryDate = config.expiresAt.toISOString().slice(0, 10);
+    const result = await sendSlackDirectMessage({
+      slackUserId,
+      text: `Meta token ${config.label} expires on ${expiryDate}. Generate and deploy a new long-lived token.`,
+      blocks: [
+        { type: 'header', text: { type: 'plain_text', text: 'Meta Token Expiry Reminder' } },
+        { type: 'section', text: { type: 'mrkdwn', text: `*${config.label}* token expires on *${expiryDate}* (${daysUntilExpiry} day(s) left).` } },
+        { type: 'section', text: { type: 'mrkdwn', text: 'Generate a new long-lived token and update production `.env`, then restart `metadashboard`.' } },
+      ],
+    });
+    if (result.sent) {
+      await setConfigValue(reminderKey, true);
+    } else {
+      console.warn('[slack] token expiry reminder skipped:', result.reason);
+    }
+  }
+}
+
+export function startMetaTokenExpiryReminder(): void {
+  if (tokenExpiryTimer) return;
+  void checkMetaTokenExpiryReminders().catch(err => {
+    console.warn('[slack] token expiry reminder failed:', err instanceof Error ? err.message : String(err));
+  });
+  tokenExpiryTimer = setInterval(() => {
+    void checkMetaTokenExpiryReminders().catch(err => {
+      console.warn('[slack] token expiry reminder failed:', err instanceof Error ? err.message : String(err));
+    });
+  }, TOKEN_EXPIRY_CHECK_MS);
 }
 
 function formatDate(value?: string): string {
@@ -69,7 +167,7 @@ export async function sendSlackCommentAlert(input: {
   });
 
   try {
-    const res = await fetch('https://slack.com/api/chat.postMessage', {
+    const res = await fetchWithTimeout('https://slack.com/api/chat.postMessage', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -82,7 +180,7 @@ export async function sendSlackCommentAlert(input: {
         unfurl_media: false,
         blocks,
       }),
-    });
+    }, Math.max(Number(process.env.SLACK_FETCH_TIMEOUT_MS || 8000), 1000));
     const body = await res.json() as { ok?: boolean; error?: string };
     if (!res.ok || !body.ok) return { sent: false, reason: body.error || `http_${res.status}` };
     return { sent: true };

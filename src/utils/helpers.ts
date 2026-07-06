@@ -3,15 +3,80 @@ import { Comment, Ad, CommentStatus, CommentPriority, CommentSentiment, Platform
 export const getAdForComment = (comment: Comment, ads: Ad[]): Ad | undefined =>
   ads.find(ad => ad.id === comment.adId || ad.adId === comment.adId);
 
+export function safeExternalUrl(url?: string | null): string | undefined {
+  const trimmed = url?.trim();
+  if (!trimmed) return undefined;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return undefined;
+    return parsed.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+export function commentExternalUrl(comment: Comment): string | undefined {
+  const safe = safeExternalUrl(comment.originalCommentUrl);
+  if (!safe) return undefined;
+
+  if (comment.platform !== 'instagram' || !comment.commentId) return safe;
+
+  try {
+    const parsed = new URL(safe);
+    if (!parsed.hostname.includes('instagram.com')) return safe;
+    if (!parsed.searchParams.has('comment_id')) {
+      parsed.searchParams.set('comment_id', comment.commentId);
+    }
+    return parsed.toString();
+  } catch {
+    return safe;
+  }
+}
+
+export function commentLinkLabel(platform: Platform): string {
+  return platform === 'instagram' ? 'Open Instagram comment' : 'Open on Facebook';
+}
+
+export function adLinkLabel(url?: string | null): string {
+  const safe = safeExternalUrl(url);
+  if (!safe) return 'Ad link unavailable';
+  if (safe.includes('facebook.com/ads/library')) return 'Open in Ads Library';
+  if (safe.includes('facebook.com')) return 'Open Meta post';
+  return 'Open landing page';
+}
+
 export type BrandLabel = 'Nobl' | 'Flo' | 'Unattributed';
+export type SourceCategory = 'Brand page' | 'Whitelisted creator' | 'Creator/UGC' | 'Third-party page' | 'Organic';
+
+// Word-boundary matching so 'nobl' inside 'noble' still counts but 'flo' doesn't fire on
+// 'workflow'/'flower'/'florist'/'flourish'.
+const NOBL_TOKEN_RE = /\bnobl[a-z]*\b/;
+const FLO_TOKEN_RE = /\bflo(?:pilates|living|works|hq)?\b/;
+// Common brand-owned page-name substrings (case-insensitive). Same defensive rules.
+const NOBL_PAGE_RE = /\bnobl[a-z]*\b|\bnyson[a-z]*\b|trusted[- ]?luggage/;
+const FLO_PAGE_RE = /\bflo(?:pilates|living|works|hq)?\b/;
+
+function joinLower(...parts: Array<string | undefined | null>): string {
+  return parts.filter(Boolean).join(' ').toLowerCase();
+}
 
 export function inferBrandLabel(comment?: Comment, ad?: Ad): BrandLabel {
-  const text = [ad?.accountLabel, comment?.campaignName, ad?.campaignName, comment?.adName, ad?.adName]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-  if (text.includes('nobl')) return 'Nobl';
-  if (text.includes('flo')) return 'Flo';
+  // Prefer the account label — it's set explicitly per Meta ad account and doesn't
+  // depend on brittle name matching.
+  const label = (ad?.accountLabel || '').toUpperCase();
+  if (label === 'NOBL') return 'Nobl';
+  if (label === 'FLO') return 'Flo';
+
+  const text = joinLower(
+    comment?.campaignName,
+    ad?.campaignName,
+    comment?.adName,
+    ad?.adName,
+    comment?.pageName,
+    comment?.instagramAccountName,
+  );
+  if (NOBL_TOKEN_RE.test(text)) return 'Nobl';
+  if (FLO_TOKEN_RE.test(text)) return 'Flo';
   return 'Unattributed';
 }
 
@@ -19,6 +84,52 @@ export function brandChipClass(brand: BrandLabel): string {
   if (brand === 'Nobl') return 'bg-indigo-50 text-indigo-700 border-indigo-200';
   if (brand === 'Flo') return 'bg-pink-50 text-pink-700 border-pink-200';
   return 'bg-slate-50 text-slate-600 border-slate-200';
+}
+
+// Explicit ad-name markers put there by media buyers.
+const WHITELIST_MARKERS = /\b(wl|whitelist(?:ed|ing)?|spark[- ]?ad|dark[- ]?post|partnership)\b/;
+const CREATOR_MARKERS = /\b(ugc|creator|influencer|content[- ]?creator|athlete|ambassador)\b/;
+// Adset naming pattern many brands use for organic-styled placements.
+const ORGANIC_MARKERS = /\borganic\b/;
+
+function pageLooksBrandOwned(brand: BrandLabel, sourceName: string): boolean {
+  if (!sourceName) return true; // no page info yet — assume brand until proven otherwise
+  if (brand === 'Nobl') return NOBL_PAGE_RE.test(sourceName);
+  if (brand === 'Flo') return FLO_PAGE_RE.test(sourceName);
+  return false;
+}
+
+export function inferSourceCategory(comment?: Comment, ad?: Ad): SourceCategory {
+  if (!ad) return 'Organic';
+
+  const brand = inferBrandLabel(comment, ad);
+  const adText = joinLower(ad.adName, ad.campaignName, ad.adsetName, comment?.adName, comment?.campaignName);
+  const sourceName = joinLower(comment?.pageName, comment?.instagramAccountName);
+  const brandOwned = pageLooksBrandOwned(brand, sourceName);
+
+  // Strongest signal: page owner is NOT the brand's page.
+  //  - Combined with a whitelist marker → clearly a whitelisted creator asset.
+  //  - Otherwise it's a third-party page reposting an ad.
+  if (sourceName && !brandOwned) {
+    if (WHITELIST_MARKERS.test(adText)) return 'Whitelisted creator';
+    if (CREATOR_MARKERS.test(adText)) return 'Creator/UGC';
+    return 'Third-party page';
+  }
+
+  // Brand-owned (or unknown) page: rely on explicit markers in the ad name.
+  if (WHITELIST_MARKERS.test(adText)) return 'Whitelisted creator';
+  if (CREATOR_MARKERS.test(adText)) return 'Creator/UGC';
+  if (ORGANIC_MARKERS.test(adText)) return 'Organic';
+
+  return 'Brand page';
+}
+
+export function sourceChipClass(source: SourceCategory): string {
+  if (source === 'Whitelisted creator') return 'bg-violet-50 text-violet-700 border-violet-200';
+  if (source === 'Creator/UGC') return 'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200';
+  if (source === 'Third-party page') return 'bg-cyan-50 text-cyan-700 border-cyan-200';
+  if (source === 'Organic') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+  return 'bg-slate-50 text-slate-700 border-slate-200';
 }
 
 const GENERIC_COMMENTER_LABELS = new Set(['Unknown User', 'Commenter', 'Facebook User', 'Facebook commenter']);
@@ -34,26 +145,77 @@ export function isGenericCommenterName(name: string): boolean {
 
 export function commenterAvatarUrl(comment: Comment): string | undefined {
   const url = comment.commenterProfileUrl?.trim();
-  if (!url || url.includes('profile.php')) return undefined;
-  return url;
+  if (url) {
+    try {
+      const parsed = new URL(url);
+      const facebookId = parsed.hostname.includes('facebook.com') && parsed.pathname.endsWith('/profile.php')
+        ? parsed.searchParams.get('id')
+        : undefined;
+      if (facebookId) return `https://graph.facebook.com/${encodeURIComponent(facebookId)}/picture?type=large`;
+      return url;
+    } catch {
+      return url;
+    }
+  }
+
+  if (comment.platform === 'instagram') {
+    const username = displayCommenterName(comment.commenterName).replace(/^@/, '').trim();
+    if (username && !isGenericCommenterName(username)) {
+      return `https://unavatar.io/instagram/${encodeURIComponent(username)}`;
+    }
+  }
+
+  return undefined;
 }
 
 export function commenterInitial(name: string): string {
   return displayCommenterName(name).charAt(0).toUpperCase();
 }
 
-export const formatCommentTime = (timeStr: string): string => {
-  const d = new Date(timeStr);
-  return (
-    d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) +
-    ' · ' +
-    d.toLocaleDateString([], { month: 'short', day: 'numeric' })
-  );
+const PAKISTAN_TIME_ZONE = 'Asia/Karachi';
+
+function parseDate(timeStr?: string): Date | null {
+  if (!timeStr) return null;
+  const date = new Date(timeStr);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export const formatRelativeTime = (timeStr?: string): string => {
+  const date = parseDate(timeStr);
+  if (!date) return 'Unknown time';
+
+  const diffSeconds = Math.round((date.getTime() - Date.now()) / 1000);
+  const absSeconds = Math.abs(diffSeconds);
+  if (absSeconds < 45) return 'just now';
+
+  const units: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+    ['year', 31536000],
+    ['month', 2592000],
+    ['week', 604800],
+    ['day', 86400],
+    ['hour', 3600],
+    ['minute', 60],
+  ];
+  const [unit, seconds] = units.find(([, unitSeconds]) => absSeconds >= unitSeconds) ?? ['second', 1];
+  const value = Math.round(diffSeconds / seconds);
+  return new Intl.RelativeTimeFormat('en', { numeric: 'auto' }).format(value, unit);
 };
 
+export const formatCommentTime = (timeStr: string): string => formatRelativeTime(timeStr);
+
 export const formatFullTime = (timeStr?: string): string => {
-  if (!timeStr) return 'N/A';
-  return new Date(timeStr).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  const date = parseDate(timeStr);
+  if (!date) return 'N/A';
+  const pkTime = date.toLocaleString('en-US', {
+    timeZone: PAKISTAN_TIME_ZONE,
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+  return `${pkTime} PKT`;
 };
 
 export const statusStyles: Record<CommentStatus, string> = {

@@ -83,19 +83,24 @@ export async function upsertAd(row: {
   cta?: string;
   postStoryId?: string | null;
   spend?: number;
+  recentSpend?: number;
   accountLabel?: string;
   metaAccountId?: string;
+  effectiveStatus?: string | null;
+  configuredStatus?: string | null;
+  instagramMediaId?: string | null;
 }) {
   await query(
     `INSERT INTO ads (
        id, platform, ad_id, ad_name, adset_name, campaign_name,
        adset_id, campaign_id, original_ad_url, media_type, media_url, thumbnail_url,
-       ad_copy, headline, description, cta, post_story_id, spend, account_label, meta_account_id, synced_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NOW())
-     ON CONFLICT (id) DO UPDATE SET
-       platform = EXCLUDED.platform,
-       ad_name = EXCLUDED.ad_name,
-       adset_name = EXCLUDED.adset_name,
+       ad_copy, headline, description, cta, post_story_id, spend, account_label, meta_account_id,
+       effective_status, configured_status, recent_spend, instagram_media_id, synced_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,NOW())
+      ON CONFLICT (id) DO UPDATE SET
+        platform = EXCLUDED.platform,
+        ad_name = EXCLUDED.ad_name,
+        adset_name = EXCLUDED.adset_name,
        campaign_name = EXCLUDED.campaign_name,
        adset_id = EXCLUDED.adset_id,
        campaign_id = EXCLUDED.campaign_id,
@@ -107,11 +112,15 @@ export async function upsertAd(row: {
        headline = EXCLUDED.headline,
        description = EXCLUDED.description,
        cta = EXCLUDED.cta,
-       post_story_id = COALESCE(EXCLUDED.post_story_id, ads.post_story_id),
-       spend = CASE WHEN EXCLUDED.spend > 0 THEN EXCLUDED.spend ELSE ads.spend END,
-       account_label = COALESCE(EXCLUDED.account_label, ads.account_label),
-       meta_account_id = COALESCE(EXCLUDED.meta_account_id, ads.meta_account_id),
-       synced_at = NOW()`,
+        post_story_id = COALESCE(EXCLUDED.post_story_id, ads.post_story_id),
+        spend = CASE WHEN EXCLUDED.spend > 0 THEN EXCLUDED.spend ELSE ads.spend END,
+        account_label = COALESCE(EXCLUDED.account_label, ads.account_label),
+        meta_account_id = COALESCE(EXCLUDED.meta_account_id, ads.meta_account_id),
+        effective_status = COALESCE(EXCLUDED.effective_status, ads.effective_status),
+        configured_status = COALESCE(EXCLUDED.configured_status, ads.configured_status),
+        recent_spend = EXCLUDED.recent_spend,
+        instagram_media_id = COALESCE(EXCLUDED.instagram_media_id, ads.instagram_media_id),
+        synced_at = NOW()`,
     [
       row.id,
       row.platform,
@@ -133,8 +142,27 @@ export async function upsertAd(row: {
       row.spend != null && row.spend > 0 ? row.spend : 0,
       row.accountLabel ?? null,
       row.metaAccountId ?? null,
+      row.effectiveStatus ?? null,
+      row.configuredStatus ?? null,
+      row.recentSpend != null && row.recentSpend > 0 ? row.recentSpend : 0,
+      row.instagramMediaId ?? null,
     ]
   );
+}
+
+export async function markStaleActiveAdsInactive(metaAccountId: string, syncedAfterIso: string): Promise<number> {
+  const normalizedAccountId = metaAccountId.replace(/^act_/, '');
+  const { rowCount } = await query(
+    `UPDATE ads
+     SET effective_status = 'INACTIVE',
+         configured_status = COALESCE(configured_status, 'INACTIVE'),
+         synced_at = NOW()
+     WHERE effective_status = 'ACTIVE'
+       AND REPLACE(COALESCE(meta_account_id, ''), 'act_', '') = $1
+       AND (synced_at IS NULL OR synced_at < $2::timestamptz)`,
+    [normalizedAccountId, syncedAfterIso]
+  );
+  return rowCount ?? 0;
 }
 
 export async function upsertConnectedPage(row: {
@@ -164,22 +192,26 @@ export async function upsertInstagramAccount(row: {
   id: string;
   accountId: string;
   username: string;
+  linkedPageId?: string;
+  linkedPageName?: string;
   followers: string;
   avatar: string;
   isConnected: boolean;
   accessToken?: string;
 }) {
   await query(
-    `INSERT INTO connected_instagram_accounts (id, account_id, username, followers, avatar, is_connected, access_token, synced_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+    `INSERT INTO connected_instagram_accounts (id, account_id, username, linked_page_id, linked_page_name, followers, avatar, is_connected, access_token, synced_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
      ON CONFLICT (id) DO UPDATE SET
-       username = EXCLUDED.username,
-       followers = EXCLUDED.followers,
-       avatar = EXCLUDED.avatar,
-       is_connected = EXCLUDED.is_connected,
-       access_token = COALESCE(EXCLUDED.access_token, connected_instagram_accounts.access_token),
-       synced_at = NOW()`,
-    [row.id, row.accountId, row.username, row.followers, row.avatar, row.isConnected, row.accessToken ?? null]
+        username = EXCLUDED.username,
+        linked_page_id = COALESCE(EXCLUDED.linked_page_id, connected_instagram_accounts.linked_page_id),
+        linked_page_name = COALESCE(EXCLUDED.linked_page_name, connected_instagram_accounts.linked_page_name),
+        followers = EXCLUDED.followers,
+        avatar = EXCLUDED.avatar,
+        is_connected = EXCLUDED.is_connected,
+        access_token = COALESCE(EXCLUDED.access_token, connected_instagram_accounts.access_token),
+        synced_at = NOW()`,
+    [row.id, row.accountId, row.username, row.linkedPageId ?? null, row.linkedPageName ?? null, row.followers, row.avatar, row.isConnected, row.accessToken ?? null]
   );
 }
 
@@ -278,16 +310,26 @@ export async function getTopAdsBySpend(limit = 20) {
     campaign_name: string | null;
     platform: string;
     spend: string | null;
+    recent_spend: string | null;
     account_label: string | null;
     media_type: string | null;
     thumbnail_url: string | null;
     media_url: string | null;
     comments_count: number | null;
   }>(
-    `SELECT id, ad_id, ad_name, campaign_name, platform, spend, account_label, media_type, thumbnail_url, media_url, comments_count
-     FROM ads
-     ORDER BY COALESCE(spend, 0) DESC, COALESCE(comments_count, 0) DESC, ad_name
-     LIMIT $1`,
+    `WITH ranked AS (
+       SELECT id, ad_id, ad_name, campaign_name, platform, spend, recent_spend, account_label, media_type, thumbnail_url, media_url, comments_count,
+              ROW_NUMBER() OVER (
+                PARTITION BY COALESCE(NULLIF(account_label, ''), 'UNKNOWN')
+                ORDER BY COALESCE(recent_spend, 0) DESC, COALESCE(spend, 0) DESC, COALESCE(comments_count, 0) DESC, ad_name
+              ) AS account_rank
+       FROM ads
+       WHERE effective_status = 'ACTIVE'
+     )
+     SELECT id, ad_id, ad_name, campaign_name, platform, spend, recent_spend, account_label, media_type, thumbnail_url, media_url, comments_count
+     FROM ranked
+     WHERE account_rank <= $1
+     ORDER BY COALESCE(NULLIF(account_label, ''), 'UNKNOWN'), account_rank`,
     [limit]
   );
 
@@ -298,6 +340,7 @@ export async function getTopAdsBySpend(limit = 20) {
     campaignName: row.campaign_name ?? '',
     platform: row.platform,
     spend: Number(row.spend ?? 0),
+    recentSpend: Number(row.recent_spend ?? 0),
     accountLabel: row.account_label ?? '',
     mediaType: row.media_type ?? 'image',
     thumbnailUrl: row.thumbnail_url ?? undefined,
@@ -311,15 +354,19 @@ export async function getAllConnectedPages() {
     id: string;
     page_id: string;
     name: string;
+    fans: string | null;
+    avatar: string | null;
     access_token: string | null;
     is_connected: boolean;
     synced_at: string | null;
-  }>('SELECT id, page_id, name, access_token, is_connected, synced_at FROM connected_pages ORDER BY name');
+  }>('SELECT id, page_id, name, fans, avatar, access_token, is_connected, synced_at FROM connected_pages ORDER BY name');
 
   return rows.map(row => ({
     id: row.id,
     pageId: row.page_id,
     pageName: row.name,
+    fans: row.fans ?? '',
+    avatar: row.avatar ?? '',
     pageAccessToken: row.access_token,
     isConnected: row.is_connected,
     syncedAt: row.synced_at,
@@ -332,6 +379,148 @@ export async function getPageAccessToken(pageId: string): Promise<string | null>
     [pageId]
   );
   return rows[0]?.access_token ?? null;
+}
+
+export interface AdLookupRow {
+  adId: string;
+  adName: string;
+  adsetId: string | null;
+  adsetName: string | null;
+  campaignId: string | null;
+  campaignName: string | null;
+  accountLabel: string | null;
+  metaAccountId: string | null;
+  postStoryId: string | null;
+  instagramMediaId: string | null;
+}
+
+/** Best-match ad for an organic IG media — prefers ads with matching media, highest recent spend. */
+export async function findAdByInstagramMediaId(mediaId: string): Promise<AdLookupRow | null> {
+  if (!mediaId?.trim()) return null;
+  const { rows } = await query<{
+    ad_id: string;
+    ad_name: string;
+    adset_id: string | null;
+    adset_name: string | null;
+    campaign_id: string | null;
+    campaign_name: string | null;
+    account_label: string | null;
+    meta_account_id: string | null;
+    post_story_id: string | null;
+    instagram_media_id: string | null;
+  }>(
+    `SELECT ad_id, ad_name, adset_id, adset_name, campaign_id, campaign_name,
+            account_label, meta_account_id, post_story_id, instagram_media_id
+     FROM ads
+     WHERE instagram_media_id = $1
+     ORDER BY COALESCE(recent_spend, 0) DESC, COALESCE(spend, 0) DESC
+     LIMIT 1`,
+    [mediaId]
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    adId: row.ad_id,
+    adName: row.ad_name,
+    adsetId: row.adset_id,
+    adsetName: row.adset_name,
+    campaignId: row.campaign_id,
+    campaignName: row.campaign_name,
+    accountLabel: row.account_label,
+    metaAccountId: row.meta_account_id,
+    postStoryId: row.post_story_id,
+    instagramMediaId: row.instagram_media_id,
+  };
+}
+
+/** Best-match ad for a Facebook post story ID (pageId_postId). */
+export async function findAdByPostStoryId(storyId: string): Promise<AdLookupRow | null> {
+  if (!storyId?.trim()) return null;
+  const { rows } = await query<{
+    ad_id: string;
+    ad_name: string;
+    adset_id: string | null;
+    adset_name: string | null;
+    campaign_id: string | null;
+    campaign_name: string | null;
+    account_label: string | null;
+    meta_account_id: string | null;
+    post_story_id: string | null;
+    instagram_media_id: string | null;
+  }>(
+    `SELECT ad_id, ad_name, adset_id, adset_name, campaign_id, campaign_name,
+            account_label, meta_account_id, post_story_id, instagram_media_id
+     FROM ads
+     WHERE post_story_id = $1
+     ORDER BY COALESCE(recent_spend, 0) DESC, COALESCE(spend, 0) DESC
+     LIMIT 1`,
+    [storyId]
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    adId: row.ad_id,
+    adName: row.ad_name,
+    adsetId: row.adset_id,
+    adsetName: row.adset_name,
+    campaignId: row.campaign_id,
+    campaignName: row.campaign_name,
+    accountLabel: row.account_label,
+    metaAccountId: row.meta_account_id,
+    postStoryId: row.post_story_id,
+    instagramMediaId: row.instagram_media_id,
+  };
+}
+
+/** All connected IG business accounts with usable tokens for organic sync. */
+export async function getConnectedInstagramAccountsForSync(): Promise<Array<{
+  accountId: string;
+  username: string;
+  pageId: string | null;
+  pageAccessToken: string | null;
+}>> {
+  const { rows } = await query<{
+    account_id: string;
+    username: string;
+    linked_page_id: string | null;
+    access_token: string | null;
+  }>(
+    `SELECT cia.account_id, cia.username, cia.linked_page_id,
+            COALESCE(cia.access_token, cp.access_token) AS access_token
+     FROM connected_instagram_accounts cia
+     LEFT JOIN connected_pages cp ON cp.page_id = cia.linked_page_id
+     WHERE cia.is_connected = true
+       AND cia.account_id IS NOT NULL AND cia.account_id <> ''`
+  );
+  return rows.map(row => ({
+    accountId: row.account_id,
+    username: row.username,
+    pageId: row.linked_page_id,
+    pageAccessToken: row.access_token,
+  }));
+}
+
+/** All connected FB pages with a page access token. */
+export async function getConnectedPagesForOrganicSync(): Promise<Array<{
+  pageId: string;
+  pageName: string;
+  pageAccessToken: string | null;
+}>> {
+  const { rows } = await query<{
+    page_id: string;
+    name: string;
+    access_token: string | null;
+  }>(
+    `SELECT page_id, name, access_token
+     FROM connected_pages
+     WHERE is_connected = true
+       AND page_id IS NOT NULL AND page_id <> ''`
+  );
+  return rows.map(row => ({
+    pageId: row.page_id,
+    pageName: row.name,
+    pageAccessToken: row.access_token,
+  }));
 }
 
 export interface MetaSyncStatusLatest {

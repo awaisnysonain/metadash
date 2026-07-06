@@ -126,14 +126,16 @@ export function useAppData(currentUser?: AppUser | null): UseAppDataReturn {
               ...c,
               status,
               updatedAt: now,
-              seenAt: status === 'Seen' && !c.seenAt ? now : c.seenAt,
+              seenAt: status === 'Unseen' ? undefined : status === 'Seen' && !c.seenAt ? now : c.seenAt,
               repliedAt: status === 'Replied' && !c.repliedAt ? now : c.repliedAt,
+              views: status === 'Unseen' ? [] : c.views,
             }
           : c
       )
     );
     if (modeRef.current === 'live') {
-      await updateCommentStatusApi('live', id, status, oldStatus);
+      const updated = await updateCommentStatusApi('live', id, status, oldStatus);
+      if (updated) setComments(prev => prev.map(c => (c.id === id ? updated : c)));
     }
   }, []);
 

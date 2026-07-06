@@ -3,6 +3,16 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
+
+// PM2 has been silently restarting this process — no logs, just a mounting restart counter.
+// Wire up top-level handlers so at least the reason is captured next time.
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[fatal] unhandledRejection:', reason);
+  void promise;
+});
+process.on('uncaughtException', err => {
+  console.error('[fatal] uncaughtException:', err instanceof Error ? err.stack || err.message : err);
+});
 import { initDatabase, isDatabaseConfigured, hasDatabaseUrl } from './db/pool.js';
 import { seedIfEmpty } from './db/repository.js';
 import { metaWebhookRouter } from './routes/meta-webhook.js';
@@ -16,11 +26,15 @@ import { accountsRouter } from './routes/accounts.js';
 import { authRouter } from './routes/auth.js';
 import { usersRouter } from './routes/users.js';
 import { notificationsRouter } from './routes/notifications.js';
+import { retentionRouter } from './routes/retention.js';
 import { requireAuth } from './middleware/auth.js';
 import { removeStaleAdminFromDb } from './db/user-repository.js';
 import { getMetaSyncStatus, getMetaSyncStatusLatest } from './db/sync-repository.js';
 import { getMetaConfig, isMetaConfigured, isServerDemoMode, validateMetaAccessToken } from './lib/meta.js';
 import { startCommentSyncCron } from './lib/meta-comment-sync.js';
+import { startMetaTokenExpiryReminder } from './lib/slack-alerts.js';
+import { startActiveAdsRefreshCron } from './lib/meta-sync-service.js';
+import { startCommentRetentionCron } from './lib/comment-retention.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 5011);
@@ -143,6 +157,7 @@ app.use('/api/accounts', requireAuth, accountsRouter);
 app.use('/api/pages', requireAuth, pagesRouter);
 app.use('/api/reports', requireAuth, reportsRouter);
 app.use('/api/notifications', requireAuth, notificationsRouter);
+app.use('/api/settings/retention', requireAuth, retentionRouter);
 app.use('/api', requireAuth, bootstrapRouter);
 app.use('/api/meta/sync', requireAuth, metaSyncRouter);
 app.use('/api/sync', requireAuth, metaSyncRouter);
@@ -167,7 +182,10 @@ async function start() {
   }
 
   if (dbOk && !isServerDemoMode()) {
+    startActiveAdsRefreshCron();
     startCommentSyncCron();
+    startMetaTokenExpiryReminder();
+    startCommentRetentionCron();
   }
 
   const httpServer = app.listen(PORT, '0.0.0.0', () => {

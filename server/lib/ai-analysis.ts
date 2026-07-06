@@ -1,6 +1,7 @@
 import type { CommentPriority, CommentSentiment } from '../../src/types.js';
 import { autoTagComment } from './webhook.js';
 import { inferBrand, type BrandLabel } from './brand.js';
+import { fetchWithTimeout } from './meta.js';
 
 export interface CommentAnalysis {
   sentiment: CommentSentiment;
@@ -75,7 +76,7 @@ export async function analyzeComment(input: {
   if (!apiKey || process.env.OPENAI_COMMENT_ANALYSIS === 'false') return fallback;
 
   try {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -105,7 +106,7 @@ export async function analyzeComment(input: {
           },
         ],
       }),
-    });
+    }, Math.max(Number(process.env.OPENAI_FETCH_TIMEOUT_MS || 8000), 1000));
 
     if (!res.ok) throw new Error(`OpenAI ${res.status}`);
     const json = await res.json() as { choices?: Array<{ message?: { content?: string } }> };

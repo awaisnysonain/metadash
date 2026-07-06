@@ -1,17 +1,116 @@
 import { Router } from 'express';
 import { getMetaConfig } from '../lib/meta.js';
-import { isDatabaseConfigured } from '../db/pool.js';
-import { upsertComment, insertActivityLog, commentExistsByMetaId } from '../db/repository.js';
+import { isDatabaseConfigured, query } from '../db/pool.js';
+import { upsertComment, insertActivityLog, commentExistsByMetaId, getConfigValue, setConfigValue } from '../db/repository.js';
 import { mapWebhookComment } from '../lib/webhook.js';
-import { analyzeComment } from '../lib/ai-analysis.js';
-import { sendSlackCommentAlert } from '../lib/slack-alerts.js';
+import { fallbackAnalyzeComment } from '../lib/ai-analysis.js';
+import { enqueueCommentEnrichment } from '../lib/comment-enrichment-queue.js';
+import { fetchInstagramMediaPermalink } from '../lib/meta-graph.js';
 
 export const metaWebhookRouter = Router();
 
+function parseWebhookCreatedTime(value: unknown): string | undefined {
+  if (value == null || value === '') return undefined;
+  if (typeof value === 'number') {
+    const millis = value > 10_000_000_000 ? value : value * 1000;
+    const date = new Date(millis);
+    return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric)) return parseWebhookCreatedTime(numeric);
+    const date = new Date(trimmed);
+    return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+  }
+  return undefined;
+}
+
 function isCommentWebhookChange(field: string, value: Record<string, unknown>): boolean {
-  if (field !== 'feed' && field !== 'comments' && field !== 'feed_comments') return false;
+  if (field !== 'feed' && field !== 'comments' && field !== 'feed_comments' && field !== 'live_comments') return false;
   if (field === 'feed' && value.item && value.item !== 'comment') return false;
   return Boolean(value.comment_id || value.id) && Boolean(String(value.message || value.text || '').trim());
+}
+
+async function incrementWebhookMetric(key: string, amount = 1): Promise<void> {
+  const count = await getConfigValue<number>(key, 0);
+  await setConfigValue(key, count + amount);
+}
+
+async function resolveAdContext(input: {
+  platform: 'facebook' | 'instagram';
+  postId?: string;
+  mediaId?: string;
+}): Promise<{
+  adId?: string;
+  adName?: string;
+  campaignName?: string;
+  adsetName?: string;
+  campaignMetaId?: string;
+  adsetMetaId?: string;
+  pageId?: string;
+} | null> {
+  if (!isDatabaseConfigured()) return null;
+
+  if (input.platform === 'facebook' && input.postId) {
+    const { rows } = await query<{
+      ad_id: string;
+      ad_name: string;
+      campaign_name: string | null;
+      adset_name: string | null;
+      campaign_id: string | null;
+      adset_id: string | null;
+      post_story_id: string | null;
+    }>(
+      `SELECT ad_id, ad_name, campaign_name, adset_name, campaign_id, adset_id, post_story_id
+       FROM ads
+       WHERE effective_status = 'ACTIVE' AND post_story_id = $1
+       ORDER BY COALESCE(recent_spend, 0) DESC, COALESCE(spend, 0) DESC
+       LIMIT 1`,
+      [input.postId]
+    );
+    const ad = rows[0];
+    if (!ad) return null;
+    return {
+      adId: ad.ad_id,
+      adName: ad.ad_name,
+      campaignName: ad.campaign_name ?? undefined,
+      adsetName: ad.adset_name ?? undefined,
+      campaignMetaId: ad.campaign_id ?? undefined,
+      adsetMetaId: ad.adset_id ?? undefined,
+      pageId: ad.post_story_id?.split('_')[0],
+    };
+  }
+
+  if (input.platform === 'instagram' && input.mediaId) {
+    const { rows } = await query<{
+      ad_id: string;
+      ad_name: string;
+      campaign_name: string | null;
+      adset_name: string | null;
+      campaign_id: string | null;
+      adset_id: string | null;
+    }>(
+      `SELECT ad_id, ad_name, campaign_name, adset_name, campaign_id, adset_id
+       FROM ads
+       WHERE effective_status = 'ACTIVE' AND instagram_media_id = $1
+       ORDER BY COALESCE(recent_spend, 0) DESC, COALESCE(spend, 0) DESC
+       LIMIT 1`,
+      [input.mediaId]
+    );
+    const ad = rows[0];
+    if (!ad) return null;
+    return {
+      adId: ad.ad_id,
+      adName: ad.ad_name,
+      campaignName: ad.campaign_name ?? undefined,
+      adsetName: ad.adset_name ?? undefined,
+      campaignMetaId: ad.campaign_id ?? undefined,
+      adsetMetaId: ad.adset_id ?? undefined,
+    };
+  }
+
+  return null;
 }
 
 /** GET /api/meta/webhook — Meta verification */
@@ -36,11 +135,28 @@ metaWebhookRouter.post('/', (req, res) => {
   res.sendStatus(200);
 
   const body = req.body;
-  console.log('[webhook] POST raw payload:', JSON.stringify(body, null, 2));
+  if (process.env.WEBHOOK_DEBUG === 'true') {
+    console.log('[webhook] POST raw payload:', JSON.stringify(body));
+  }
 
   setImmediate(async () => {
     try {
       if (!body?.object || !Array.isArray(body.entry)) return;
+
+      if (isDatabaseConfigured()) {
+        const fields = body.entry.flatMap((entry: Record<string, unknown>) => {
+          const changes = Array.isArray(entry.changes) ? entry.changes : [];
+          return changes.map((change: Record<string, unknown>) => String(change.field || 'unknown'));
+        });
+        const count = await getConfigValue<number>('webhook_received_count', 0);
+        await setConfigValue('webhook_received_count', count + 1);
+        await setConfigValue('webhook_last_received', {
+          receivedAt: new Date().toISOString(),
+          object: body.object,
+          entries: body.entry.length,
+          fields,
+        });
+      }
 
       for (const entry of body.entry) {
         const pageId = entry.id;
@@ -59,12 +175,21 @@ metaWebhookRouter.post('/', (req, res) => {
             const message = value.message || value.text || '';
             const fromName = value.from?.name || value.username || 'Commenter';
             const exists = isDatabaseConfigured() ? await commentExistsByMetaId(commentId) : false;
-            const analysis = await analyzeComment({
-              text: message,
+            const postId = String(value.post_id || value.media?.id || '');
+            const permalinkUrl = String(value.permalink_url || value.permalink || '') || (
+              platform === 'instagram' && postId
+                ? await fetchInstagramMediaPermalink(postId)
+                : null
+            );
+            const adContext = await resolveAdContext({
               platform,
-              author: fromName,
-              campaignName: value.ad_metadata?.campaign_name,
-              adName: value.ad_metadata?.ad_name,
+              postId: platform === 'facebook' ? postId : undefined,
+              mediaId: platform === 'instagram' ? postId : undefined,
+            });
+            const analysis = fallbackAnalyzeComment({
+              text: message,
+              campaignName: value.ad_metadata?.campaign_name || adContext?.campaignName,
+              adName: value.ad_metadata?.ad_name || adContext?.adName,
               pageName: value.page_name,
             });
             const row = mapWebhookComment({
@@ -73,18 +198,20 @@ metaWebhookRouter.post('/', (req, res) => {
               message,
               fromName,
               fromId: value.from?.id,
-              createdTime: value.created_time
-                ? new Date(value.created_time * 1000).toISOString()
-                : undefined,
-              postId: value.post_id || value.media?.id,
-              pageId,
+              profileUrl: value.from?.picture?.data?.url || (value.from?.id ? `https://graph.facebook.com/${encodeURIComponent(String(value.from.id))}/picture?type=large` : undefined),
+              createdTime: parseWebhookCreatedTime(value.created_time),
+              postId,
+              permalinkUrl: permalinkUrl || undefined,
+              pageId: adContext?.pageId || pageId,
               pageName: value.page_name,
               instagramAccountId: platform === 'instagram' ? pageId : undefined,
               instagramAccountName: value.username,
-              campaignName: value.ad_metadata?.campaign_name,
-              adsetName: value.ad_metadata?.adset_name,
-              adId: value.ad_metadata?.ad_id,
-              adName: value.ad_metadata?.ad_name,
+              campaignName: value.ad_metadata?.campaign_name || adContext?.campaignName,
+              adsetName: value.ad_metadata?.adset_name || adContext?.adsetName,
+              adId: value.ad_metadata?.ad_id || adContext?.adId,
+              adName: value.ad_metadata?.ad_name || adContext?.adName,
+              campaignMetaId: adContext?.campaignMetaId,
+              adsetMetaId: adContext?.adsetMetaId,
             });
             row.priority = analysis.priority;
             row.sentiment = analysis.sentiment;
@@ -92,6 +219,7 @@ metaWebhookRouter.post('/', (req, res) => {
 
             if (isDatabaseConfigured()) {
               await upsertComment(row);
+              await incrementWebhookMetric('webhook_saved_count');
               await insertActivityLog({
                 id: `log-wh-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
                 comment_id: row.id,
@@ -103,7 +231,7 @@ metaWebhookRouter.post('/', (req, res) => {
                 created_at: new Date().toISOString(),
               });
               if (!exists) {
-                const slack = await sendSlackCommentAlert({
+                enqueueCommentEnrichment({
                   commentId: row.id,
                   platform: row.platform,
                   author: fromName,
@@ -113,14 +241,15 @@ metaWebhookRouter.post('/', (req, res) => {
                   adName: row.ad_name,
                   adId: row.ad_id,
                   campaignName: row.campaign_name,
-                  analysis,
+                  alertNewComment: true,
                 });
-                if (!slack.sent) console.warn('[slack] webhook alert skipped:', slack.reason);
               }
               console.log('[webhook] Saved comment', row.comment_id);
             } else {
               console.warn('[webhook] DATABASE_URL not set — comment not persisted');
             }
+          } else if (isDatabaseConfigured()) {
+            await incrementWebhookMetric('webhook_non_comment_count');
           }
         }
       }

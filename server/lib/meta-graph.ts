@@ -38,6 +38,7 @@ export interface MetaCreative {
   video_id?: string;
   call_to_action_type?: string;
   effective_object_story_id?: string;
+  effective_instagram_media_id?: string;
   object_story_spec?: {
     instagram_user_id?: string;
     link_data?: {
@@ -66,6 +67,8 @@ export interface MetaAd {
   id: string;
   name: string;
   status?: string;
+  effective_status?: string;
+  configured_status?: string;
   adset?: { id?: string; name?: string };
   campaign?: { id?: string; name?: string };
   creative?: MetaCreative;
@@ -116,9 +119,11 @@ const AD_LIST_FIELDS = [
   'id',
   'name',
   'status',
+  'effective_status',
+  'configured_status',
   'adset{id,name}',
   'campaign{id,name}',
-  'creative{id,name,title,body,thumbnail_url,image_url,video_id,call_to_action_type,effective_object_story_id}',
+  'creative{id,name,title,body,thumbnail_url,image_url,video_id,call_to_action_type,effective_object_story_id,effective_instagram_media_id}',
 ].join(',');
 
 /** Fields used for Page sync — matches Graph API Explorer. */
@@ -189,6 +194,7 @@ export async function fetchAdCreative(creativeId: string, accessToken?: string):
     'video_id',
     'call_to_action_type',
     'effective_object_story_id',
+    'effective_instagram_media_id',
     'object_story_spec',
   ].join(',');
   return metaGraphGet<MetaCreative>(`/${creativeId}?fields=${fields}`, accessToken);
@@ -237,7 +243,7 @@ export async function fetchInstagramBusinessAccounts(accessToken?: string): Prom
 /** 8. Subscribe connected Pages to app webhooks (separate from Page discovery sync). */
 export async function subscribePagesToWebhooks(
   pages: MetaPage[],
-  subscribedFields = 'comments,messages,mention'
+  subscribedFields = 'feed,mention'
 ): Promise<WebhookSubscribeResult[]> {
   const results: WebhookSubscribeResult[] = [];
 
@@ -475,6 +481,34 @@ export async function fetchAdSpendInsights(
   return spendMap;
 }
 
+/** Fetch spend for the last 7 days, used for active top-spend filtering. */
+export async function fetchRecentAdSpendInsights(
+  adAccountId: string,
+  accessToken?: string
+): Promise<Map<string, number>> {
+  const actId = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
+  const spendMap = new Map<string, number>();
+
+  try {
+    const rows = await metaGraphPaginate<{ ad_id?: string; spend?: string }>(
+      `/${actId}/insights?level=ad&fields=ad_id,spend&date_preset=last_7d&limit=500`,
+      accessToken
+    );
+    for (const row of rows) {
+      if (row.ad_id && row.spend) {
+        spendMap.set(row.ad_id, parseFloat(row.spend));
+      }
+    }
+  } catch (err) {
+    console.warn(
+      `[insights] Could not fetch 7-day spend for ${actId}:`,
+      err instanceof Error ? err.message : err
+    );
+  }
+
+  return spendMap;
+}
+
 /** Fetch single ad account details by ID */
 export async function fetchAdAccountById(
   accountId: string,
@@ -512,6 +546,175 @@ export interface MetaComment {
   permalink_url?: string;
 }
 
+export interface MetaInstagramComment {
+  id: string;
+  text?: string;
+  username?: string;
+  timestamp?: string;
+  permalink?: string;
+}
+
+export interface MetaInstagramMediaDetails {
+  id: string;
+  media_type?: string;
+  media_url?: string;
+  thumbnail_url?: string;
+  permalink?: string;
+}
+
+function logMetaCommentDebug(message: string): void {
+  if (process.env.META_COMMENT_DEBUG === 'true') console.warn(message);
+}
+
+export async function fetchInstagramMediaDetails(
+  mediaId: string,
+  accessToken?: string
+): Promise<MetaInstagramMediaDetails | null> {
+  const token = accessToken || getMetaConfig().accessToken;
+  if (!token) return null;
+
+  try {
+    return await metaGraphGet<MetaInstagramMediaDetails>(
+      `/${mediaId}?fields=id,media_type,media_url,thumbnail_url,permalink`,
+      token
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logMetaCommentDebug(`[comments] Could not resolve Instagram media details for ${mediaId}: ${msg}`);
+    return null;
+  }
+}
+
+/** Recent media on a connected IG business account — used for organic-post comment sync. */
+export async function fetchInstagramAccountRecentMedia(
+  igAccountId: string,
+  accessToken?: string,
+  opts?: { limit?: number; sinceUnix?: number }
+): Promise<Array<{ id: string; timestamp?: string; permalink?: string; mediaType?: string }>> {
+  const token = accessToken || getMetaConfig().accessToken;
+  if (!token) return [];
+
+  const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 100);
+  const path = `/${igAccountId}/media?fields=id,timestamp,permalink,media_type&limit=${limit}`;
+
+  try {
+    const rows = await metaGraphPaginate<{ id: string; timestamp?: string; permalink?: string; media_type?: string }>(
+      path,
+      token
+    );
+    const cutoff = opts?.sinceUnix ?? 0;
+    return rows
+      .filter(row => {
+        if (!row.id) return false;
+        if (!cutoff || !row.timestamp) return true;
+        const ts = Math.floor(new Date(row.timestamp).getTime() / 1000);
+        return ts >= cutoff;
+      })
+      .map(row => ({
+        id: row.id,
+        timestamp: row.timestamp,
+        permalink: row.permalink,
+        mediaType: row.media_type,
+      }));
+  } catch (err) {
+    logMetaCommentDebug(`[organic] IG media list failed for ${igAccountId}: ${err instanceof Error ? err.message : String(err)}`);
+    return [];
+  }
+}
+
+/** Recent posts on a connected FB page — used for organic-post comment sync. */
+export async function fetchPageRecentPosts(
+  pageId: string,
+  accessToken: string,
+  opts?: { limit?: number; sinceUnix?: number }
+): Promise<Array<{ id: string; createdTime?: string; permalinkUrl?: string }>> {
+  if (!accessToken) return [];
+  const limit = Math.min(Math.max(opts?.limit ?? 25, 1), 100);
+  const parts = [`fields=id,created_time,permalink_url`, `limit=${limit}`];
+  if (opts?.sinceUnix) parts.push(`since=${opts.sinceUnix}`);
+  // /published_posts requires pages_read_user_content; /posts falls back to a scoped set.
+  const buildPath = (edge: 'published_posts' | 'posts') => `/${pageId}/${edge}?${parts.join('&')}`;
+
+  try {
+    const rows = await metaGraphPaginate<{ id: string; created_time?: string; permalink_url?: string }>(
+      buildPath('published_posts'),
+      accessToken
+    );
+    return rows.filter(r => r.id).map(row => ({
+      id: row.id,
+      createdTime: row.created_time,
+      permalinkUrl: row.permalink_url,
+    }));
+  } catch (err) {
+    if (err instanceof MetaApiError && (err.code === 100 || err.code === 200 || err.code === 10)) {
+      try {
+        const rows = await metaGraphPaginate<{ id: string; created_time?: string; permalink_url?: string }>(
+          buildPath('posts'),
+          accessToken
+        );
+        return rows.filter(r => r.id).map(row => ({
+          id: row.id,
+          createdTime: row.created_time,
+          permalinkUrl: row.permalink_url,
+        }));
+      } catch (fallbackErr) {
+        logMetaCommentDebug(`[organic] Page feed fallback failed for ${pageId}: ${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`);
+        return [];
+      }
+    }
+    logMetaCommentDebug(`[organic] Page feed fetch failed for ${pageId}: ${err instanceof Error ? err.message : String(err)}`);
+    return [];
+  }
+}
+
+/** Resolve an IG public shortcode (e.g. DadQnUbsRoY) to a media_id — used for diagnostics only. */
+export async function resolveInstagramShortcode(
+  shortcode: string,
+  igAccountId: string,
+  accessToken?: string
+): Promise<string | null> {
+  const token = accessToken || getMetaConfig().accessToken;
+  if (!token || !shortcode?.trim() || !igAccountId?.trim()) return null;
+  try {
+    const res = await metaGraphGet<{ id?: string; media?: { id?: string } }>(
+      `/ig_hashtag_search?user_id=${encodeURIComponent(igAccountId)}&shortcode=${encodeURIComponent(shortcode.trim())}`,
+      token
+    );
+    return res.media?.id ?? res.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchInstagramMediaPermalink(
+  mediaId: string,
+  accessToken?: string
+): Promise<string | null> {
+  const token = accessToken || getMetaConfig().accessToken;
+  if (!token) return null;
+
+  try {
+    const media = await metaGraphGet<{ permalink?: string }>(`/${mediaId}?fields=permalink`, token);
+    return media.permalink || null;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logMetaCommentDebug(`[comments] Could not resolve Instagram permalink for media ${mediaId}: ${msg}`);
+    return null;
+  }
+}
+
+function instagramCommentPermalink(mediaPermalink: string | undefined | null, commentId: string): string | undefined {
+  if (!mediaPermalink?.trim() || !commentId) return mediaPermalink || undefined;
+  try {
+    const parsed = new URL(mediaPermalink);
+    if (!parsed.hostname.includes('instagram.com')) return mediaPermalink;
+    parsed.searchParams.set('comment_id', commentId);
+    return parsed.toString();
+  } catch {
+    return mediaPermalink;
+  }
+}
+
 export function resolveCommenterInfo(from?: MetaComment['from'], username?: string): {
   name: string;
   profileUrl: string;
@@ -519,7 +722,7 @@ export function resolveCommenterInfo(from?: MetaComment['from'], username?: stri
 } {
   const id = from?.id;
   const profileUrl =
-    from?.picture?.data?.url || (id ? `https://www.facebook.com/profile.php?id=${id}` : '');
+    from?.picture?.data?.url || (id ? `https://graph.facebook.com/${encodeURIComponent(id)}/picture?type=large` : '');
   const name = from?.name?.trim() || username?.trim() || (id ? 'Facebook User' : 'Commenter');
   return { name, profileUrl, id };
 }
@@ -574,6 +777,21 @@ export async function resolveAdStoryId(adId: string, accessToken?: string): Prom
   }
 }
 
+export async function resolveAdInstagramMediaId(adId: string, accessToken?: string): Promise<string | null> {
+  try {
+    const res = await metaGraphGet<{
+      creative?: {
+        effective_instagram_media_id?: string;
+      };
+    }>(`/${adId}?fields=creative{effective_instagram_media_id}`, accessToken);
+    return res.creative?.effective_instagram_media_id || null;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logMetaCommentDebug(`[comments] Could not resolve Instagram media for ad ${adId}: ${msg}`);
+    return null;
+  }
+}
+
 /** @deprecated use resolveAdStoryId */
 export async function fetchAdEffectiveStoryId(adId: string, accessToken?: string): Promise<string | null> {
   const resolved = await resolveAdStoryId(adId, accessToken);
@@ -585,11 +803,25 @@ async function fetchStoryCommentsWithToken(
   token: string,
   opts?: { since?: number; until?: number; limit?: number }
 ): Promise<MetaComment[]> {
-  const fields = 'id,message,from{id,name,picture},username,created_time,permalink_url';
-  let path = `/${storyId}/comments?fields=${fields}&limit=${opts?.limit ?? 100}`;
-  if (opts?.since) path += `&since=${opts.since}`;
-  if (opts?.until) path += `&until=${opts.until}`;
-  return metaGraphPaginate<MetaComment>(path, token);
+  const fields = 'id,message,from{id,name,picture},username,created_time,permalink_url,parent{id}';
+  // filter=stream returns replies flattened alongside top-level comments — otherwise nested
+  // replies never appear in the sync (the reply-thread edge is only queried on demand).
+  const params = [`fields=${fields}`, `limit=${opts?.limit ?? 100}`, 'filter=stream', 'order=reverse_chronological'];
+  if (opts?.since) params.push(`since=${opts.since}`);
+  if (opts?.until) params.push(`until=${opts.until}`);
+  const path = `/${storyId}/comments?${params.join('&')}`;
+  try {
+    return await metaGraphPaginate<MetaComment>(path, token);
+  } catch (err) {
+    // Some very old / archived posts reject filter=stream — fall back to the flat edge.
+    if (err instanceof MetaApiError && (err.code === 100 || err.code === 12)) {
+      const fallbackParams = [`fields=${fields}`, `limit=${opts?.limit ?? 100}`];
+      if (opts?.since) fallbackParams.push(`since=${opts.since}`);
+      if (opts?.until) fallbackParams.push(`until=${opts.until}`);
+      return metaGraphPaginate<MetaComment>(`/${storyId}/comments?${fallbackParams.join('&')}`, token);
+    }
+    throw err;
+  }
 }
 
 /** Re-fetch a single comment when the list response omits author fields. */
@@ -630,4 +862,61 @@ export async function fetchStoryComments(
 
   if (!userToken) throw new MetaApiError('No access token available for comment fetch', { status: 400 });
   return fetchStoryCommentsWithToken(storyId, userToken, opts);
+}
+
+interface MetaInstagramCommentWithReplies extends MetaInstagramComment {
+  replies?: { data?: MetaInstagramComment[] };
+}
+
+export async function fetchInstagramMediaComments(
+  mediaId: string,
+  accessToken?: string,
+  opts?: { since?: number; until?: number; limit?: number; mediaPermalink?: string | null }
+): Promise<MetaComment[]> {
+  const token = accessToken || getMetaConfig().accessToken;
+  if (!token) throw new MetaApiError('No access token available for Instagram comment fetch', { status: 400 });
+
+  // Expand reply threads inline — IG's /comments edge does NOT include replies by default,
+  // so without this every non-root comment is silently dropped by the sync.
+  const replyFields = 'id,text,timestamp,username';
+  const fields = `id,text,timestamp,username,permalink,replies.limit(50){${replyFields}}`;
+  const limit = opts?.limit ?? 100;
+  const buildPath = (withRange: boolean) => {
+    const parts = [`fields=${fields}`, `limit=${limit}`];
+    if (withRange && opts?.since) parts.push(`since=${opts.since}`);
+    if (withRange && opts?.until) parts.push(`until=${opts.until}`);
+    return `/${mediaId}/comments?${parts.join('&')}`;
+  };
+
+  let rows: MetaInstagramCommentWithReplies[];
+  try {
+    rows = await metaGraphPaginate<MetaInstagramCommentWithReplies>(buildPath(true), token);
+  } catch (err) {
+    // IG rejects since/until on some assets (code 100) — retry without the range.
+    if (!(err instanceof MetaApiError) || err.code !== 100) throw err;
+    rows = await metaGraphPaginate<MetaInstagramCommentWithReplies>(buildPath(false), token);
+  }
+
+  const mediaPermalink = opts?.mediaPermalink?.trim() || await fetchInstagramMediaPermalink(mediaId, token);
+  const seen = new Set<string>();
+  const out: MetaComment[] = [];
+
+  const push = (row: MetaInstagramComment) => {
+    if (!row?.id || seen.has(row.id)) return;
+    seen.add(row.id);
+    out.push({
+      id: row.id,
+      message: row.text,
+      username: row.username,
+      created_time: row.timestamp,
+      permalink_url: instagramCommentPermalink(row.permalink || mediaPermalink, row.id),
+    });
+  };
+
+  for (const row of rows) {
+    push(row);
+    for (const reply of row.replies?.data ?? []) push(reply);
+  }
+
+  return out;
 }

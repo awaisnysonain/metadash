@@ -1,16 +1,26 @@
 import { isDatabaseConfigured, hasDatabaseUrl } from '../db/pool.js';
-import { getAllAds, upsertComment, insertActivityLog, commentExistsByMetaId, getConfigValue, setConfigValue } from '../db/repository.js';
-import { realignCommentPlatformsFromAds } from '../db/sync-repository.js';
-import { getPageAccessToken } from '../db/sync-repository.js';
+import { getAdsForCommentSync, upsertComment, insertActivityLog, commentExistsByMetaId, getConfigValue, setConfigValue } from '../db/repository.js';
+import {
+  realignCommentPlatformsFromAds,
+  getPageAccessToken,
+  findAdByInstagramMediaId,
+  findAdByPostStoryId,
+  getConnectedInstagramAccountsForSync,
+  getConnectedPagesForOrganicSync,
+  type AdLookupRow,
+} from '../db/sync-repository.js';
 import { getMetaConfig, isServerDemoMode, validateMetaSync, validateMetaAccessToken, metaGraphGet } from './meta.js';
-import { getTokenForAccount, getConfiguredMetaAccounts } from './meta-accounts.js';
-import { resolveAdStoryId, fetchStoryComments, enrichMetaCommentAuthor, pageIdFromStoryId, resolveCommenterInfo, inferCommentPlatform, type MetaComment } from './meta-graph.js';
+import { getTokensForAccount, getConfiguredMetaAccounts } from './meta-accounts.js';
+import { resolveAdStoryId, resolveAdInstagramMediaId, fetchInstagramMediaDetails, fetchInstagramMediaPermalink, fetchStoryComments, fetchInstagramMediaComments, fetchInstagramAccountRecentMedia, fetchPageRecentPosts, enrichMetaCommentAuthor, pageIdFromStoryId, resolveCommenterInfo, inferCommentPlatform, type MetaComment } from './meta-graph.js';
+import { isIgnoredPageId } from './ignore-list.js';
 import { MetaApiError } from './meta.js';
 import { mapSyncedComment } from './webhook.js';
 import { syncErrorMessage, syncPagesFromMeta, syncAdsFromMeta } from './meta-sync-service.js';
 import { query } from '../db/pool.js';
-import { analyzeComment, fallbackAnalyzeComment, type CommentAnalysis } from './ai-analysis.js';
-import { sendSlackCommentAlert } from './slack-alerts.js';
+import { fallbackAnalyzeComment, type CommentAnalysis } from './ai-analysis.js';
+import { enqueueCommentEnrichment } from './comment-enrichment-queue.js';
+
+type SyncAd = Awaited<ReturnType<typeof getAdsForCommentSync>>[number];
 
 export interface CommentSyncOutcome {
   ok: boolean;
@@ -33,12 +43,80 @@ export interface CommentSyncState {
   tokenMessage: string;
 }
 
+export interface TargetedCommentSyncOptions {
+  accountLabel?: string;
+  adIds?: string[];
+  limit?: number;
+  sinceDays?: number;
+  analyzeWithAi?: boolean;
+  alertNewComment?: boolean;
+}
+
+interface ProcessAdsContext {
+  modeLabel: string;
+  since: number;
+  until?: number;
+  adWatermarks?: Record<string, string>;
+  analyzeWithAi: boolean;
+  alertNewComment: boolean;
+  updateProgress?: boolean;
+}
+
+interface ProcessAdsResult {
+  synced: number;
+  adsProcessed: number;
+  adsSkipped: number;
+  adsWithStory: number;
+  adsChecked: number;
+  skipReasons: Record<string, number>;
+  errors: string[];
+}
+
+interface ParallelProcessAdsResult extends ProcessAdsResult {
+  laneCount: number;
+  laneSizes: number[];
+}
+
+interface TokenLane {
+  key: string;
+  ads: SyncAd[];
+}
+
+interface AdsSelection {
+  selected: SyncAd[];
+  cursor: number | null;
+  tokenLaneCursors?: Record<string, number>;
+  laneSizes?: number[];
+}
+
 const BACKFILL_DAYS = 730;
 const INCREMENTAL_FALLBACK_HOURS = 24;
-const AD_BATCH_DELAY_MS = 120;
+const CRON_ALERT_MAX_AGE_HOURS = Math.max(Number(process.env.COMMENT_SYNC_ALERT_MAX_AGE_HOURS || 2), 0);
+const AD_BATCH_DELAY_MS = Math.max(Number(process.env.COMMENT_SYNC_AD_DELAY_MS || 60), 0);
+const PARALLEL_TOKEN_LANES = process.env.COMMENT_SYNC_PARALLEL_TOKEN_LANES !== 'false';
+const PER_TOKEN_AD_LIMIT = Math.max(Number(process.env.MAX_COMMENT_SYNC_ADS_PER_TOKEN_PER_RUN || process.env.MAX_COMMENT_SYNC_ADS_PER_RUN || 75), 1);
+const AD_CONCURRENCY_PER_TOKEN = Math.min(Math.max(Number(process.env.COMMENT_SYNC_AD_CONCURRENCY_PER_TOKEN || 3), 1), 8);
+const INSTAGRAM_PRIORITY_AD_LIMIT = Math.max(Number(process.env.COMMENT_SYNC_INSTAGRAM_PRIORITY_ADS_PER_TOKEN_PER_RUN || PER_TOKEN_AD_LIMIT), 0);
+const FACEBOOK_WATERMARK_OVERLAP_SECONDS = Math.max(Number(process.env.COMMENT_SYNC_WATERMARK_OVERLAP_MINUTES || 60), 0) * 60;
+const INSTAGRAM_WATERMARK_OVERLAP_SECONDS = Math.max(Number(process.env.COMMENT_SYNC_INSTAGRAM_WATERMARK_OVERLAP_HOURS || 24), 0) * 60 * 60;
+const INSTAGRAM_INITIAL_LOOKBACK_SECONDS = Math.max(Number(process.env.COMMENT_SYNC_INSTAGRAM_LOOKBACK_HOURS || 24), 1) * 60 * 60;
 const STUCK_SYNC_MS = 45 * 60 * 1000;
-const INCREMENTAL_AD_LIMIT = Math.max(Number(process.env.MAX_COMMENT_SYNC_ADS_PER_RUN || 50), 1);
+const INCREMENTAL_AD_LIMIT = Math.max(Number(process.env.MAX_COMMENT_SYNC_ADS_PER_RUN || 75), 1);
+// When true, every FB-classified ad also gets a one-shot IG media probe so we discover
+// mixed-placement ads and Reels ads that carry IG comments even though the ad row says facebook.
+const IG_DISCOVERY_FOR_FB_ADS = process.env.COMMENT_SYNC_IG_DISCOVERY !== 'false';
+
+// --- Organic sync tuning ------------------------------------------------------
+// Comments on organic (non-ad) posts published by connected IG accounts / FB pages.
+// Without this, spark-ads, whitelisted posts, and plain organic posts never make it
+// into the inbox because the ad-driven sync only visits post IDs that exist in `ads`.
+const ORGANIC_SYNC_ENABLED = process.env.COMMENT_SYNC_ORGANIC !== 'false';
+const ORGANIC_LOOKBACK_HOURS = Math.max(Number(process.env.COMMENT_SYNC_ORGANIC_LOOKBACK_HOURS || 72), 1);
+const ORGANIC_MEDIA_PER_ACCOUNT = Math.min(Math.max(Number(process.env.COMMENT_SYNC_ORGANIC_MEDIA_PER_ACCOUNT || 25), 1), 100);
+const ORGANIC_ACCOUNT_CONCURRENCY = Math.min(Math.max(Number(process.env.COMMENT_SYNC_ORGANIC_CONCURRENCY || 3), 1), 8);
 const AD_CURSOR_CONFIG_KEY = 'comment_sync_ad_cursor';
+const TOKEN_CURSOR_CONFIG_KEY = 'comment_sync_token_lane_cursors';
+const AD_WATERMARKS_CONFIG_KEY = 'comment_sync_ad_watermarks';
 let syncRunStartedAt: number | null = null;
 
 let syncState: CommentSyncState = {
@@ -145,10 +223,164 @@ async function selectAdsForMode<T>(ads: T[], mode: 'incremental' | 'backfill'): 
   return { selected, cursor: (cursor + selected.length) % ads.length };
 }
 
-function commentInRange(createdTime: string | undefined, since: number): boolean {
-  if (!createdTime) return true;
-  const ts = Math.floor(new Date(createdTime).getTime() / 1000);
-  return ts >= since;
+function selectFromCursor<T>(items: T[], limit: number, cursor: number): T[] {
+  const selected = [...items.slice(cursor, cursor + limit)];
+  if (selected.length < limit) selected.push(...items.slice(0, limit - selected.length));
+  return selected;
+}
+
+function isRecentEnoughForAlert(createdTime: string): boolean {
+  if (CRON_ALERT_MAX_AGE_HOURS <= 0) return true;
+  const createdMs = new Date(createdTime).getTime();
+  if (Number.isNaN(createdMs)) return false;
+  return Date.now() - createdMs <= CRON_ALERT_MAX_AGE_HOURS * 60 * 60 * 1000;
+}
+
+function watermarkToSince(value: string | undefined, fallback: number, overlapSeconds = 0): number {
+  if (!value) return fallback;
+  const ms = new Date(value).getTime();
+  if (Number.isNaN(ms)) return fallback;
+  return Math.max(0, Math.floor(ms / 1000) - overlapSeconds);
+}
+
+function watermarkKey(ad: SyncAd, platform: 'facebook' | 'instagram'): string {
+  return `${ad.id}:${platform}`;
+}
+
+function shouldPrioritizeInstagramAd(ad: SyncAd): boolean {
+  return ad.platform === 'instagram' || Boolean(ad.instagramMediaId?.trim());
+}
+
+// Whether to attempt an IG comment fetch even for ads we currently believe are FB-only.
+// Cheap one-shot probe: resolveAdInstagramMediaId returns null quickly for non-IG creatives,
+// so the extra work only pays off on the first successful probe (media ID gets persisted).
+function shouldProbeInstagramAd(ad: SyncAd): boolean {
+  if (shouldPrioritizeInstagramAd(ad)) return true;
+  return IG_DISCOVERY_FOR_FB_ADS;
+}
+
+function platformSince(
+  ctx: ProcessAdsContext,
+  ad: SyncAd,
+  platform: 'facebook' | 'instagram'
+): number {
+  if (!ctx.adWatermarks) return ctx.since;
+
+  const key = watermarkKey(ad, platform);
+  const fallback = platform === 'instagram' && ctx.until
+    ? Math.min(ctx.since, ctx.until - INSTAGRAM_INITIAL_LOOKBACK_SECONDS)
+    : ctx.since;
+  const legacy = platform === 'facebook'
+    ? ctx.adWatermarks[key] || ctx.adWatermarks[ad.id] || ctx.adWatermarks[ad.adId]
+    : ctx.adWatermarks[key];
+  const overlap = platform === 'instagram' ? INSTAGRAM_WATERMARK_OVERLAP_SECONDS : FACEBOOK_WATERMARK_OVERLAP_SECONDS;
+  return watermarkToSince(legacy, fallback, overlap);
+}
+
+function isMetaRateLimitError(err: unknown): boolean {
+  if (!(err instanceof MetaApiError)) return false;
+  const message = err.message.toLowerCase();
+  return err.code === 4 || err.code === 17 || message.includes('application request limit') || message.includes('too many calls');
+}
+
+function hashString(value: string): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+function selectTokenForAd(ad: SyncAd): string | null {
+  const tokens = ad.metaAccountId
+    ? getTokensForAccount(ad.metaAccountId, ad.accountLabel)
+    : getTokensForAccount(ad.accountLabel || '');
+  if (tokens.length === 0) return getMetaConfig().accessToken?.trim() || null;
+  return tokens[hashString(ad.adId || ad.id) % tokens.length];
+}
+
+function getTokenLaneKey(ad: SyncAd): string {
+  const token = selectTokenForAd(ad) ?? 'default';
+  return hashString(token).toString(36);
+}
+
+function groupAdsByTokenLane(ads: SyncAd[]): TokenLane[] {
+  const lanes = new Map<string, SyncAd[]>();
+  for (const ad of ads) {
+    const key = getTokenLaneKey(ad);
+    const lane = lanes.get(key) ?? [];
+    lane.push(ad);
+    lanes.set(key, lane);
+  }
+  return [...lanes.entries()].map(([key, laneAds]) => ({ key, ads: laneAds })).filter(lane => lane.ads.length > 0);
+}
+
+async function selectAdsForCommentRun(ads: SyncAd[], mode: 'incremental' | 'backfill'): Promise<AdsSelection> {
+  if (mode !== 'incremental' || !PARALLEL_TOKEN_LANES) {
+    return selectAdsForMode(ads, mode);
+  }
+
+  const lanes = groupAdsByTokenLane(ads);
+  const laneCursors = await getConfigValue<Record<string, number>>(TOKEN_CURSOR_CONFIG_KEY, {});
+  const nextCursors: Record<string, number> = { ...laneCursors };
+  const selected: SyncAd[] = [];
+  const laneSizes: number[] = [];
+
+  for (const lane of lanes) {
+    const priorityLimit = Math.min(INSTAGRAM_PRIORITY_AD_LIMIT, PER_TOKEN_AD_LIMIT);
+    const priorityAds = priorityLimit > 0 ? lane.ads.filter(shouldPrioritizeInstagramAd) : [];
+    const priorityCursorKey = `${lane.key}:instagram`;
+    const priorityCursor = priorityAds.length > 0
+      ? Math.min(Math.max(Number(laneCursors[priorityCursorKey] ?? 0), 0), priorityAds.length - 1)
+      : 0;
+    const prioritySelected = priorityAds.length <= priorityLimit
+      ? priorityAds
+      : selectFromCursor(priorityAds, priorityLimit, priorityCursor);
+    const priorityIds = new Set(prioritySelected.map(ad => ad.id));
+    const regularAds = lane.ads.filter(ad => !priorityIds.has(ad.id));
+    const regularLimit = Math.max(PER_TOKEN_AD_LIMIT - prioritySelected.length, 0);
+    const regularCursorKey = `${lane.key}:regular`;
+    const regularCursor = regularAds.length > 0
+      ? Math.min(Math.max(Number(laneCursors[regularCursorKey] ?? laneCursors[lane.key] ?? 0), 0), regularAds.length - 1)
+      : 0;
+    const regularSelected = regularLimit <= 0
+      ? []
+      : regularAds.length <= regularLimit
+        ? regularAds
+        : selectFromCursor(regularAds, regularLimit, regularCursor);
+    const laneSelected = [...prioritySelected, ...regularSelected];
+    selected.push(...laneSelected);
+    laneSizes.push(laneSelected.length);
+    nextCursors[priorityCursorKey] = priorityAds.length > 0 ? (priorityCursor + prioritySelected.length) % priorityAds.length : 0;
+    nextCursors[regularCursorKey] = regularAds.length > 0 ? (regularCursor + regularSelected.length) % regularAds.length : 0;
+    nextCursors[lane.key] = lane.ads.length > 0 ? ((laneCursors[lane.key] ?? 0) + laneSelected.length) % lane.ads.length : 0;
+  }
+
+  return { selected, cursor: null, tokenLaneCursors: nextCursors, laneSizes };
+}
+
+function mergeProcessAdsResults(results: ProcessAdsResult[]): ProcessAdsResult {
+  const merged: ProcessAdsResult = {
+    synced: 0,
+    adsProcessed: 0,
+    adsSkipped: 0,
+    adsWithStory: 0,
+    adsChecked: 0,
+    skipReasons: { no_story: 0, fetch_error: 0, ignored_page: 0 },
+    errors: [],
+  };
+  for (const result of results) {
+    merged.synced += result.synced;
+    merged.adsProcessed += result.adsProcessed;
+    merged.adsSkipped += result.adsSkipped;
+    merged.adsWithStory += result.adsWithStory;
+    merged.adsChecked += result.adsChecked;
+    merged.errors.push(...result.errors);
+    for (const [reason, count] of Object.entries(result.skipReasons)) {
+      merged.skipReasons[reason] = (merged.skipReasons[reason] ?? 0) + count;
+    }
+  }
+  return merged;
 }
 
 async function saveAdStoryId(adDbId: string, storyId: string): Promise<void> {
@@ -156,6 +388,32 @@ async function saveAdStoryId(adDbId: string, storyId: string): Promise<void> {
     storyId,
     adDbId,
   ]);
+}
+
+async function saveAdInstagramMediaId(adDbId: string, instagramMediaId: string): Promise<void> {
+  await query('UPDATE ads SET instagram_media_id = $1 WHERE id = $2 AND (instagram_media_id IS NULL OR instagram_media_id = \'\')', [
+    instagramMediaId,
+    adDbId,
+  ]);
+}
+
+async function saveAdInstagramMediaPreview(
+  adDbId: string,
+  media: { media_type?: string; media_url?: string; thumbnail_url?: string }
+): Promise<void> {
+  const mediaType = media.media_type?.toUpperCase() === 'VIDEO' ? 'video' : 'image';
+  const mediaUrl = media.media_url?.trim() || null;
+  const thumbnailUrl = media.thumbnail_url?.trim() || mediaUrl;
+  if (!mediaUrl && !thumbnailUrl) return;
+
+  await query(
+    `UPDATE ads
+     SET media_type = COALESCE(NULLIF($2, ''), media_type),
+         media_url = COALESCE(NULLIF($3, ''), media_url),
+         thumbnail_url = COALESCE(NULLIF($4, ''), thumbnail_url)
+     WHERE id = $1`,
+    [adDbId, mediaType, mediaUrl, thumbnailUrl]
+  );
 }
 
 async function persistMetaComment(
@@ -182,8 +440,10 @@ async function persistMetaComment(
     ? new Date(metaComment.created_time).toISOString()
     : new Date().toISOString();
 
-  if (!commentInRange(createdIso, ctx.since)) return false;
-
+  // Deliberately NOT dropping comments older than ctx.since here. Meta returns replies with the
+  // parent's window, and IG frequently delivers late arrivals. The DB has UNIQUE(comment_id), so
+  // re-persisting an old comment is a no-op — but silently dropping it means the inbox never
+  // learns about it. Watermarks still drive the /comments query so re-sync stays incremental.
   const exists = await commentExistsByMetaId(metaComment.id);
 
   const enriched = await enrichMetaCommentAuthor(metaComment, ctx.pageAccessToken);
@@ -191,16 +451,7 @@ async function persistMetaComment(
 
   const platform = inferCommentPlatform(ctx.platform, enriched);
   const text = enriched.message || metaComment.message || '';
-  const analysis: CommentAnalysis = !exists && ctx.analyzeWithAi
-    ? await analyzeComment({
-        text,
-        platform,
-        author: author.name,
-        campaignName: ctx.campaignName,
-        adName: ctx.adName,
-        accountLabel: ctx.accountLabel,
-      })
-    : fallbackAnalyzeComment({ text, campaignName: ctx.campaignName, adName: ctx.adName, accountLabel: ctx.accountLabel });
+  const analysis: CommentAnalysis = fallbackAnalyzeComment({ text, campaignName: ctx.campaignName, adName: ctx.adName, accountLabel: ctx.accountLabel });
 
   const row = mapSyncedComment({
     platform,
@@ -237,8 +488,8 @@ async function persistMetaComment(
       created_at: new Date().toISOString(),
     });
 
-    if (ctx.alertNewComment) {
-      const slack = await sendSlackCommentAlert({
+    if (ctx.analyzeWithAi || ctx.alertNewComment) {
+      enqueueCommentEnrichment({
         commentId: row.id,
         platform: row.platform,
         author: author.name,
@@ -248,16 +499,228 @@ async function persistMetaComment(
         adName: ctx.adName,
         adId: ctx.adId,
         campaignName: ctx.campaignName,
-        analysis,
+        accountLabel: ctx.accountLabel,
+        alertNewComment: ctx.alertNewComment && isRecentEnoughForAlert(createdIso),
       });
-      if (!slack.sent) console.warn('[slack] comment alert skipped:', slack.reason);
     }
   }
 
   return true;
 }
 
-async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<CommentSyncOutcome> {
+async function processAdsForComments(adsToProcess: SyncAd[], ctx: ProcessAdsContext): Promise<ProcessAdsResult> {
+  let synced = 0;
+  let adsProcessed = 0;
+  let adsSkipped = 0;
+  let adsWithStory = 0;
+  let adsChecked = 0;
+  const errors: string[] = [];
+  const skipReasons: Record<string, number> = { no_story: 0, fetch_error: 0, ignored_page: 0 };
+  const checkedAdIds = new Set<string>();
+  let nextAdIndex = 0;
+  let stopLane = false;
+
+  const processOneAd = async (ad: SyncAd): Promise<void> => {
+    try {
+      if (ctx.updateProgress && adsProcessed > 0 && adsProcessed % 25 === 0) {
+        syncState.lastMessage = `Comment ${ctx.modeLabel}: ${adsProcessed}/${adsToProcess.length} ads processed this run, ${synced} comment(s) synced…`;
+      }
+      const adToken = selectTokenForAd(ad);
+      const token = adToken ?? getMetaConfig().accessToken?.trim();
+      if (!token) return;
+      const markPlatformSynced = async (platform: 'facebook' | 'instagram') => {
+        if (!ctx.adWatermarks || !ctx.until) return;
+        const iso = new Date(ctx.until * 1000).toISOString();
+        ctx.adWatermarks[watermarkKey(ad, platform)] = iso;
+        if (platform === 'facebook') {
+          ctx.adWatermarks[ad.id] = iso;
+          ctx.adWatermarks[ad.adId] = iso;
+        }
+        if (!checkedAdIds.has(ad.id)) {
+          checkedAdIds.add(ad.id);
+          adsChecked++;
+        }
+        if (adsChecked > 0 && adsChecked % 25 === 0) {
+          await setConfigValue(AD_WATERMARKS_CONFIG_KEY, ctx.adWatermarks);
+        }
+      };
+
+      let storyId = ad.postStoryId?.trim() || null;
+      let pageId = pageIdFromStoryId(storyId);
+
+      if (!storyId) {
+        const resolved = await resolveAdStoryId(ad.adId, token);
+        storyId = resolved.storyId;
+        pageId = resolved.pageId;
+        if (storyId) {
+          await saveAdStoryId(ad.id, storyId);
+        }
+      }
+
+      const commentToken = token;
+      const pageToken = pageId ? await getPageAccessToken(pageId) : null;
+      const facebookSince = platformSince(ctx, ad, 'facebook');
+      const instagramSince = platformSince(ctx, ad, 'instagram');
+
+      const runFacebook = async (): Promise<{ synced: number; skipped: boolean; skipReason?: string; error?: string }> => {
+        if (!storyId) return { synced: 0, skipped: true, skipReason: 'no_story' };
+        if (pageId && isIgnoredPageId(pageId)) return { synced: 0, skipped: true, skipReason: 'ignored_page' };
+        try {
+          const comments = await fetchStoryComments(storyId, commentToken, {
+            since: facebookSince,
+            until: ctx.until,
+            limit: 100,
+            pageAccessToken: pageToken,
+          });
+          let laneSynced = 0;
+          for (const c of comments) {
+            const saved = await persistMetaComment(c, {
+              platform: ad.platform,
+              adId: ad.adId,
+              adName: ad.adName,
+              adsetName: ad.adsetName,
+              campaignName: ad.campaignName,
+              campaignMetaId: ad.campaignId,
+              adsetMetaId: ad.adsetId,
+              storyId,
+              since: facebookSince,
+              pageAccessToken: pageToken,
+              accountLabel: ad.accountLabel,
+              analyzeWithAi: ctx.analyzeWithAi,
+              alertNewComment: ctx.alertNewComment,
+            });
+            if (saved) laneSynced++;
+          }
+          return { synced: laneSynced, skipped: false };
+        } catch (err) {
+          if (isMetaRateLimitError(err) || (err instanceof MetaApiError && err.code === 190)) throw err;
+          return { synced: 0, skipped: false, error: err instanceof Error ? err.message : String(err) };
+        }
+      };
+
+      const runInstagram = async (): Promise<{ synced: number; probed: boolean; error?: string }> => {
+        if (!shouldProbeInstagramAd(ad)) return { synced: 0, probed: false };
+        try {
+          let instagramMediaId = ad.instagramMediaId?.trim() || null;
+          if (!instagramMediaId) {
+            instagramMediaId = await resolveAdInstagramMediaId(ad.adId, commentToken);
+            if (instagramMediaId) await saveAdInstagramMediaId(ad.id, instagramMediaId);
+          }
+          if (!instagramMediaId) return { synced: 0, probed: true };
+          const needsMediaPreview = !ad.mediaUrl?.trim() && !ad.thumbnailUrl?.trim();
+          const mediaDetails = needsMediaPreview ? await fetchInstagramMediaDetails(instagramMediaId, commentToken) : null;
+          if (mediaDetails) await saveAdInstagramMediaPreview(ad.id, mediaDetails);
+          const mediaPermalink = mediaDetails?.permalink || await fetchInstagramMediaPermalink(instagramMediaId, commentToken);
+          const instagramComments = await fetchInstagramMediaComments(instagramMediaId, commentToken, {
+            since: instagramSince,
+            until: ctx.until,
+            limit: 100,
+            mediaPermalink,
+          });
+          let laneSynced = 0;
+          for (const c of instagramComments) {
+            const saved = await persistMetaComment(c, {
+              platform: 'instagram',
+              adId: ad.adId,
+              adName: ad.adName,
+              adsetName: ad.adsetName,
+              campaignName: ad.campaignName,
+              campaignMetaId: ad.campaignId,
+              adsetMetaId: ad.adsetId,
+              storyId: instagramMediaId,
+              since: instagramSince,
+              pageAccessToken: null,
+              accountLabel: ad.accountLabel,
+              analyzeWithAi: ctx.analyzeWithAi,
+              alertNewComment: ctx.alertNewComment,
+            });
+            if (saved) laneSynced++;
+          }
+          return { synced: laneSynced, probed: true };
+        } catch (err) {
+          if (isMetaRateLimitError(err) || (err instanceof MetaApiError && err.code === 190)) throw err;
+          return { synced: 0, probed: true, error: err instanceof Error ? err.message : String(err) };
+        }
+      };
+
+      // Run FB + IG fetches in parallel per ad — they hit different Meta edges
+      // and typically use different token/permission paths, so no coordination is needed.
+      const [fb, ig] = await Promise.all([runFacebook(), runInstagram()]);
+
+      if (fb.skipped) {
+        adsSkipped++;
+        if (fb.skipReason) skipReasons[fb.skipReason] = (skipReasons[fb.skipReason] ?? 0) + 1;
+      } else {
+        if (storyId) adsWithStory++;
+        if (fb.error) {
+          errors.push(`${ad.adName}: ${fb.error}`);
+          skipReasons.fetch_error++;
+        }
+        synced += fb.synced;
+        await markPlatformSynced('facebook');
+      }
+
+      if (ig.probed) {
+        synced += ig.synced;
+        if (ig.error && process.env.META_COMMENT_DEBUG === 'true') {
+          console.warn(`[comments] Instagram comments skipped for ad ${ad.adId}: ${ig.error}`);
+        }
+        await markPlatformSynced('instagram');
+      }
+
+      adsProcessed++;
+      await sleep(AD_BATCH_DELAY_MS);
+    } catch (err) {
+      if (isMetaRateLimitError(err)) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`Meta rate limit during sync. ${msg}`);
+        stopLane = true;
+        return;
+      }
+      if (err instanceof MetaApiError && err.code === 190) {
+        const recheck = await validateMetaAccessToken();
+        if (!recheck.valid) {
+          syncState.tokenValid = false;
+          syncState.tokenMessage = recheck.message;
+          errors.push(`Meta token expired during sync. ${recheck.message}`);
+          stopLane = true;
+          return;
+        }
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`${ad.adName}: ${msg}`);
+      adsSkipped++;
+      skipReasons.fetch_error++;
+    }
+  };
+
+  const workerCount = Math.min(AD_CONCURRENCY_PER_TOKEN, adsToProcess.length || 1);
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (!stopLane) {
+      const index = nextAdIndex++;
+      if (index >= adsToProcess.length) return;
+      await processOneAd(adsToProcess[index]);
+    }
+  }));
+
+  return { synced, adsProcessed, adsSkipped, adsWithStory, adsChecked, skipReasons, errors };
+}
+
+async function processAdsForCommentsParallel(adsToProcess: SyncAd[], ctx: ProcessAdsContext): Promise<ParallelProcessAdsResult> {
+  const lanes = PARALLEL_TOKEN_LANES ? groupAdsByTokenLane(adsToProcess) : [adsToProcess];
+  const laneAds = lanes.map(lane => Array.isArray(lane) ? lane : lane.ads);
+  const results = await Promise.all(laneAds.map((lane, index) => processAdsForComments(lane, {
+    ...ctx,
+    modeLabel: laneAds.length > 1 ? `${ctx.modeLabel}/lane-${index + 1}` : ctx.modeLabel,
+  })));
+  return {
+    ...mergeProcessAdsResults(results),
+    laneCount: laneAds.length,
+    laneSizes: laneAds.map(lane => lane.length),
+  };
+}
+
+async function assertCanRunCommentSync(): Promise<CommentSyncOutcome | null> {
   if (isServerDemoMode()) {
     return { ok: true, synced: 0, message: 'Demo mode — comment sync skipped' };
   }
@@ -284,7 +747,7 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
     };
   }
 
-  const { token: primaryToken, status: tokenStatus } = resolved;
+  const { status: tokenStatus } = resolved;
   syncState.tokenValid = tokenStatus.valid;
   syncState.tokenMessage = tokenStatus.message;
 
@@ -298,13 +761,219 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
     };
   }
 
+  return null;
+}
+
+interface OrganicSyncResult {
+  synced: number;
+  mediaChecked: number;
+  postsChecked: number;
+  accountsProcessed: number;
+  pagesProcessed: number;
+  errors: string[];
+}
+
+async function runInPool<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const workers = Array.from({ length: Math.min(Math.max(concurrency, 1), items.length || 1) }, async () => {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      try {
+        await worker(items[i]);
+      } catch (err) {
+        console.warn('[organic-sync] worker error:', err instanceof Error ? err.message : err);
+      }
+    }
+  });
+  await Promise.all(workers);
+}
+
+async function persistOrganicIgComment(
+  mediaId: string,
+  metaComment: MetaComment,
+  ctx: {
+    accountId: string;
+    username: string;
+    accountLabel: string | null;
+    mediaPermalink?: string | null;
+    matchedAd: AdLookupRow | null;
+    analyzeWithAi: boolean;
+    alertNewComment: boolean;
+  }
+): Promise<boolean> {
+  return persistMetaComment(metaComment, {
+    platform: 'instagram',
+    adId: ctx.matchedAd?.adId ?? mediaId,
+    adName: ctx.matchedAd?.adName ?? `Organic · @${ctx.username}`,
+    adsetName: ctx.matchedAd?.adsetName ?? 'Organic',
+    campaignName: ctx.matchedAd?.campaignName ?? 'Organic',
+    campaignMetaId: ctx.matchedAd?.campaignId ?? undefined,
+    adsetMetaId: ctx.matchedAd?.adsetId ?? undefined,
+    storyId: mediaId,
+    since: 0,
+    pageAccessToken: null,
+    accountLabel: ctx.matchedAd?.accountLabel ?? ctx.accountLabel,
+    analyzeWithAi: ctx.analyzeWithAi,
+    alertNewComment: ctx.alertNewComment,
+  });
+}
+
+async function persistOrganicFbComment(
+  storyId: string,
+  metaComment: MetaComment,
+  ctx: {
+    pageId: string;
+    pageName: string;
+    pageAccessToken: string | null;
+    matchedAd: AdLookupRow | null;
+    analyzeWithAi: boolean;
+    alertNewComment: boolean;
+  }
+): Promise<boolean> {
+  return persistMetaComment(metaComment, {
+    platform: 'facebook',
+    adId: ctx.matchedAd?.adId ?? storyId,
+    adName: ctx.matchedAd?.adName ?? `Organic · ${ctx.pageName}`,
+    adsetName: ctx.matchedAd?.adsetName ?? 'Organic',
+    campaignName: ctx.matchedAd?.campaignName ?? 'Organic',
+    campaignMetaId: ctx.matchedAd?.campaignId ?? undefined,
+    adsetMetaId: ctx.matchedAd?.adsetId ?? undefined,
+    storyId,
+    since: 0,
+    pageAccessToken: ctx.pageAccessToken,
+    accountLabel: ctx.matchedAd?.accountLabel ?? null,
+    analyzeWithAi: ctx.analyzeWithAi,
+    alertNewComment: ctx.alertNewComment,
+  });
+}
+
+async function pickTokenForIgAccount(pageToken: string | null): Promise<string | null> {
+  if (pageToken?.trim()) return pageToken.trim();
+  const fallback = getMetaConfig().accessToken?.trim();
+  if (fallback) return fallback;
+  const [first] = getConfiguredMetaAccounts();
+  return first?.accessToken?.trim() || null;
+}
+
+async function syncOrganicComments(opts: {
+  sinceUnix: number;
+  analyzeWithAi: boolean;
+  alertNewComment: boolean;
+}): Promise<OrganicSyncResult> {
+  const result: OrganicSyncResult = {
+    synced: 0,
+    mediaChecked: 0,
+    postsChecked: 0,
+    accountsProcessed: 0,
+    pagesProcessed: 0,
+    errors: [],
+  };
+  if (!ORGANIC_SYNC_ENABLED) return result;
+
+  const cutoff = Math.max(opts.sinceUnix, Math.floor(Date.now() / 1000) - ORGANIC_LOOKBACK_HOURS * 3600);
+
+  // --- Instagram organic ------------------------------------------------------
+  const igAccounts = await getConnectedInstagramAccountsForSync();
+  await runInPool(igAccounts, ORGANIC_ACCOUNT_CONCURRENCY, async account => {
+    const token = await pickTokenForIgAccount(account.pageAccessToken);
+    if (!token) {
+      result.errors.push(`IG @${account.username}: no usable access token`);
+      return;
+    }
+    const mediaList = await fetchInstagramAccountRecentMedia(account.accountId, token, {
+      limit: ORGANIC_MEDIA_PER_ACCOUNT,
+      sinceUnix: cutoff,
+    });
+    result.accountsProcessed++;
+
+    for (const media of mediaList) {
+      try {
+        const matchedAd = await findAdByInstagramMediaId(media.id);
+        const comments = await fetchInstagramMediaComments(media.id, token, {
+          limit: 100,
+          mediaPermalink: media.permalink ?? null,
+        });
+        for (const c of comments) {
+          const saved = await persistOrganicIgComment(media.id, c, {
+            accountId: account.accountId,
+            username: account.username,
+            accountLabel: matchedAd?.accountLabel ?? null,
+            mediaPermalink: media.permalink,
+            matchedAd,
+            analyzeWithAi: opts.analyzeWithAi,
+            alertNewComment: opts.alertNewComment,
+          });
+          if (saved) result.synced++;
+        }
+        result.mediaChecked++;
+      } catch (err) {
+        if (isMetaRateLimitError(err) || (err instanceof MetaApiError && err.code === 190)) {
+          result.errors.push(`IG @${account.username} rate/token: ${err instanceof Error ? err.message : String(err)}`);
+          return;
+        }
+        result.errors.push(`IG @${account.username} media ${media.id}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  });
+
+  // --- Facebook organic -------------------------------------------------------
+  const pages = await getConnectedPagesForOrganicSync();
+  await runInPool(pages, ORGANIC_ACCOUNT_CONCURRENCY, async page => {
+    const token = page.pageAccessToken?.trim();
+    if (!token) {
+      result.errors.push(`FB page ${page.pageName}: no page access token`);
+      return;
+    }
+    const posts = await fetchPageRecentPosts(page.pageId, token, {
+      limit: ORGANIC_MEDIA_PER_ACCOUNT,
+      sinceUnix: cutoff,
+    });
+    result.pagesProcessed++;
+
+    for (const post of posts) {
+      try {
+        const matchedAd = await findAdByPostStoryId(post.id);
+        const comments = await fetchStoryComments(post.id, token, {
+          limit: 100,
+          pageAccessToken: token,
+        });
+        for (const c of comments) {
+          const saved = await persistOrganicFbComment(post.id, c, {
+            pageId: page.pageId,
+            pageName: page.pageName,
+            pageAccessToken: token,
+            matchedAd,
+            analyzeWithAi: opts.analyzeWithAi,
+            alertNewComment: opts.alertNewComment,
+          });
+          if (saved) result.synced++;
+        }
+        result.postsChecked++;
+      } catch (err) {
+        if (isMetaRateLimitError(err) || (err instanceof MetaApiError && err.code === 190)) {
+          result.errors.push(`FB ${page.pageName} rate/token: ${err instanceof Error ? err.message : String(err)}`);
+          return;
+        }
+        result.errors.push(`FB ${page.pageName} post ${post.id}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  });
+
+  return result;
+}
+
+async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<CommentSyncOutcome> {
+  const blocked = await assertCanRunCommentSync();
+  if (blocked) return blocked;
+
   // Refresh page tokens only when needed (not on every incremental run — avoids slow/no-op page fetches).
   const pagesResult = mode === 'backfill' ? await syncPagesFromMeta() : null;
   if (pagesResult && !pagesResult.ok) {
     console.warn('[comment-sync] Page sync warning:', pagesResult.message);
   }
 
-  const ads = await getAllAds();
+  const ads = await getAdsForCommentSync();
   if (!ads.length) {
     return {
       ok: true,
@@ -314,102 +983,151 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
   }
 
   const since = await sinceTimestamp(mode);
-  let synced = 0;
-  let adsProcessed = 0;
-  let adsSkipped = 0;
-  let adsWithStory = 0;
-  const errors: string[] = [];
-  const skipReasons: Record<string, number> = { no_story: 0, fetch_error: 0 };
+  const until = Math.floor(Date.now() / 1000);
+  const adWatermarks = mode === 'incremental'
+    ? await getConfigValue<Record<string, string>>(AD_WATERMARKS_CONFIG_KEY, {})
+    : undefined;
+  const { selected: adsToProcess, cursor, tokenLaneCursors, laneSizes: selectedLaneSizes } = await selectAdsForCommentRun(ads, mode);
+  const { synced, adsProcessed, adsSkipped, adsWithStory, adsChecked, skipReasons, errors, laneCount, laneSizes } = await processAdsForCommentsParallel(adsToProcess, {
+    modeLabel: mode,
+    since,
+    until: mode === 'incremental' ? until : undefined,
+    adWatermarks,
+    analyzeWithAi: mode === 'incremental',
+    alertNewComment: mode === 'incremental',
+    updateProgress: true,
+  });
 
-  const { selected: adsToProcess, cursor } = await selectAdsForMode(ads, mode);
-
-  for (const ad of adsToProcess) {
-    try {
-      if (adsProcessed > 0 && adsProcessed % 25 === 0) {
-        syncState.lastMessage = `Comment ${mode}: ${adsProcessed}/${adsToProcess.length} ads processed this run, ${synced} comment(s) synced…`;
-      }
-      const adToken = ad.metaAccountId ? getTokenForAccount(ad.metaAccountId) : getMetaConfig().accessToken?.trim();
-      const token = adToken ?? getMetaConfig().accessToken?.trim();
-      if (!token) continue;
-
-      let storyId = ad.postStoryId?.trim() || null;
-      let pageId = pageIdFromStoryId(storyId);
-
-      if (!storyId) {
-        const resolved = await resolveAdStoryId(ad.adId, token);
-        storyId = resolved.storyId;
-        pageId = resolved.pageId;
-        if (storyId) {
-          await saveAdStoryId(ad.id, storyId);
-        }
-      }
-
-      if (!storyId) {
-        adsSkipped++;
-        skipReasons.no_story++;
-        continue;
-      }
-
-      adsWithStory++;
-      const pageToken = pageId ? await getPageAccessToken(pageId) : null;
-
-      const comments = await fetchStoryComments(storyId, token, {
-        since,
-        limit: 100,
-        pageAccessToken: pageToken,
-      });
-
-      for (const c of comments) {
-        const saved = await persistMetaComment(c, {
-          platform: ad.platform,
-          adId: ad.adId,
-          adName: ad.adName,
-          adsetName: ad.adsetName,
-          campaignName: ad.campaignName,
-          campaignMetaId: ad.campaignId,
-          adsetMetaId: ad.adsetId,
-          storyId,
-          since,
-          pageAccessToken: pageToken,
-          accountLabel: ad.accountLabel,
-          analyzeWithAi: mode === 'incremental',
-          alertNewComment: mode === 'incremental',
-        });
-        if (saved) synced++;
-      }
-
-      adsProcessed++;
-      await sleep(AD_BATCH_DELAY_MS);
-    } catch (err) {
-      if (err instanceof MetaApiError && err.code === 190) {
-        // Re-check if user token is globally invalid vs. a single ad/post permission issue
-        const recheck = await validateMetaAccessToken();
-        if (!recheck.valid) {
-          syncState.tokenValid = false;
-          syncState.tokenMessage = recheck.message;
-          return {
-            ok: false,
-            synced,
-            message: `Meta token expired during sync. ${recheck.message}`,
-            adsProcessed,
-            adsSkipped,
-            adsWithStory,
-          };
-        }
-      }
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`${ad.adName}: ${msg}`);
-      adsSkipped++;
-      skipReasons.fetch_error++;
-    }
+  const fatalTokenError = errors.find(error => error.startsWith('Meta token expired during sync.'));
+  if (fatalTokenError) {
+    return {
+      ok: false,
+      synced,
+      message: fatalTokenError,
+      adsProcessed,
+      adsSkipped,
+      adsWithStory,
+    };
   }
 
-  if (cursor != null) {
+  const fatalRateLimitError = errors.find(error => error.startsWith('Meta rate limit during sync.'));
+  if (fatalRateLimitError) {
+    return {
+      ok: false,
+      synced,
+      message: fatalRateLimitError,
+      adsProcessed,
+      adsSkipped,
+      adsWithStory,
+    };
+  }
+
+  if (cursor != null && adsChecked > 0) {
     await setConfigValue(AD_CURSOR_CONFIG_KEY, cursor);
   }
+  if (tokenLaneCursors && adsChecked > 0) {
+    await setConfigValue(TOKEN_CURSOR_CONFIG_KEY, tokenLaneCursors);
+  }
+  if (adWatermarks) {
+    await setConfigValue(AD_WATERMARKS_CONFIG_KEY, adWatermarks);
+  }
+
+  // Organic sweep — catches comments on posts that aren't tied to any ad row (spark ads,
+  // whitelisted posts, plain organic posts). Runs in both incremental and backfill modes;
+  // in backfill we widen the lookback in the caller.
+  const organic = await syncOrganicComments({
+    sinceUnix: mode === 'backfill' ? since : Math.floor(Date.now() / 1000) - ORGANIC_LOOKBACK_HOURS * 3600,
+    analyzeWithAi: mode === 'incremental',
+    alertNewComment: mode === 'incremental',
+  });
+
+  const totalSynced = synced + organic.synced;
 
   const label = mode === 'backfill' ? `${BACKFILL_DAYS}-day backfill` : 'incremental';
-  let message = `Comment ${label}: synced ${synced} comment(s) from ${adsProcessed}/${adsToProcess.length} ad(s) in this run (${adsWithStory} with post IDs).`;
+  let message = `Comment ${label}: synced ${totalSynced} comment(s) — ${synced} from ${adsProcessed}/${adsToProcess.length} ad(s) across ${laneCount} lane(s), ${organic.synced} from organic media (${organic.mediaChecked} IG · ${organic.postsChecked} FB posts).`;
+  if (adsSkipped) {
+    message += ` Skipped ${adsSkipped} ad(s)`;
+    if (skipReasons.no_story) message += ` (${skipReasons.no_story} without post story ID)`;
+    message += '.';
+  }
+  if (errors.length) message += ` ${errors.length} fetch error(s).`;
+  if (organic.errors.length) message += ` ${organic.errors.length} organic error(s).`;
+
+  return {
+    ok: true,
+    synced: totalSynced,
+    adsProcessed,
+    adsSkipped,
+    adsWithStory,
+    message,
+    details: {
+      mode,
+      since,
+      until: mode === 'incremental' ? until : undefined,
+      adBatchSize: adsToProcess.length,
+      totalAds: ads.length,
+      adsChecked,
+      nextCursor: adsChecked > 0 ? cursor : null,
+      tokenLaneCursorsUpdated: Boolean(tokenLaneCursors && adsChecked > 0),
+      laneCount,
+      laneSizes,
+      selectedLaneSizes,
+      perTokenAdLimit: PARALLEL_TOKEN_LANES ? PER_TOKEN_AD_LIMIT : undefined,
+      adConcurrencyPerToken: AD_CONCURRENCY_PER_TOKEN,
+      skipReasons,
+      errors: errors.slice(0, 10),
+      pagesSync: pagesResult?.message,
+      organic: {
+        synced: organic.synced,
+        igAccounts: organic.accountsProcessed,
+        igMediaChecked: organic.mediaChecked,
+        fbPages: organic.pagesProcessed,
+        fbPostsChecked: organic.postsChecked,
+        errors: organic.errors.slice(0, 10),
+      },
+    },
+  };
+}
+
+export async function runTargetedCommentSync(options: TargetedCommentSyncOptions): Promise<CommentSyncOutcome> {
+  const blocked = await assertCanRunCommentSync();
+  if (blocked) return blocked;
+
+  const limit = Math.min(Math.max(options.limit ?? 15, 1), 100);
+  const sinceDays = Math.min(Math.max(options.sinceDays ?? BACKFILL_DAYS, 1), BACKFILL_DAYS);
+  const adIdSet = new Set((options.adIds ?? []).map(id => id.trim()).filter(Boolean));
+  const accountLabel = options.accountLabel?.trim().toUpperCase();
+
+  let ads = await getAdsForCommentSync();
+  if (adIdSet.size > 0) {
+    ads = ads.filter(ad => adIdSet.has(ad.adId) || adIdSet.has(ad.id));
+  }
+  if (accountLabel) {
+    ads = ads.filter(ad => ad.accountLabel?.toUpperCase() === accountLabel);
+  }
+
+  ads = ads
+    .sort((a, b) => Number(b.recentSpend ?? b.spend ?? -1) - Number(a.recentSpend ?? a.spend ?? -1))
+    .slice(0, limit);
+
+  if (!ads.length) {
+    return {
+      ok: true,
+      synced: 0,
+      message: 'No matching ads found for targeted comment sync.',
+      details: { accountLabel, requestedAdIds: [...adIdSet], limit },
+    };
+  }
+
+  const since = Math.floor((Date.now() - sinceDays * 24 * 60 * 60 * 1000) / 1000);
+  const { synced, adsProcessed, adsSkipped, adsWithStory, adsChecked, skipReasons, errors } = await processAdsForComments(ads, {
+    modeLabel: 'targeted',
+    since,
+    analyzeWithAi: options.analyzeWithAi ?? true,
+    alertNewComment: options.alertNewComment ?? false,
+  });
+
+  let message = `Targeted comment sync: synced ${synced} comment(s) from ${adsProcessed}/${ads.length} ad(s) (${adsWithStory} with post IDs, ${adsChecked} marked checked).`;
   if (adsSkipped) {
     message += ` Skipped ${adsSkipped} ad(s)`;
     if (skipReasons.no_story) message += ` (${skipReasons.no_story} without post story ID)`;
@@ -418,13 +1136,21 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
   if (errors.length) message += ` ${errors.length} fetch error(s).`;
 
   return {
-    ok: true,
+    ok: errors.length === 0,
     synced,
     adsProcessed,
     adsSkipped,
     adsWithStory,
     message,
-    details: { mode, since, adBatchSize: adsToProcess.length, totalAds: ads.length, nextCursor: cursor, skipReasons, errors: errors.slice(0, 10), pagesSync: pagesResult?.message },
+    details: {
+      accountLabel,
+      limit,
+      sinceDays,
+      adsChecked,
+      selectedAds: ads.map(ad => ({ adId: ad.adId, adName: ad.adName, spend: ad.spend, postStoryId: ad.postStoryId })),
+      skipReasons,
+      errors: errors.slice(0, 10),
+    },
   };
 }
 
@@ -483,7 +1209,7 @@ export async function syncCommentsBackfill(): Promise<CommentSyncOutcome> {
   return runCommentSync('backfill');
 }
 
-const CRON_INTERVAL_MS = 15 * 60 * 1000;
+const CRON_INTERVAL_MS = Math.max(Number(process.env.COMMENT_SYNC_INTERVAL_MINUTES || 15), 1) * 60 * 1000;
 let cronTimer: ReturnType<typeof setInterval> | null = null;
 
 export function startCommentSyncCron(): void {

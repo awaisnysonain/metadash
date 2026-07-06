@@ -69,7 +69,7 @@ function buildCommentRow(payload: {
   if (!originalCommentUrl) {
     originalCommentUrl = payload.platform === 'facebook'
       ? `https://www.facebook.com/${payload.postId}?comment_id=${payload.commentId}`
-      : `https://www.instagram.com/p/${payload.postId}/#${payload.commentId}`;
+      : '';
   }
 
   return {
@@ -110,8 +110,10 @@ export function mapWebhookComment(payload: {
   message: string;
   fromName: string;
   fromId?: string;
+  profileUrl?: string;
   createdTime?: string;
   postId?: string;
+  permalinkUrl?: string;
   pageId?: string;
   pageName?: string;
   instagramAccountId?: string;
@@ -120,6 +122,8 @@ export function mapWebhookComment(payload: {
   adsetName?: string;
   adId?: string;
   adName?: string;
+  campaignMetaId?: string;
+  adsetMetaId?: string;
 }) {
   return buildCommentRow(payload);
 }

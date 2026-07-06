@@ -59,52 +59,54 @@ export default function DashboardOverview({ comments, campaigns, currentUserId, 
       label: 'Total comments',
       value: totalComments,
       icon: MessageSquare,
-      color: 'text-indigo-600 bg-indigo-50',
+      color: 'text-indigo-600 bg-indigo-50 dark:text-indigo-300 dark:bg-indigo-950/50',
       action: () => onNavigateToInbox({}),
     },
     {
       label: 'New',
       value: unseenCount,
       icon: Inbox,
-      color: 'text-rose-600 bg-rose-50',
+      color: 'text-rose-600 bg-rose-50 dark:text-rose-300 dark:bg-rose-950/50',
       action: () => onNavigateToInbox({ status: 'Unseen' }),
     },
     {
       label: 'Replied',
       value: repliedCount,
       icon: CheckCircle2,
-      color: 'text-emerald-600 bg-emerald-50',
+      color: 'text-emerald-600 bg-emerald-50 dark:text-emerald-300 dark:bg-emerald-950/50',
       action: () => onNavigateToInbox({ status: 'Replied' }),
     },
     {
       label: 'Waiting for reply',
       value: unrepliedCount,
       icon: Eye,
-      color: 'text-amber-600 bg-amber-50',
+      color: 'text-amber-600 bg-amber-50 dark:text-amber-300 dark:bg-amber-950/50',
       action: () => onNavigateToInbox({ status: 'Unreplied' }),
     },
     {
       label: 'Urgent',
       value: urgentCount,
       icon: AlertCircle,
-      color: 'text-red-600 bg-red-50',
+      color: 'text-red-600 bg-red-50 dark:text-red-300 dark:bg-red-950/50',
       action: () => onNavigateToInbox({ priority: 'Urgent' }),
     },
     {
       label: 'Assigned to me',
       value: assignedToMeCount,
       icon: User,
-      color: 'text-purple-600 bg-purple-50',
+      color: 'text-purple-600 bg-purple-50 dark:text-purple-300 dark:bg-purple-950/50',
       action: () => currentUserId && onNavigateToInbox({ assignedTo: currentUserId }),
     },
   ];
 
   return (
     <div className="space-y-6 animate-fade-in" id="dashboard-screen">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">At a glance</h2>
-        <p className="text-sm text-slate-500 mt-1">
-          Your comment activity across Facebook and Instagram ads.
+      {/* Hero header */}
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-gradient-to-br from-white via-white to-slate-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 p-6 shadow-sm">
+        <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">Overview</p>
+        <h2 className="mt-1 text-2xl font-extrabold tracking-tight text-slate-950 dark:text-slate-50">At a glance</h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          Live snapshot of comments across Facebook &amp; Instagram — click any card to jump straight to that view.
         </p>
       </div>
 
@@ -115,15 +117,15 @@ export default function DashboardOverview({ comments, campaigns, currentUserId, 
             <button
               key={idx}
               onClick={stat.action}
-              className="bg-white border border-slate-200 p-4 rounded-2xl hover:border-blue-200 hover:shadow-sm transition-all text-left group"
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl hover:border-blue-200 dark:hover:border-blue-800 hover:-translate-y-0.5 hover:shadow-md dark:hover:shadow-black/30 transition-all text-left group"
             >
               <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${stat.color} mb-3`}>
                 <Icon className="w-4 h-4" />
               </div>
-              <p className="text-2xl font-semibold text-slate-900">{stat.value}</p>
-              <p className="text-sm text-slate-500 mt-0.5 flex items-center justify-between">
+              <p className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-slate-50">{stat.value.toLocaleString()}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 flex items-center justify-between">
                 {stat.label}
-                <ArrowRight className="w-3.5 h-3.5 text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                <ArrowRight className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity" />
               </p>
             </button>
           );
@@ -131,28 +133,28 @@ export default function DashboardOverview({ comments, campaigns, currentUserId, 
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white border border-slate-200 p-5 rounded-2xl">
-          <p className="text-sm text-slate-500">Avg. response time</p>
-          <p className="text-2xl font-semibold text-slate-900 mt-1">14 min</p>
-          <p className="text-xs text-slate-400 mt-1">Target: under 15 min</p>
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl">
+          <p className="text-sm text-slate-500 dark:text-slate-400">Avg. response time</p>
+          <p className="text-2xl font-semibold text-slate-900 dark:text-slate-100 mt-1">14 min</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Target: under 15 min</p>
         </div>
-        <div className="bg-white border border-slate-200 p-5 rounded-2xl">
-          <p className="text-sm text-slate-500">Reply rate</p>
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl">
+          <p className="text-sm text-slate-500 dark:text-slate-400">Reply rate</p>
           <p className="text-2xl font-semibold text-emerald-600 mt-1">{replyRate}%</p>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
             {repliedCount} of {totalComments - ignoredCount} handled
           </p>
         </div>
-        <div className="bg-white border border-slate-200 p-5 rounded-2xl">
-          <p className="text-sm text-slate-500">Read, not replied</p>
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl">
+          <p className="text-sm text-slate-500 dark:text-slate-400">Read, not replied</p>
           <p className="text-2xl font-semibold text-sky-600 mt-1">{seenCount}</p>
-          <p className="text-xs text-slate-400 mt-1">Still need a response</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Still need a response</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        <div className="lg:col-span-5 bg-white p-5 rounded-2xl border border-slate-200">
-          <h3 className="font-medium text-slate-900 mb-4">By platform</h3>
+        <div className="lg:col-span-5 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800">
+          <h3 className="font-medium text-slate-900 dark:text-slate-100 mb-4">By platform</h3>
           <div className="space-y-4">
             {[
               { name: 'Facebook', count: fbCount, color: 'bg-[#1877F2]', icon: Facebook },
@@ -163,14 +165,14 @@ export default function DashboardOverview({ comments, campaigns, currentUserId, 
               return (
                 <div key={p.name}>
                   <div className="flex items-center justify-between text-sm mb-2">
-                    <span className="flex items-center gap-2 text-slate-700">
+                    <span className="flex items-center gap-2 text-slate-700 dark:text-slate-200">
                       <Icon className="w-4 h-4" /> {p.name}
                     </span>
-                    <span className="font-medium text-slate-900">
-                      {p.count} <span className="text-slate-400 font-normal">({pct}%)</span>
+                    <span className="font-medium text-slate-900 dark:text-slate-100">
+                      {p.count} <span className="text-slate-400 dark:text-slate-500 font-normal">({pct}%)</span>
                     </span>
                   </div>
-                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                     <div className={`h-full rounded-full ${p.color}`} style={{ width: `${pct}%` }} />
                   </div>
                 </div>
@@ -178,7 +180,7 @@ export default function DashboardOverview({ comments, campaigns, currentUserId, 
             })}
           </div>
 
-          <h3 className="font-medium text-slate-900 mt-6 mb-4">Replied vs waiting</h3>
+          <h3 className="font-medium text-slate-900 dark:text-slate-100 mt-6 mb-4">Replied vs waiting</h3>
           <div className="flex h-8 rounded-xl overflow-hidden text-xs font-medium text-white">
             <div
               className="bg-emerald-500 flex items-center justify-center"
@@ -194,7 +196,7 @@ export default function DashboardOverview({ comments, campaigns, currentUserId, 
             </div>
             {ignoredCount > 0 && (
               <div
-                className="bg-slate-300 flex items-center justify-center text-slate-700"
+                className="bg-slate-300 flex items-center justify-center text-slate-700 dark:text-slate-200"
                 style={{ width: `${(ignoredCount / totalComments) * 100}%` }}
               >
                 Ignored {ignoredCount}
@@ -203,8 +205,8 @@ export default function DashboardOverview({ comments, campaigns, currentUserId, 
           </div>
         </div>
 
-        <div className="lg:col-span-4 bg-white p-5 rounded-2xl border border-slate-200">
-          <h3 className="font-medium text-slate-900 mb-4">How people feel</h3>
+        <div className="lg:col-span-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800">
+          <h3 className="font-medium text-slate-900 dark:text-slate-100 mb-4">How people feel</h3>
           <div className="space-y-3">
             {[
               { name: 'Positive', count: positiveCount, color: 'bg-emerald-500' },
@@ -217,12 +219,12 @@ export default function DashboardOverview({ comments, campaigns, currentUserId, 
               return (
                 <div key={sent.name}>
                   <div className="flex justify-between text-sm mb-1.5">
-                    <span className="text-slate-700">{sent.name}</span>
-                    <span className="text-slate-500">
+                    <span className="text-slate-700 dark:text-slate-200">{sent.name}</span>
+                    <span className="text-slate-500 dark:text-slate-400">
                       {sent.count} ({pct}%)
                     </span>
                   </div>
-                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                     <div className={`h-full ${sent.color} rounded-full`} style={{ width: `${pct}%` }} />
                   </div>
                 </div>
@@ -231,11 +233,11 @@ export default function DashboardOverview({ comments, campaigns, currentUserId, 
           </div>
         </div>
 
-        <div className="lg:col-span-3 bg-white p-5 rounded-2xl border border-slate-200">
-          <h3 className="font-medium text-slate-900 mb-4">Top campaigns</h3>
+        <div className="lg:col-span-3 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800">
+          <h3 className="font-medium text-slate-900 dark:text-slate-100 mb-4">Top campaigns</h3>
           <div className="space-y-2">
             {campStats.length === 0 ? (
-              <p className="text-sm text-slate-500">Connect your ad accounts in Settings to see campaigns.</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Connect your ad accounts in Settings to see campaigns.</p>
             ) : (
               campStats.map(camp => {
                 const pct = totalComments > 0 ? Math.round((camp.count / totalComments) * 100) : 0;
@@ -244,7 +246,7 @@ export default function DashboardOverview({ comments, campaigns, currentUserId, 
                   <button
                     key={camp.id}
                     onClick={() => onNavigateToInbox({ campaign: camp.campaignName })}
-                    className="w-full text-left p-3 bg-slate-50 hover:bg-blue-50 rounded-xl border border-transparent hover:border-blue-100 transition-colors"
+                    className="w-full text-left p-3 bg-slate-50 dark:bg-slate-800/40 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-xl border border-transparent hover:border-blue-100 dark:hover:border-blue-900 transition-colors"
                   >
                     <div className="flex items-center gap-1.5 mb-1">
                       {isFB ? (
@@ -252,13 +254,13 @@ export default function DashboardOverview({ comments, campaigns, currentUserId, 
                       ) : (
                         <Instagram className="w-3.5 h-3.5 text-pink-600" />
                       )}
-                      <span className="text-sm font-medium text-slate-800 truncate">{camp.campaignName}</span>
+                      <span className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{camp.campaignName}</span>
                     </div>
-                    <div className="flex items-center justify-between text-xs text-slate-500">
+                    <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
                       <span>{camp.count} comments</span>
                       <span>{pct}%</span>
                     </div>
-                    <div className="h-1.5 bg-slate-200 rounded-full mt-2 overflow-hidden">
+                    <div className="h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full mt-2 overflow-hidden">
                       <div
                         className={`h-full rounded-full ${isFB ? 'bg-[#1877F2]' : 'bg-pink-500'}`}
                         style={{ width: `${pct}%` }}
@@ -273,12 +275,12 @@ export default function DashboardOverview({ comments, campaigns, currentUserId, 
       </div>
 
       {urgentCount > 0 && (
-        <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        <div className="p-4 bg-red-50 dark:bg-red-950/40 border border-red-100 dark:border-red-900/60 rounded-2xl flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
           <div className="flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+            <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
             <div>
-              <h4 className="font-medium text-red-900">{urgentCount} urgent comments</h4>
-              <p className="text-red-700 text-sm mt-0.5">These need your attention right away.</p>
+              <h4 className="font-medium text-red-900 dark:text-red-200">{urgentCount} urgent comments</h4>
+              <p className="text-red-700 dark:text-red-300 text-sm mt-0.5">These need your attention right away.</p>
             </div>
           </div>
           <button

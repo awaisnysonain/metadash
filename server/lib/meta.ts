@@ -129,12 +129,26 @@ function withToken(url: string, accessToken: string): string {
 
 export { withToken };
 
+export async function fetchWithTimeout(
+  input: string | URL | Request,
+  init: RequestInit = {},
+  timeoutMs = Math.max(Number(process.env.FETCH_TIMEOUT_MS || 15000), 1000)
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: init.signal ?? controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function metaGraphGet<T>(path: string, accessToken?: string): Promise<T> {
   const token = accessToken || getMetaConfig().accessToken;
   if (!token) throw new MetaApiError('META_ACCESS_TOKEN is not set', { status: 400 });
 
   const url = path.startsWith('http') ? path : `${META_GRAPH}${path}`;
-  const res = await fetch(withToken(url, token));
+  const res = await fetchWithTimeout(withToken(url, token), {}, Math.max(Number(process.env.META_FETCH_TIMEOUT_MS || 15000), 1000));
   return parseMetaResponse<T>(res, `Meta GET ${path}`);
 }
 
@@ -148,8 +162,17 @@ export async function metaGraphPost<T>(
 
   const url = path.startsWith('http') ? path : `${META_GRAPH}${path}`;
   const body = new URLSearchParams({ ...params, access_token: token });
-  const res = await fetch(url, { method: 'POST', body });
+  const res = await fetchWithTimeout(url, { method: 'POST', body }, Math.max(Number(process.env.META_FETCH_TIMEOUT_MS || 15000), 1000));
   return parseMetaResponse<T>(res, `Meta POST ${path}`);
+}
+
+export async function metaGraphDelete<T>(path: string, accessToken?: string): Promise<T> {
+  const token = accessToken || getMetaConfig().accessToken;
+  if (!token) throw new MetaApiError('META_ACCESS_TOKEN is not set', { status: 400 });
+
+  const url = path.startsWith('http') ? path : `${META_GRAPH}${path}`;
+  const res = await fetchWithTimeout(withToken(url, token), { method: 'DELETE' }, Math.max(Number(process.env.META_FETCH_TIMEOUT_MS || 15000), 1000));
+  return parseMetaResponse<T>(res, `Meta DELETE ${path}`);
 }
 
 export interface MetaPaginated<T> {
@@ -313,7 +336,7 @@ export async function metaGraphPaginateWithRaw<T>(
 
   while (url) {
     const fetchUrl = url.includes('access_token=') ? url : withToken(url, token);
-    const res = await fetch(fetchUrl);
+    const res = await fetchWithTimeout(fetchUrl, {}, Math.max(Number(process.env.META_FETCH_TIMEOUT_MS || 15000), 1000));
     const text = await res.text();
     console.log(`[${logLabel}] Meta response (${fetchUrl.split('?')[0]}): ${res.status} ${res.statusText}`);
 
@@ -362,7 +385,7 @@ export async function metaGraphPaginate<T>(path: string, accessToken?: string): 
 
   while (url) {
     const fetchUrl = url.includes('access_token=') ? url : withToken(url, token);
-    const res = await fetch(fetchUrl);
+    const res = await fetchWithTimeout(fetchUrl, {}, Math.max(Number(process.env.META_FETCH_TIMEOUT_MS || 15000), 1000));
     const page = await parseMetaResponse<MetaPaginated<T>>(res, `Meta GET ${path}`);
     if (page.data?.length) all.push(...page.data);
     url = page.paging?.next ?? null;

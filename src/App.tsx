@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from './contexts/AuthContext';
 import LoginPage from './components/LoginPage';
 import Sidebar from './components/Sidebar';
 import DashboardOverview from './components/DashboardOverview';
 import UnifiedInbox from './components/UnifiedInbox';
-import CommentDetailDrawer from './components/CommentDetailDrawer';
 import CampaignsView from './components/CampaignsView';
 import ConnectedAccountsView from './components/ConnectedAccountsView';
 import TeamView from './components/TeamView';
@@ -12,12 +11,34 @@ import SettingsView from './components/SettingsView';
 import ReportsView from './components/ReportsView';
 import ProfileView from './components/ProfileView';
 import ConnectionStatus from './components/ConnectionStatus';
+import BrandAssetsModal from './components/BrandAssetsModal';
 
-import { Comment, CommentStatus, CommentPriority, ActivityLog } from './types';
+import { Comment, CommentStatus, CommentPriority, ActivityLog, CommentView } from './types';
 import { Loader2, RefreshCw, Bell, Facebook, Instagram, Megaphone } from 'lucide-react';
 import type { InboxFilters } from './components/UnifiedInbox';
 import { useAppData } from './hooks/useAppData';
 import { fetchCommentsNow } from './services/dataService';
+import { apiClient } from './services/apiClient';
+import { getAdForComment, inferBrandLabel } from './utils/helpers';
+
+const TAB_PATHS: Record<string, string> = {
+  dashboard: '/',
+  inbox: '/comments',
+  facebook: '/comments/facebook',
+  instagram: '/comments/instagram',
+  accounts: '/assets',
+  campaigns: '/ads-campaigns',
+  reports: '/insights',
+  team: '/users',
+  settings: '/settings',
+  profile: '/profile',
+};
+
+function tabFromPath(pathname: string) {
+  const normalized = pathname.replace(/\/$/, '') || '/';
+  const match = Object.entries(TAB_PATHS).find(([, path]) => path === normalized);
+  return match?.[0] ?? 'dashboard';
+}
 
 export default function App() {
   const { user, isLoading: authLoading, isAuthenticated, hasPermission } = useAuth();
@@ -46,10 +67,12 @@ export default function App() {
     reload,
   } = useAppData(user);
 
-  const [currentTab, setCurrentTab] = useState<string>('inbox');
+  const [currentTab, setCurrentTab] = useState<string>(() => tabFromPath(window.location.pathname));
   const [selectedComment, setSelectedComment] = useState<Comment | undefined>(undefined);
   const [preconfiguredFilters, setPreconfiguredFilters] = useState<InboxFilters | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [brandModal, setBrandModal] = useState<null | 'Flo' | 'Nobl'>(null);
+  const [selectedAsset, setSelectedAsset] = useState<null | { brand: 'Flo' | 'Nobl'; pageId: string; pageName: string; igUsername?: string; counts?: { facebook: number; instagram: number; total: number } }>(null);
 
   useEffect(() => {
     if (selectedComment) {
@@ -57,6 +80,30 @@ export default function App() {
       if (updated) setSelectedComment(updated);
     }
   }, [comments, selectedComment?.id]);
+
+  useEffect(() => {
+    const handlePopState = () => setCurrentTab(tabFromPath(window.location.pathname));
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!isAuthenticated && window.location.pathname !== '/login') {
+      window.history.replaceState(null, '', '/login');
+      return;
+    }
+    if (isAuthenticated && window.location.pathname === '/login') {
+      const path = TAB_PATHS[currentTab] ?? '/comments';
+      window.history.replaceState(null, '', path);
+    }
+  }, [authLoading, isAuthenticated, currentTab]);
+
+  const navigateToTab = (tab: string) => {
+    setCurrentTab(tab);
+    const path = TAB_PATHS[tab] ?? '/comments';
+    if (window.location.pathname !== path) window.history.pushState(null, '', path);
+  };
 
   const logActivity = (log: ActivityLog) => {
     if (isDemoMode) addActivityLogLocal(log);
@@ -78,6 +125,16 @@ export default function App() {
         createdAt: new Date().toISOString(),
       });
     }
+  };
+
+  const handleReplyToComment = async (commentId: string, message: string, opts?: { targetCommentId?: string; mention?: string; includeMention?: boolean }) => {
+    const updated = await apiClient.replyToComment(commentId, message, opts);
+    saveComments(comments.map(c => (c.id === updated.id ? updated : c)));
+  };
+
+  const handleModerateComment = async (commentId: string, hidden: boolean) => {
+    const updated = await apiClient.moderateComment(commentId, hidden);
+    saveComments(comments.map(c => (c.id === updated.id ? updated : c)));
   };
 
   const handleUpdatePriority = async (commentId: string, priority: CommentPriority) => {
@@ -122,11 +179,17 @@ export default function App() {
     }
   };
 
-  const handleViewComment = (commentId: string) => {
+  const handleViewComment = (commentId: string, views?: CommentView[], updatedComment?: Comment) => {
     const now = new Date().toISOString();
     saveComments(comments.map(c => (
-      c.id === commentId && c.status === 'Unseen'
-        ? { ...c, status: 'Seen', seenAt: c.seenAt ?? now, updatedAt: now }
+      c.id === commentId
+        ? updatedComment ?? {
+            ...c,
+            status: c.status === 'Unseen' ? 'Seen' : c.status,
+            seenAt: c.seenAt ?? now,
+            updatedAt: now,
+            views: views ?? c.views,
+          }
         : c
     )));
   };
@@ -140,32 +203,51 @@ export default function App() {
 
   const handleNavigateWithFilters = (filters: InboxFilters) => {
     setPreconfiguredFilters(filters);
-    setCurrentTab('inbox');
+    navigateToTab('inbox');
   };
 
   const totalUnseenCount = comments.filter(c => c.status === 'Unseen').length;
   const facebookCount = comments.filter(c => c.platform === 'facebook').length;
   const instagramCount = comments.filter(c => c.platform === 'instagram').length;
+  const brandCounts = comments.reduce(
+    (acc, comment) => {
+      const brand = inferBrandLabel(comment, getAdForComment(comment, ads));
+      if (brand === 'Flo') acc.flo += 1;
+      if (brand === 'Nobl') acc.nobl += 1;
+      return acc;
+    },
+    { flo: 0, nobl: 0 }
+  );
 
   const pageTitles: Record<string, string> = {
-    inbox: 'Inbox',
-    dashboard: 'Overview',
-    facebook: 'Facebook Comments',
-    instagram: 'Instagram Comments',
-    accounts: 'Connected Accounts',
-    campaigns: 'Campaigns',
-    team: 'Team',
-    reports: 'Reports',
+    inbox: 'Comments',
+    dashboard: 'Home',
+    facebook: 'Facebook Feed',
+    instagram: 'Instagram Feed',
+    accounts: 'Connected Assets',
+    campaigns: 'Ads & Campaigns',
+    team: 'Users',
+    reports: 'Insights',
     settings: 'Settings',
     profile: 'Profile',
   };
 
+  useEffect(() => {
+    document.title = `MetaDash | ${pageTitles[currentTab] || 'Comments'}`;
+  }, [currentTab]);
+
+  const inboxFilters = useMemo(() => {
+    if (currentTab === 'facebook') return { platform: 'facebook' } satisfies InboxFilters;
+    if (currentTab === 'instagram') return { platform: 'instagram' } satisfies InboxFilters;
+    return preconfiguredFilters;
+  }, [currentTab, preconfiguredFilters]);
+
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-          <p className="text-sm text-slate-500">Loading…</p>
+          <Loader2 className="w-8 h-8 text-blue-600 dark:text-blue-400 animate-spin" />
+          <p className="text-sm text-slate-500 dark:text-slate-400">Loading…</p>
         </div>
       </div>
     );
@@ -177,10 +259,10 @@ export default function App() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-          <p className="text-sm text-slate-500">Loading inbox…</p>
+          <Loader2 className="w-8 h-8 text-blue-600 dark:text-blue-400 animate-spin" />
+          <p className="text-sm text-slate-500 dark:text-slate-400">Loading inbox…</p>
         </div>
       </div>
     );
@@ -188,10 +270,10 @@ export default function App() {
 
   if (loadError) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
-        <div className="max-w-md w-full bg-white border border-red-200 rounded-2xl p-6 text-center space-y-4">
-          <p className="text-red-700 font-medium">Could not load dashboard data</p>
-          <p className="text-sm text-slate-600">{loadError}</p>
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-6">
+        <div className="max-w-md w-full bg-white dark:bg-slate-900 border border-red-200 dark:border-red-900/60 rounded-2xl p-6 text-center space-y-4">
+          <p className="text-red-700 dark:text-red-400 font-medium">Could not load dashboard data</p>
+          <p className="text-sm text-slate-600 dark:text-slate-400">{loadError}</p>
           <button
             onClick={() => void reload()}
             className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700"
@@ -204,52 +286,75 @@ export default function App() {
   }
 
   return (
-    <div className="flex bg-[#f4f6f9] min-h-screen text-slate-800 font-sans" id="app-root">
+    <div className="flex min-h-screen bg-[#f4f6fa] dark:bg-[#0b1220] text-slate-800 dark:text-slate-200 font-sans" id="app-root">
       <Sidebar
         currentTab={currentTab}
         setCurrentTab={tab => {
           setPreconfiguredFilters(null);
-          setCurrentTab(tab);
+          navigateToTab(tab);
         }}
         unseenCount={totalUnseenCount}
+        brandCounts={brandCounts}
+        onBrandSelect={brand => setBrandModal(brand)}
+        onSelectPage={(pageId, _brand) => {
+          setBrandModal(null);
+          setPreconfiguredFilters({ pageId, status: 'Unseen' });
+          navigateToTab('inbox');
+        }}
         dataMode={dataMode}
       />
 
       <div className="flex-1 flex flex-col min-w-0 pb-20 md:pb-0" id="main-content-area">
-        <header className="min-h-14 bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-4 md:px-6 sticky top-0 z-40 flex flex-col gap-3 py-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-3">
-            <h2 className="text-base font-semibold text-slate-900">
+        <header className="min-h-16 bg-white/85 dark:bg-slate-950/80 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800 px-4 md:px-6 sticky top-0 z-40 flex flex-col gap-3 py-[13px] lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0 flex flex-col gap-2">
+            <div className="flex items-center gap-3">
+            <h2 className="text-lg font-semibold text-slate-950 dark:text-slate-100 tracking-tight">
               {pageTitles[currentTab] || currentTab}
             </h2>
             <ConnectionStatus dataMode={dataMode} isDemoMode={isDemoMode} />
+            </div>
+            {selectedAsset && currentTab === 'inbox' && (
+              <div className="inline-flex w-fit max-w-full items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 text-[12px] text-slate-700 dark:text-slate-300">
+                <span className="inline-block w-2 h-2 rounded-full bg-slate-700 dark:bg-slate-300" />
+                <span className="font-semibold text-slate-900 dark:text-slate-100">{selectedAsset.brand}</span>
+                <span className="text-slate-300 dark:text-slate-600">/</span>
+                <span className="font-medium truncate max-w-[260px]">{selectedAsset.pageName}</span>
+                {selectedAsset.igUsername && <span className="text-slate-400 dark:text-slate-500">· {selectedAsset.igUsername}</span>}
+                {selectedAsset.counts && (
+                  <span className="text-slate-500 dark:text-slate-400">
+                    · {selectedAsset.counts.facebook} FB / {selectedAsset.counts.instagram} IG
+                  </span>
+                )}
+                <button onClick={() => { setSelectedAsset(null); setPreconfiguredFilters(null); }} className="ml-1 px-1.5 py-0.5 text-[11px] rounded-md bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800">Clear</button>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2 lg:justify-end">
             <div className="hidden sm:flex items-center gap-2 text-xs">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 font-medium text-blue-700">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 font-medium text-slate-700 dark:text-slate-300">
                 <Facebook className="w-3.5 h-3.5" /> {facebookCount} FB
               </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-pink-100 bg-pink-50 px-2.5 py-1 font-medium text-pink-700">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 font-medium text-slate-700 dark:text-slate-300">
                 <Instagram className="w-3.5 h-3.5" /> {instagramCount} IG
               </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-medium text-slate-600">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 font-medium text-slate-700 dark:text-slate-300">
                 <Megaphone className="w-3.5 h-3.5" /> {ads.length} ads
               </span>
             </div>
-            {totalUnseenCount > 0 && (
-              <button
-                onClick={() => { setPreconfiguredFilters({ status: 'Unseen' }); setCurrentTab('inbox'); }}
-                className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-sm font-medium transition-colors"
-              >
-                <Bell className="w-4 h-4" />
-                {totalUnseenCount} new
-              </button>
-            )}
+            <button
+              onClick={() => { setPreconfiguredFilters({ status: 'Unseen' }); navigateToTab('inbox'); }}
+              className={`hidden md:inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${totalUnseenCount > 0 ? 'border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-950/60' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+            >
+              <Bell className="w-4 h-4" />
+              Notifications
+              <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${totalUnseenCount > 0 ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'}`}>{totalUnseenCount}</span>
+            </button>
             {!isDemoMode && hasPermission('sync.run') && currentTab !== 'settings' && currentTab !== 'profile' && (
               <button
                 onClick={() => void handleRefreshComments()}
                 disabled={isRefreshing}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors shadow-sm shadow-blue-500/20"
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-xl text-sm font-medium hover:bg-slate-800 dark:hover:bg-white disabled:opacity-60 transition-colors"
               >
                 {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                 Refresh
@@ -259,11 +364,7 @@ export default function App() {
         </header>
 
         <main
-          className={`flex-1 overflow-y-auto p-4 md:p-6 w-full mx-auto space-y-4 ${
-            currentTab === 'inbox' || currentTab === 'facebook' || currentTab === 'instagram'
-              ? 'max-w-[1600px]'
-              : 'max-w-7xl'
-          }`}
+          className="flex-1 overflow-y-auto p-4 md:p-6 w-full space-y-5"
         >
           {currentTab === 'dashboard' && hasPermission('inbox.view') && (
             <DashboardOverview comments={comments} campaigns={campaigns} teamMembers={team} currentUserId={user?.id} onNavigateToInbox={handleNavigateWithFilters} />
@@ -277,16 +378,19 @@ export default function App() {
               onSelectComment={setSelectedComment}
               selectedCommentId={selectedComment?.id}
               onUpdateStatus={handleUpdateStatus}
+              onReplyToComment={handleReplyToComment}
+              onModerateComment={handleModerateComment}
+              onUpdatePriority={handleUpdatePriority}
+              onAssignTeam={handleAssignTeam}
+              onAddNote={handleAddNote}
+              onAddCommentTag={handleAddCommentTag}
+              onRemoveCommentTag={handleRemoveCommentTag}
+              notes={notes}
+              activityLogs={activityLogs}
               onViewComment={handleViewComment}
               onRefresh={!isDemoMode && hasPermission('sync.run') ? handleRefreshComments : undefined}
               isRefreshing={isRefreshing}
-              preconfiguredFilters={
-                currentTab === 'facebook'
-                  ? { platform: 'facebook' }
-                  : currentTab === 'instagram'
-                    ? { platform: 'instagram' }
-                    : preconfiguredFilters
-              }
+              preconfiguredFilters={inboxFilters}
             />
           )}
 
@@ -301,7 +405,7 @@ export default function App() {
               ads={ads}
               isDemoMode={isDemoMode}
               onNavigateToInbox={handleNavigateWithFilters}
-              onNavigateToSettings={() => setCurrentTab('settings')}
+              onNavigateToSettings={() => navigateToTab('settings')}
             />
           )}
 
@@ -329,20 +433,16 @@ export default function App() {
         </main>
       </div>
 
-      {selectedComment && (
-        <CommentDetailDrawer
-          comment={selectedComment}
-          ads={ads}
-          onClose={() => setSelectedComment(undefined)}
-          teamMembers={team}
-          notes={notes}
-          activityLogs={activityLogs}
-          onAddNote={handleAddNote}
-          onUpdateStatus={handleUpdateStatus}
-          onUpdatePriority={handleUpdatePriority}
-          onAssignTeam={handleAssignTeam}
-          onAddCommentTag={handleAddCommentTag}
-          onRemoveCommentTag={handleRemoveCommentTag}
+      {brandModal && (
+        <BrandAssetsModal
+          brand={brandModal}
+          onClose={() => setBrandModal(null)}
+          onSelect={(asset, brandSel) => {
+            setBrandModal(null);
+            setSelectedAsset({ brand: brandSel || 'Flo', pageId: asset.pageId, pageName: asset.pageName, igUsername: asset.instagram?.username, counts: asset.comments });
+            setPreconfiguredFilters({ pageId: asset.pageId, igAccountId: asset.instagram?.id, brand: brandSel || 'Flo', status: 'All' });
+            navigateToTab('inbox');
+          }}
         />
       )}
     </div>

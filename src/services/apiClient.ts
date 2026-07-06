@@ -1,5 +1,15 @@
 import type { Comment, CommentNote, ActivityLog, TeamMember, AutoTaggingRule, Campaign, Ad, CommentStatus, CommentPriority, AppUser, Permission, CommentView } from '../types';
 
+export interface MetaThreadItem {
+  id: string;
+  text: string;
+  author: string;
+  username?: string;
+  createdAt?: string;
+  hidden?: boolean;
+  permalinkUrl?: string;
+}
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 const TOKEN_KEY = 'metadash_token';
 
@@ -136,26 +146,35 @@ export const apiClient = {
     bio?: string;
     avatarUrl?: string;
     permissions?: Permission[];
-  }) => request<AppUser>('/api/users', { method: 'POST', body: JSON.stringify(data) }),
+    slackUserId?: string;
+  }) => request<AppUser & { inviteSent?: boolean; inviteError?: string }>('/api/users', { method: 'POST', body: JSON.stringify(data) }),
 
   updateUser: (id: string, data: Partial<AppUser & { password?: string; isActive?: boolean }>) =>
     request<AppUser>(`/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
+  deleteUser: (id: string) =>
+    request<void>(`/api/users/${id}`, { method: 'DELETE' }),
+
   recordCommentView: (id: string) =>
-    request<{ views: CommentView[] }>(`/api/comments/${id}/view`, { method: 'POST' }),
+    request<{ comment?: Comment; views: CommentView[] }>(`/api/comments/${id}/view`, { method: 'POST' }),
 
   getCommentViews: (id: string) => request<CommentView[]>(`/api/comments/${id}/views`),
 
   getConnectedAccounts: () =>
     request<{
       adAccounts: Array<{ id: string; accountId: string; name: string; spend: string; status: string; isConnected: boolean; label: string }>;
-      pages: Array<{ id: string; pageId: string; pageName: string; isConnected: boolean }>;
-      instagram: Array<{ id: string; accountId: string; username: string; followers: string; isConnected: boolean }>;
-      topAds: Array<{ id: string; adId: string; adName: string; campaignName: string; platform: string; spend: number; accountLabel: string; thumbnailUrl?: string; mediaUrl?: string; commentsCount: number }>;
+      pages: Array<{ id: string; pageId: string; pageName: string; fans?: string; avatar?: string; isConnected: boolean }>;
+      instagram: Array<{ id: string; accountId: string; username: string; followers: string; avatar?: string; isConnected: boolean }>;
+      topAds: Array<{ id: string; adId: string; adName: string; campaignName: string; platform: string; spend: number; recentSpend?: number; accountLabel: string; thumbnailUrl?: string; mediaUrl?: string; commentsCount: number }>;
     }>('/api/accounts'),
 
+  getBrandAssets: (brand: 'FLO' | 'NOBL') =>
+    request<{ brand: string; count: number; assets: Array<{ pageId: string; pageName: string; pageAvatar?: string; ads: number; instagram?: { id: string; username: string; avatar?: string }; comments: { facebook: number; instagram: number; total: number } }> }>(
+      `/api/accounts/brand-assets?brand=${brand}`
+    ),
+
   getTopAdsBySpend: (limit = 20) =>
-    request<Array<{ id: string; adId: string; adName: string; campaignName: string; platform: string; spend: number; accountLabel: string }>>(
+    request<Array<{ id: string; adId: string; adName: string; campaignName: string; platform: string; spend: number; recentSpend?: number; accountLabel: string }>>(
       `/api/ads/top-by-spend?limit=${limit}`
     ),
 
@@ -181,6 +200,30 @@ export const apiClient = {
       body: JSON.stringify({ status, ...meta }),
     }),
 
+  replyToComment: (id: string, message: string, opts?: { targetCommentId?: string; mention?: string; includeMention?: boolean }) =>
+    request<Comment>(`/api/comments/${id}/reply`, {
+      method: 'POST',
+      body: JSON.stringify({ message, ...opts }),
+    }),
+
+  getCommentReplies: (id: string) =>
+    request<{ items: MetaThreadItem[]; unavailableReason?: string }>(`/api/comments/${id}/replies`),
+
+  editMetaComment: (id: string, metaCommentId: string, message: string) =>
+    request<{ ok: boolean }>(`/api/comments/${id}/meta-comment/${metaCommentId}/edit`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    }),
+
+  deleteMetaComment: (id: string, metaCommentId: string) =>
+    request<{ ok: boolean; comment?: Comment }>(`/api/comments/${id}/meta-comment/${metaCommentId}`, { method: 'DELETE' }),
+
+  moderateComment: (id: string, hidden: boolean) =>
+    request<Comment>(`/api/comments/${id}/moderate`, {
+      method: 'POST',
+      body: JSON.stringify({ hidden }),
+    }),
+
   patchCommentAssign: (id: string, assignedTo: string | undefined, meta?: { oldAssignee?: string; assigneeName?: string }) =>
     request<Comment>(`/api/comments/${id}/assign`, {
       method: 'PATCH',
@@ -203,7 +246,7 @@ export const apiClient = {
     request<Ad[]>(`/api/ads${opts?.summary ? '?summary=1' : ''}`),
   getAdById: (id: string) => request<Ad>(`/api/ads/${encodeURIComponent(id)}`),
   getPages: () =>
-    request<Array<{ id: string; pageId: string; pageName: string; pageAccessToken: string | null; isConnected: boolean; syncedAt: string | null }>>(
+    request<Array<{ id: string; pageId: string; pageName: string; fans?: string; avatar?: string; pageAccessToken: string | null; isConnected: boolean; syncedAt: string | null }>>(
       '/api/pages'
     ),
   getNotes: () => request<CommentNote[]>('/api/notes'),
@@ -288,4 +331,19 @@ export const apiClient = {
   setSlackEnabled: (enabled: boolean) =>
     request<SlackStatus>('/api/notifications/slack/status', { method: 'PATCH', body: JSON.stringify({ enabled }) }),
   testSlackAlert: () => request<{ sent: boolean; reason?: string }>('/api/notifications/slack/test', { method: 'POST' }),
+
+  getRetentionStatus: () => request<RetentionStatus>('/api/settings/retention'),
+  setRetentionDays: (days: number) =>
+    request<RetentionStatus>('/api/settings/retention', { method: 'PATCH', body: JSON.stringify({ days }) }),
+  runRetentionSweep: () => request<RetentionStatus & { justRan?: { archived: number; days: number } }>('/api/settings/retention/run', { method: 'POST' }),
 };
+
+export interface RetentionStatus {
+  days: number;
+  minDays: number;
+  maxDays: number;
+  archivedTotal: number;
+  lastArchivedAt: string | null;
+  ownerUsername: string;
+  lastRun: { at: string; archived: number; days: number } | null;
+}

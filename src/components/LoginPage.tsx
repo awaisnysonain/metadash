@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Loader2, Lock, User, Eye, EyeOff, Sparkles } from 'lucide-react';
+import { Loader2, Lock, User, Eye, EyeOff } from 'lucide-react';
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -32,12 +32,12 @@ export default function LoginPage() {
           <div className="absolute bottom-20 right-20 w-96 h-96 bg-indigo-500 rounded-full blur-[120px]" />
         </div>
         <div className="relative z-10 flex flex-col justify-center px-16 text-white">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur border border-white/20 flex items-center justify-center">
-              <Sparkles className="w-6 h-6 text-blue-300" />
+          <div className="mb-8 flex items-center gap-4">
+            <div className="flex h-16 w-16 items-center justify-center rounded-[24px] bg-white dark:bg-slate-900 shadow-2xl shadow-blue-950/30 ring-1 ring-white/40">
+              <img src="/metadash-icon.svg" alt="MetaDash" className="h-12 w-12 rounded-[20px] object-contain" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">MetaDash</h1>
+              <h1 className="text-3xl font-extrabold tracking-tight">MetaDash</h1>
               <p className="text-sm text-blue-200/80">Unified Social Comment Inbox</p>
             </div>
           </div>
@@ -63,27 +63,29 @@ export default function LoginPage() {
       </div>
 
       {/* Right panel — login form */}
-      <div className="flex-1 flex items-center justify-center p-8 bg-slate-50">
+      <div className="flex-1 flex items-center justify-center p-8 bg-[#f4f6fa]">
         <div className="w-full max-w-md">
-          <div className="lg:hidden flex items-center gap-2.5 mb-8">
-            <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white font-bold">M</div>
+          <div className="lg:hidden mb-8 flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white dark:bg-slate-900 shadow-sm ring-1 ring-slate-200 dark:ring-slate-700">
+              <img src="/metadash-icon.svg" alt="MetaDash" className="h-10 w-10 rounded-xl object-contain" />
+            </div>
             <div>
-              <h1 className="font-bold text-slate-900">MetaDash</h1>
-              <p className="text-xs text-slate-500">Social comments inbox</p>
+              <h1 className="text-lg font-extrabold tracking-tight text-slate-950 dark:text-slate-50">MetaDash</h1>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Social comments inbox</p>
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl shadow-slate-200/50 p-8">
+          <div className="bg-white dark:bg-slate-900 rounded-[20px] border border-slate-200 dark:border-slate-800 shadow-2xl shadow-slate-200/60 p-8">
             <div className="mb-8">
-              <h2 className="text-2xl font-bold text-slate-900">Welcome back</h2>
-              <p className="text-sm text-slate-500 mt-1">Sign in to your team dashboard</p>
+              <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Welcome back</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Sign in to your team dashboard</p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
               <div>
-                <label className="text-sm font-medium text-slate-700 block mb-1.5">Username</label>
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-200 block mb-1.5">Username</label>
                 <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500" />
                   <input
                     type="text"
                     value={username}
@@ -91,15 +93,15 @@ export default function LoginPage() {
                     placeholder="your.username"
                     required
                     autoComplete="username"
-                    className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                    className="w-full pl-10 pr-4 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="text-sm font-medium text-slate-700 block mb-1.5">Password</label>
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-200 block mb-1.5">Password</label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500" />
                   <input
                     type={showPassword ? 'text' : 'password'}
                     value={password}
@@ -107,12 +109,12 @@ export default function LoginPage() {
                     placeholder="••••••••"
                     required
                     autoComplete="current-password"
-                    className="w-full pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                    className="w-full pl-10 pr-10 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600"
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -136,7 +138,7 @@ export default function LoginPage() {
             </form>
           </div>
 
-          <p className="text-center text-xs text-slate-400 mt-6">
+          <p className="text-center text-xs text-slate-400 dark:text-slate-500 mt-6">
             Authorized team members only. Contact your admin for access.
           </p>
         </div>

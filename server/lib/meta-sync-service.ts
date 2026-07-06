@@ -1,9 +1,10 @@
-import { isDatabaseConfigured, hasDatabaseUrl } from '../db/pool.js';
+import { isDatabaseConfigured, hasDatabaseUrl, query } from '../db/pool.js';
 import {
   upsertAdAccount,
   upsertCampaign,
   upsertAdSet,
   upsertAd,
+  markStaleActiveAdsInactive,
   upsertConnectedPage,
   upsertInstagramAccount,
   pruneStaleInstagramAccounts,
@@ -27,6 +28,7 @@ import {
   fetchManagedPages,
   fetchInstagramProfile,
   fetchAdSpendInsights,
+  fetchRecentAdSpendInsights,
   extractInstagramBusinessAccountId,
   type MetaPage,
   type MetaAdSet,
@@ -41,6 +43,18 @@ import {
 } from './meta-graph.js';
 import { getConfiguredMetaAccounts, getPageSyncTokenSources } from './meta-accounts.js';
 import { mockAds, mockCampaigns, connectedPages } from '../../src/data.js';
+
+const ACTIVE_ADS_SYNC_INTERVAL_MS = Math.max(Number(process.env.ACTIVE_ADS_SYNC_INTERVAL_MINUTES || 15), 5) * 60 * 1000;
+let activeAdsRefreshTimer: ReturnType<typeof setInterval> | null = null;
+let activeAdsRefreshRunning = false;
+
+type ConfiguredMetaAccount = ReturnType<typeof getConfiguredMetaAccounts>[number];
+type MetaAdAccount = Awaited<ReturnType<typeof fetchAdAccounts>>[number];
+
+interface AccountSyncJob {
+  config: ConfiguredMetaAccount;
+  account: MetaAdAccount;
+}
 
 export interface SyncOutcome {
   ok: boolean;
@@ -67,6 +81,76 @@ function validateOrError(): SyncOutcome | null {
     return { ok: false, synced: 0, message: check.message!, details: { status: check.status } };
   }
   return null;
+}
+
+async function getKnownActiveAdCountsByAccount(): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  const { rows } = await query<{ meta_account_id: string | null; count: number }>(`
+    SELECT meta_account_id, COUNT(*)::int AS count
+    FROM ads
+    WHERE effective_status = 'ACTIVE' AND meta_account_id IS NOT NULL AND meta_account_id <> ''
+    GROUP BY meta_account_id
+  `);
+  for (const row of rows) {
+    if (row.meta_account_id) counts.set(row.meta_account_id.replace(/^act_/, ''), Number(row.count));
+  }
+  return counts;
+}
+
+async function buildAccountSyncJobs(configuredAccounts: ConfiguredMetaAccount[]): Promise<{ jobs: AccountSyncJob[]; warnings: string[] }> {
+  const warnings: string[] = [];
+  const candidatesByAccount = new Map<string, AccountSyncJob[]>();
+
+  for (const config of configuredAccounts) {
+    const token = config.accessToken;
+    let accounts: Array<MetaAdAccount | null> = [];
+    try {
+      accounts = config.accountId
+        ? [await fetchAdAccountById(config.accountId, token)].filter(Boolean)
+        : await fetchAdAccounts(token);
+    } catch (err) {
+      const msg = err instanceof MetaApiError ? err.message : String(err);
+      warnings.push(`Ad account discovery skipped for ${config.label}: ${msg}`);
+      continue;
+    }
+
+    if (config.accountId && !accounts.length) {
+      accounts = [{ id: config.accountId, name: config.label, account_status: 1 }];
+    }
+
+    for (const account of accounts) {
+      if (!account) continue;
+      const id = account.id.replace(/^act_/, '');
+      const existing = candidatesByAccount.get(id) ?? [];
+      existing.push({ config, account: { ...account, id } });
+      candidatesByAccount.set(id, existing);
+    }
+  }
+
+  const knownAdCounts = await getKnownActiveAdCountsByAccount();
+  const profileLoads = new Map<string, number>();
+  const jobs: AccountSyncJob[] = [];
+  const accountEntries = [...candidatesByAccount.entries()].sort(
+    ([a], [b]) => (knownAdCounts.get(b) ?? 0) - (knownAdCounts.get(a) ?? 0)
+  );
+
+  for (const [accountId, candidates] of accountEntries) {
+    const explicit = candidates.find(candidate => candidate.config.accountId.replace(/^act_/, '') === accountId);
+    const selected = explicit ?? candidates.reduce((best, candidate) => {
+      const bestLoad = profileLoads.get(best.config.label) ?? 0;
+      const candidateLoad = profileLoads.get(candidate.config.label) ?? 0;
+      return candidateLoad < bestLoad ? candidate : best;
+    });
+    const accountWeight = knownAdCounts.get(accountId) ?? 1;
+    profileLoads.set(selected.config.label, (profileLoads.get(selected.config.label) ?? 0) + accountWeight);
+    jobs.push(selected);
+  }
+
+  warnings.push(
+    ...[...profileLoads.entries()].map(([label, count]) => `Assigned approximately ${count} active ad(s) to ${label}`)
+  );
+
+  return { jobs, warnings };
 }
 
 /* ── Demo sync (mock data → PostgreSQL) ── */
@@ -227,20 +311,12 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
   let syncedCampaigns = 0;
   let syncedAdSets = 0;
   let syncedAds = 0;
-  const warnings: string[] = [];
+  let deactivatedAds = 0;
+  const { jobs, warnings } = await buildAccountSyncJobs(configuredAccounts);
 
-  for (const config of configuredAccounts) {
-    const token = config.accessToken;
-    let accounts = config.accountId
-      ? [await fetchAdAccountById(config.accountId, token)].filter(Boolean)
-      : await fetchAdAccounts(token);
-
-    if (config.accountId && !accounts.length) {
-      accounts = [{ id: config.accountId, name: config.label, account_status: 1 }];
-    }
-
-    for (const account of accounts) {
-      if (!account) continue;
+  for (const { config, account } of jobs) {
+      const accountSyncStartedAt = new Date().toISOString();
+      const token = config.accessToken;
       const accountDbId = `meta-act-${account.id.replace(/^act_/, '')}`;
       await upsertAdAccount({
         id: accountDbId,
@@ -258,11 +334,18 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
       const adsetByMetaId = new Map<string, MetaAdSet>();
 
       let spendMap = new Map<string, number>();
+      let recentSpendMap = new Map<string, number>();
       try {
         spendMap = await fetchAdSpendInsights(account.id, token);
       } catch (err) {
         const msg = err instanceof MetaApiError ? err.message : String(err);
         warnings.push(`Spend skipped for ${config.label} ${account.id}: ${msg}`);
+      }
+      try {
+        recentSpendMap = await fetchRecentAdSpendInsights(account.id, token);
+      } catch (err) {
+        const msg = err instanceof MetaApiError ? err.message : String(err);
+        warnings.push(`Recent spend skipped for ${config.label} ${account.id}: ${msg}`);
       }
 
       let campaigns: Awaited<ReturnType<typeof fetchCampaigns>>;
@@ -321,7 +404,7 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
 
       let ads: Awaited<ReturnType<typeof fetchAds>>;
       try {
-        ads = await fetchAds(account.id, token, { effectiveStatus: ['ACTIVE', 'PAUSED'] });
+        ads = await fetchAds(account.id, token, { effectiveStatus: ['ACTIVE'] });
       } catch (err) {
         const msg = err instanceof MetaApiError ? err.message : String(err);
         console.warn(`[sync] Skipping ads for ${config.label} ${account.id}: ${msg}`);
@@ -358,6 +441,7 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
           instagramPageIds: instagramActorIds,
         });
         const adSpend = spendMap.get(ad.id);
+        const recentSpend = recentSpendMap.get(ad.id);
 
         await upsertAd({
           id: `meta-ad-${ad.id}`,
@@ -378,12 +462,16 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
           cta: parsed.cta,
           postStoryId,
           spend: adSpend,
+          recentSpend,
           accountLabel: config.label,
           metaAccountId: account.id,
+          effectiveStatus: ad.effective_status ?? 'ACTIVE',
+          configuredStatus: ad.configured_status ?? ad.status ?? null,
+          instagramMediaId: creative?.effective_instagram_media_id ?? null,
         });
         syncedAds++;
       }
-    }
+      deactivatedAds += await markStaleActiveAdsInactive(account.id, accountSyncStartedAt);
   }
 
   const total = syncedAccounts + syncedCampaigns + syncedAdSets + syncedAds;
@@ -394,9 +482,39 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
   return {
     ok: true,
     synced: total,
-    message: `Synced from Meta: ${syncedAccounts} ad accounts, ${syncedCampaigns} campaigns, ${syncedAdSets} ad sets, ${syncedAds} ads (${configuredAccounts.map(a => a.label).join(', ')})`,
-    details: { syncedAccounts, syncedCampaigns, syncedAdSets, syncedAds, accounts: configuredAccounts.map(a => a.label), warnings },
+    message: `Synced from Meta: ${syncedAccounts} ad accounts, ${syncedCampaigns} campaigns, ${syncedAdSets} ad sets, ${syncedAds} active ads, deactivated ${deactivatedAds} stale ad(s) (${[...new Set(jobs.map(job => job.config.label))].join(', ')})`,
+    details: { syncedAccounts, syncedCampaigns, syncedAdSets, syncedAds, deactivatedAds, accounts: jobs.map(job => ({ label: job.config.label, accountId: job.account.id })), warnings },
   };
+}
+
+export function startActiveAdsRefreshCron(): void {
+  if (isServerDemoMode() || activeAdsRefreshTimer) return;
+
+  activeAdsRefreshTimer = setInterval(async () => {
+    if (activeAdsRefreshRunning) {
+      console.warn('[sync/ads] Active ads refresh skipped - previous refresh still running');
+      return;
+    }
+
+    activeAdsRefreshRunning = true;
+    const startedAt = Date.now();
+    try {
+      console.log('[sync/ads] Cron: refreshing active ads');
+      const result = await syncAdsFromMeta();
+      const seconds = Math.round((Date.now() - startedAt) / 1000);
+      if (result.ok) {
+        console.log(`[sync/ads] Cron complete in ${seconds}s: ${result.message}`);
+      } else {
+        console.warn(`[sync/ads] Cron failed in ${seconds}s: ${result.message}`);
+      }
+    } catch (err) {
+      console.warn('[sync/ads] Cron failed:', err instanceof Error ? err.message : String(err));
+    } finally {
+      activeAdsRefreshRunning = false;
+    }
+  }, ACTIVE_ADS_SYNC_INTERVAL_MS);
+
+  console.log(`[sync/ads] Active ads refresh scheduled every ${ACTIVE_ADS_SYNC_INTERVAL_MS / 60000} minutes`);
 }
 
 export async function syncPagesFromMeta(): Promise<SyncOutcome> {
@@ -542,6 +660,8 @@ export async function syncInstagramFromMeta(): Promise<SyncOutcome> {
         id: `meta-ig-${igId}`,
         accountId: igId,
         username,
+        linkedPageId: page.id,
+        linkedPageName: page.name,
         followers,
         avatar: igProfile?.profile_picture_url ? igProfile.profile_picture_url : '📸',
         isConnected: true,

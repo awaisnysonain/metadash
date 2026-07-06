@@ -54,6 +54,10 @@ CREATE TABLE IF NOT EXISTS ads (
   likes_count INT,
   shares_count INT,
   comments_count INT,
+  recent_spend NUMERIC DEFAULT 0,
+  effective_status TEXT,
+  configured_status TEXT,
+  instagram_media_id TEXT,
   post_story_id TEXT,
   synced_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW()
@@ -125,6 +129,8 @@ CREATE TABLE IF NOT EXISTS connected_instagram_accounts (
   id TEXT PRIMARY KEY,
   account_id TEXT NOT NULL,
   username TEXT NOT NULL,
+  linked_page_id TEXT,
+  linked_page_name TEXT,
   followers TEXT,
   avatar TEXT,
   is_connected BOOLEAN DEFAULT FALSE,
@@ -163,14 +169,42 @@ CREATE TABLE IF NOT EXISTS app_config (
 CREATE INDEX IF NOT EXISTS idx_comments_status ON comments(status);
 CREATE INDEX IF NOT EXISTS idx_comments_platform ON comments(platform);
 CREATE INDEX IF NOT EXISTS idx_comments_created_at ON comments(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_comments_ad_id ON comments(ad_id);
+CREATE INDEX IF NOT EXISTS idx_comments_page_id ON comments(page_id);
+CREATE INDEX IF NOT EXISTS idx_comments_platform_created_at ON comments(platform, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_comment ON activity_logs(comment_id);
+
+-- Soft-delete / archive: comments older than the retention window get marked here by
+-- the daily retention cron, and inbox queries filter WHERE archived_at IS NULL.
+ALTER TABLE comments ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_comments_archived_at ON comments(archived_at);
+CREATE INDEX IF NOT EXISTS idx_comments_active_created_at
+  ON comments(created_at DESC) WHERE archived_at IS NULL;
 
 ALTER TABLE ads ADD COLUMN IF NOT EXISTS post_story_id TEXT;
 ALTER TABLE ads ADD COLUMN IF NOT EXISTS spend NUMERIC DEFAULT 0;
+ALTER TABLE ads ADD COLUMN IF NOT EXISTS recent_spend NUMERIC DEFAULT 0;
 ALTER TABLE ads ADD COLUMN IF NOT EXISTS account_label TEXT;
 ALTER TABLE ads ADD COLUMN IF NOT EXISTS meta_account_id TEXT;
+ALTER TABLE ads ADD COLUMN IF NOT EXISTS effective_status TEXT;
+ALTER TABLE ads ADD COLUMN IF NOT EXISTS configured_status TEXT;
+ALTER TABLE ads ADD COLUMN IF NOT EXISTS instagram_media_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_ads_effective_status ON ads(effective_status);
+CREATE INDEX IF NOT EXISTS idx_ads_account_status ON ads(account_label, effective_status);
+CREATE INDEX IF NOT EXISTS idx_ads_recent_spend ON ads(recent_spend DESC);
+CREATE INDEX IF NOT EXISTS idx_ads_instagram_media_id ON ads(instagram_media_id);
+CREATE INDEX IF NOT EXISTS idx_ads_ad_id ON ads(ad_id);
+CREATE INDEX IF NOT EXISTS idx_ads_post_story_id ON ads(post_story_id);
+CREATE INDEX IF NOT EXISTS idx_ads_campaign_name ON ads(campaign_name);
 
 ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS account_label TEXT;
+CREATE INDEX IF NOT EXISTS idx_campaigns_campaign_name ON campaigns(campaign_name);
+
+CREATE INDEX IF NOT EXISTS idx_connected_pages_page_id ON connected_pages(page_id);
+
+ALTER TABLE connected_instagram_accounts ADD COLUMN IF NOT EXISTS linked_page_id TEXT;
+ALTER TABLE connected_instagram_accounts ADD COLUMN IF NOT EXISTS linked_page_name TEXT;
+CREATE INDEX IF NOT EXISTS idx_connected_ig_linked_page ON connected_instagram_accounts(linked_page_id);
 
 -- App users (authentication & team)
 CREATE TABLE IF NOT EXISTS app_users (

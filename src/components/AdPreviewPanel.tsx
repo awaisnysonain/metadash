@@ -1,9 +1,10 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Ad, Comment } from '../types';
 import { apiClient } from '../services/apiClient';
-import { inferBrandLabel, brandChipClass } from '../utils/helpers';
+import { inferBrandLabel, safeExternalUrl, commentLinkLabel, adLinkLabel, commentExternalUrl } from '../utils/helpers';
 import { formatSpend } from '../utils/campaignHelpers';
 import { PlatformBadge } from './ui/Badges';
+import { BrandLogoBadge } from './BrandLogo';
 import {
   ExternalLink,
   Facebook,
@@ -23,10 +24,11 @@ interface AdPreviewPanelProps {
   ad?: Ad;
   comment?: Comment;
   compact?: boolean;
+  detail?: boolean;
   className?: string;
 }
 
-export default function AdPreviewPanel({ ad: adProp, comment, compact = false, className = '' }: AdPreviewPanelProps) {
+export default function AdPreviewPanel({ ad: adProp, comment, compact = false, detail = false, className = '' }: AdPreviewPanelProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(true);
@@ -39,7 +41,9 @@ export default function AdPreviewPanel({ ad: adProp, comment, compact = false, c
 
   useEffect(() => {
     if (!comment?.adId) return;
-    if (adProp?.mediaUrl || adProp?.thumbnailUrl) {
+    const hasDirectVideo = Boolean(adProp?.mediaType === 'video' && adProp.mediaUrl && !adProp.mediaUrl.includes('facebook.com'));
+    const hasStaticPreview = Boolean(adProp?.mediaType === 'image' && (adProp.mediaUrl || adProp.thumbnailUrl));
+    if (hasDirectVideo || hasStaticPreview) {
       setAd(adProp);
       return;
     }
@@ -78,12 +82,12 @@ export default function AdPreviewPanel({ ad: adProp, comment, compact = false, c
 
   if (!comment) {
     return (
-      <div className={`bg-white border border-slate-200 rounded-xl p-6 flex flex-col items-center justify-center text-center min-h-[320px] ${className}`}>
-        <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mb-3">
-          <Megaphone className="w-7 h-7 text-slate-300" />
+      <div className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 flex flex-col items-center justify-center text-center min-h-[320px] ${className}`}>
+        <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-3">
+          <Megaphone className="w-7 h-7 text-slate-300 dark:text-slate-600" />
         </div>
-        <h3 className="text-sm font-bold text-slate-800">Select a comment</h3>
-        <p className="text-sm text-slate-500 mt-1 max-w-[220px]">
+        <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">Select a comment</h3>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-[220px]">
           Click any comment to see the ad it came from.
         </p>
       </div>
@@ -93,42 +97,53 @@ export default function AdPreviewPanel({ ad: adProp, comment, compact = false, c
   const platform = comment.platform;
   const BrandIcon = platform === 'facebook' ? Facebook : Instagram;
   const brand = inferBrandLabel(comment, ad);
+  const commentUrl = commentExternalUrl(comment);
+  const adUrl = safeExternalUrl(ad?.originalAdUrl);
+  const canRenderDirectVideo = Boolean(ad?.mediaUrl && !ad.mediaUrl.includes('facebook.com'));
+  const mediaClass = detail ? 'h-[300px] 2xl:h-[380px]' : compact ? 'h-40' : 'aspect-video';
 
   const renderMedia = () => {
     if (loadingAd) {
       return (
-        <div className="relative aspect-video bg-slate-100 rounded-lg flex items-center justify-center border border-slate-200">
-          <p className="text-sm text-slate-500">Loading ad preview…</p>
+        <div className={`relative ${mediaClass} bg-slate-100 dark:bg-slate-800 rounded-lg flex items-center justify-center border border-slate-200 dark:border-slate-800`}>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Loading ad preview…</p>
         </div>
       );
     }
 
-    const mediaSrc = ad?.mediaUrl || ad?.thumbnailUrl;
+    const mediaSrc = ad?.mediaType === 'video' && !canRenderDirectVideo
+      ? ad.thumbnailUrl || ad.mediaUrl
+      : ad?.mediaUrl || ad?.thumbnailUrl;
     if (!mediaSrc) {
       return (
-        <div className="relative aspect-video bg-gradient-to-br from-slate-100 to-slate-200 rounded-lg overflow-hidden flex flex-col items-center justify-center border border-slate-200">
-          <ImageOff className="w-10 h-10 text-slate-400 mb-2" />
-          <p className="text-sm text-slate-600">Preview not available</p>
-          <p className="text-xs text-slate-400 mt-0.5 px-4">This ad&apos;s image or video couldn&apos;t be loaded</p>
+        <div className={`relative ${mediaClass} bg-gradient-to-br from-slate-100 to-slate-200 rounded-lg overflow-hidden flex flex-col items-center justify-center border border-slate-200 dark:border-slate-800`}>
+          <ImageOff className={`${compact ? 'w-6 h-6 mb-1' : 'w-10 h-10 mb-2'} text-slate-400 dark:text-slate-500`} />
+          <p className="text-sm text-slate-600 dark:text-slate-300">Preview not available</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 px-4">The comment is still visible above; Meta did not return playable media for this asset.</p>
         </div>
       );
     }
 
-    if (ad.mediaType === 'image' || !ad.mediaUrl) {
+    if (ad.mediaType === 'image' || !ad.mediaUrl || !canRenderDirectVideo) {
       return (
-        <div className="relative aspect-video bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
+        <div className={`relative ${mediaClass} ${detail ? 'bg-slate-950 dark:bg-slate-100' : 'bg-slate-100 dark:bg-slate-800'} rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800`}>
           <img
             src={mediaSrc}
             alt={ad.adName}
-            className="w-full h-full object-cover"
+            className={`w-full h-full ${detail ? 'object-contain' : 'object-cover'}`}
             referrerPolicy="no-referrer"
           />
+          {ad.mediaType === 'video' && !canRenderDirectVideo && (
+            <div className="absolute inset-x-3 bottom-3 rounded-xl bg-slate-950/85 px-3 py-2 text-[11px] font-bold text-white shadow-lg backdrop-blur">
+              Meta returned a preview image for this video. Use the ad link below if direct playback is blocked.
+            </div>
+          )}
         </div>
       );
     }
 
     return (
-      <div className="relative aspect-video bg-black rounded-xl overflow-hidden border border-slate-800 group">
+        <div className={`relative ${mediaClass} bg-black rounded-xl overflow-hidden border border-slate-800 group`}>
         <video
           ref={videoRef}
           src={ad.mediaUrl}
@@ -138,15 +153,15 @@ export default function AdPreviewPanel({ ad: adProp, comment, compact = false, c
           muted={isMuted}
           playsInline
           autoPlay
-          controls={false}
+          controls
         />
         {!isPlaying && (
           <div
             className="absolute inset-0 flex items-center justify-center bg-black/30 cursor-pointer"
             onClick={() => setIsPlaying(true)}
           >
-            <div className="w-14 h-14 rounded-full bg-white/90 flex items-center justify-center shadow-xl">
-              <Play className="w-6 h-6 text-slate-900 fill-current ml-0.5" />
+            <div className="w-14 h-14 rounded-full bg-white/90 dark:bg-slate-900/90 flex items-center justify-center shadow-xl">
+              <Play className="w-6 h-6 text-slate-900 dark:text-slate-100 fill-current ml-0.5" />
             </div>
           </div>
         )}
@@ -171,61 +186,61 @@ export default function AdPreviewPanel({ ad: adProp, comment, compact = false, c
   };
 
   return (
-    <div className={`bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden ${className}`}>
-      <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+    <div className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 ${detail ? 'rounded-2xl shadow-none' : 'rounded-xl shadow-sm'} overflow-hidden ${className}`}>
+      <div className={`${compact || detail ? 'px-3 py-2' : 'px-4 py-3'} border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/80`}>
         <div className="flex items-center gap-2">
           <BrandIcon className={`w-4 h-4 ${platform === 'facebook' ? 'text-[#1877F2]' : 'text-pink-600'}`} />
-          <h3 className="text-sm font-medium text-slate-900">Ad preview</h3>
+          <h3 className="text-sm font-medium text-slate-900 dark:text-slate-100">Comment source</h3>
         </div>
         <div className="flex items-center gap-2">
-          <span className={`text-[10px] px-2 py-1 border rounded-lg font-semibold ${brandChipClass(brand)}`}>{brand}</span>
+          <BrandLogoBadge brand={brand} />
           <PlatformBadge platform={platform} />
         </div>
       </div>
 
-      <div className={`p-4 space-y-3 ${compact ? 'text-xs' : ''}`}>
+      <div className={`${compact || detail ? 'p-3 space-y-2' : 'p-4 space-y-3'} ${compact || detail ? 'text-xs' : ''}`}>
         {renderMedia()}
 
         <div className="space-y-1.5">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-xs text-slate-500">Campaign</p>
-              <p className="text-sm font-medium text-slate-800 truncate">{comment.campaignName}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Campaign</p>
+              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{ad ? comment.campaignName : 'Organic / no ad campaign'}</p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <p className="text-xs text-slate-500">Account</p>
-              <p className="text-sm text-slate-700 truncate">{ad?.accountLabel || brand}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Account</p>
+              <p className="text-sm text-slate-700 dark:text-slate-200 truncate">{ad?.accountLabel || brand}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500">Spend</p>
-              <p className="text-sm text-slate-700 truncate">{ad?.spend != null ? formatSpend(ad.spend) : '—'}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Spend</p>
+              <p className="text-sm text-slate-700 dark:text-slate-200 truncate">{ad?.spend != null ? formatSpend(ad.spend) : '—'}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500">Ad set</p>
-              <p className="text-sm text-slate-700 truncate" title={comment.adsetName}>{comment.adsetName}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Ad set</p>
+              <p className="text-sm text-slate-700 dark:text-slate-200 truncate" title={comment.adsetName}>{ad ? comment.adsetName : '—'}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500">Ad</p>
-              <p className="text-sm text-slate-700 truncate" title={comment.adName}>{comment.adName}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Ad</p>
+              <p className="text-sm text-slate-700 dark:text-slate-200 truncate" title={comment.adName}>{ad ? comment.adName : 'Organic comment'}</p>
             </div>
           </div>
         </div>
 
         {ad && (
           <>
-            {ad.adCopy && (
-              <p className="text-[11px] text-slate-600 leading-relaxed line-clamp-3">{ad.adCopy}</p>
+            {(!compact || detail) && ad.adCopy && (
+              <p className="detail-line-clamp-2 text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">{ad.adCopy}</p>
             )}
             {ad.headline && (
-              <p className="text-xs font-bold text-slate-900">{ad.headline}</p>
+              <p className="text-xs font-bold text-slate-900 dark:text-slate-100">{ad.headline}</p>
             )}
-            {ad.description && (
-              <p className="text-[10px] text-slate-500">{ad.description}</p>
+            {(!compact || detail) && ad.description && (
+              <p className="detail-line-clamp-2 text-[10px] text-slate-500 dark:text-slate-400">{ad.description}</p>
             )}
 
-            <div className="flex items-center gap-4 text-[10px] text-slate-500 pt-1 border-t border-slate-100">
+            <div className="flex items-center gap-4 text-[10px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800">
               {ad.likesCount != null && (
                 <span className="flex items-center gap-1">
                   <Heart className="w-3 h-3 text-rose-400" /> {ad.likesCount.toLocaleString()}
@@ -244,24 +259,26 @@ export default function AdPreviewPanel({ ad: adProp, comment, compact = false, c
             </div>
 
             <div className="flex gap-2 pt-1">
-              {ad.originalAdUrl && (
+              {adUrl && (
                 <a
-                  href={ad.originalAdUrl}
+                  href={adUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold rounded-lg transition-colors"
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 text-white text-[11px] font-bold rounded-lg transition-colors"
                 >
-                  Open ad <ExternalLink className="w-3 h-3" />
+                  {adLinkLabel(ad.originalAdUrl)} <ExternalLink className="w-3 h-3" />
                 </a>
               )}
-              <a
-                href={comment.originalCommentUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold rounded-lg transition-colors"
-              >
-                Reply on Meta <ExternalLink className="w-3 h-3" />
-              </a>
+              {commentUrl && (
+                <a
+                  href={commentUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-800 text-[11px] font-bold rounded-lg transition-colors"
+                >
+                  {commentLinkLabel(comment.platform)} <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
             </div>
           </>
         )}

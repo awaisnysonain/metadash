@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Meta Dashboard icon">
+  <defs>
+    <linearGradient id="bg" x1="80" y1="46" x2="452" y2="464" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0B1220"/>
+      <stop offset="0.42" stop-color="#1D4ED8"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+    <radialGradient id="flare" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(378 128) rotate(119) scale(265)">
+      <stop stop-color="#22D3EE" stop-opacity="0.62"/>
+      <stop offset="0.62" stop-color="#22D3EE" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="48" y="58" width="416" height="416" rx="108" fill="#020617" opacity="0.14"/>
+  <rect x="42" y="42" width="428" height="428" rx="108" fill="url(#bg)"/>
+  <rect x="42" y="42" width="428" height="428" rx="108" fill="url(#flare)"/>
+
+  <g opacity="0.18" stroke="#FFFFFF" stroke-width="2">
+    <path d="M109 157H403"/>
+    <path d="M109 256H403"/>
+    <path d="M109 355H403"/>
+    <path d="M157 109V403"/>
+    <path d="M256 109V403"/>
+    <path d="M355 109V403"/>
+  </g>
+
+  <path d="M149 157H376C406.9 157 432 182.1 432 213V327C432 357.9 406.9 383 376 383H246L177 433C166.4 440.7 152 433.1 152 420V382.6C121.9 381 98 356.1 98 326V213C98 182.1 123.1 157 154 157H149Z" fill="#020617" opacity="0.12"/>
+  <path d="M141 145H368C398.9 145 424 170.1 424 201V315C424 345.9 398.9 371 368 371H238L169 421C158.4 428.7 144 421.1 144 408V370.6C113.9 369 90 344.1 90 314V201C90 170.1 115.1 145 146 145H141Z" fill="#FFFFFF" opacity="0.98"/>
+
+  <path d="M157 287L210 235L258 281L347 192" fill="none" stroke="#1D4ED8" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M157 287L210 235L258 281L347 192" fill="none" stroke="#22D3EE" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" opacity="0.98"/>
+  <circle cx="157" cy="287" r="18" fill="#7C3AED"/>
+  <circle cx="210" cy="235" r="18" fill="#2563EB"/>
+  <circle cx="258" cy="281" r="18" fill="#22D3EE"/>
+  <circle cx="347" cy="192" r="18" fill="#7C3AED"/>
+
+  <path d="M352 283H371C382.6 283 392 292.4 392 304C392 315.6 382.6 325 371 325H352C340.4 325 331 315.6 331 304C331 292.4 340.4 283 352 283Z" fill="#E0F2FE"/>
+  <circle cx="363" cy="304" r="7" fill="#1D4ED8"/>
+</svg>

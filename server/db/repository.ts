@@ -10,8 +10,32 @@ import {
   rowToAd,
 } from '../db/mappers.js';
 
+const ACTIVE_AD_EXISTS = `EXISTS (
+  SELECT 1 FROM ads a
+  WHERE (a.ad_id = comments.ad_id OR a.id = comments.ad_id)
+    AND a.effective_status = 'ACTIVE'
+)`;
+
+const ORGANIC_COMMENT_EXISTS = `(comments.ad_id IS NULL OR comments.ad_id = '')`;
+
+const NOT_ARCHIVED = `comments.archived_at IS NULL`;
+
+const VISIBLE_COMMENT_WHERE = `(${NOT_ARCHIVED} AND (${ACTIVE_AD_EXISTS} OR ${ORGANIC_COMMENT_EXISTS}))`;
+
+const ACTIVE_AD_WHERE = `effective_status = 'ACTIVE'`;
+
+const COMMENT_SELECT = `comments.*, COALESCE((
+  SELECT json_agg(json_build_object(
+    'userId', cv.user_id,
+    'userName', cv.user_name,
+    'viewedAt', cv.viewed_at
+  ) ORDER BY cv.viewed_at DESC)
+  FROM comment_views cv
+  WHERE cv.comment_id = comments.id
+), '[]'::json) AS views`;
+
 export async function getAllComments() {
-  const { rows } = await query('SELECT * FROM comments ORDER BY created_at DESC LIMIT 1000');
+  const { rows } = await query(`SELECT ${COMMENT_SELECT} FROM comments WHERE ${VISIBLE_COMMENT_WHERE} ORDER BY created_at DESC LIMIT 1000`);
   return rows.map(rowToComment);
 }
 
@@ -28,16 +52,18 @@ export async function getCommentsPaginated(opts: CommentsQuery = {}) {
   const conditions: string[] = [];
   const params: unknown[] = [];
 
+  conditions.push(VISIBLE_COMMENT_WHERE);
+
   if (opts.platform && opts.platform !== 'all') {
     params.push(opts.platform);
-    conditions.push(`platform = $${params.length}`);
+    conditions.push(`comments.platform = $${params.length}`);
   }
   if (opts.status && opts.status !== 'All' && opts.status !== 'Unreplied') {
     params.push(opts.status);
-    conditions.push(`status = $${params.length}`);
+    conditions.push(`comments.status = $${params.length}`);
   }
   if (opts.status === 'Unreplied') {
-    conditions.push(`status IN ('Unseen', 'Seen')`);
+    conditions.push(`comments.status IN ('Unseen', 'Seen')`);
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -49,7 +75,7 @@ export async function getCommentsPaginated(opts: CommentsQuery = {}) {
 
   params.push(limit, offset);
   const { rows } = await query(
-    `SELECT * FROM comments ${where} ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    `SELECT ${COMMENT_SELECT} FROM comments ${where} ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params
   );
 
@@ -62,13 +88,41 @@ export async function getCommentsPaginated(opts: CommentsQuery = {}) {
 }
 
 export async function getCommentById(id: string) {
-  const { rows } = await query('SELECT * FROM comments WHERE id = $1', [id]);
+  const { rows } = await query(`SELECT ${COMMENT_SELECT} FROM comments WHERE id = $1`, [id]);
   return rows[0] ? rowToComment(rows[0]) : null;
 }
 
 export async function commentExistsByMetaId(commentId: string): Promise<boolean> {
   const { rows } = await query('SELECT 1 FROM comments WHERE comment_id = $1 LIMIT 1', [commentId]);
   return rows.length > 0;
+}
+
+/**
+ * Archive (soft-delete) comments older than `retentionDays`. Archived comments stay
+ * in the DB — activity_logs / notes still reference them — but every user-facing
+ * query filters them out via VISIBLE_COMMENT_WHERE.
+ */
+export async function archiveOldComments(retentionDays: number): Promise<number> {
+  const days = Math.max(Math.floor(retentionDays), 1);
+  const { rowCount } = await query(
+    `UPDATE comments
+     SET archived_at = NOW()
+     WHERE archived_at IS NULL
+       AND created_at < NOW() - ($1 || ' days')::INTERVAL`,
+    [String(days)]
+  );
+  return rowCount ?? 0;
+}
+
+export async function getArchivedCommentStats(): Promise<{ total: number; latest: string | null }> {
+  const { rows } = await query<{ total: string; latest: string | null }>(
+    `SELECT COUNT(*)::text AS total, MAX(archived_at)::text AS latest
+     FROM comments WHERE archived_at IS NOT NULL`
+  );
+  return {
+    total: Number(rows[0]?.total ?? 0),
+    latest: rows[0]?.latest ?? null,
+  };
 }
 
 export async function upsertComment(row: Record<string, unknown>) {
@@ -136,7 +190,8 @@ export async function updateCommentStatus(id: string, status: string, timestamps
   const now = new Date().toISOString();
   await query(
     `UPDATE comments SET status = $1, updated_at = $2,
-     seen_at = COALESCE($3, seen_at), replied_at = COALESCE($4, replied_at)
+     seen_at = CASE WHEN $1 = 'Unseen' THEN NULL ELSE COALESCE($3, seen_at) END,
+     replied_at = COALESCE($4, replied_at)
      WHERE id = $5`,
     [status, now, timestamps.seenAt ?? null, timestamps.repliedAt ?? null, id]
   );
@@ -210,17 +265,31 @@ export async function getAllCampaigns() {
 }
 
 export async function getCampaignsWithAds() {
-  const campaigns = await getAllCampaigns();
-  const { rows: adRows } = await query('SELECT * FROM ads ORDER BY ad_name');
-  const ads = adRows.map(rowToAd);
-  return campaigns.map(camp => ({
-    ...camp,
-    ads: ads.filter(ad => ad.campaignName === camp.campaignName),
+  const { rows } = await query(`
+    SELECT c.*,
+           COALESCE(json_agg(to_jsonb(a) ORDER BY a.ad_name) FILTER (WHERE a.id IS NOT NULL), '[]'::json) AS ads_json
+    FROM campaigns c
+    LEFT JOIN ads a ON a.campaign_name = c.campaign_name AND a.effective_status = 'ACTIVE'
+    GROUP BY c.id
+    ORDER BY c.campaign_name
+  `);
+  return rows.map(row => ({
+    ...rowToCampaign(row),
+    ads: (Array.isArray(row.ads_json) ? row.ads_json : []).map(rowToAd),
   }));
 }
 
 export async function getAllAds() {
-  const { rows } = await query('SELECT * FROM ads ORDER BY ad_name');
+  const { rows } = await query(`SELECT * FROM ads WHERE ${ACTIVE_AD_WHERE} ORDER BY ad_name`);
+  return rows.map(rowToAd);
+}
+
+export async function getAdsForCommentSync() {
+  const { rows } = await query(`
+    SELECT * FROM ads
+    WHERE ${ACTIVE_AD_WHERE}
+    ORDER BY COALESCE(recent_spend, 0) DESC, COALESCE(spend, 0) DESC, COALESCE(account_label, ''), ad_name
+  `);
   return rows.map(rowToAd);
 }
 
@@ -228,9 +297,9 @@ export async function getAllAds() {
 export async function getAdsSummaries() {
   const { rows } = await query(`
     SELECT id, platform, ad_id, ad_name, adset_id, adset_name, campaign_id, campaign_name, original_ad_url,
-           media_type, thumbnail_url, comments_count, spend, account_label,
+           media_type, thumbnail_url, comments_count, spend, recent_spend, account_label,
            meta_account_id, post_story_id, headline, cta
-    FROM ads ORDER BY ad_name
+    FROM ads WHERE ${ACTIVE_AD_WHERE} ORDER BY ad_name
   `);
   return rows.map(row => ({
     ...rowToAd(row),
@@ -241,7 +310,7 @@ export async function getAdsSummaries() {
 }
 
 export async function getAdById(id: string) {
-  const { rows } = await query('SELECT * FROM ads WHERE id = $1 OR ad_id = $1 LIMIT 1', [id]);
+  const { rows } = await query(`SELECT * FROM ads WHERE (${ACTIVE_AD_WHERE}) AND (id = $1 OR ad_id = $1) LIMIT 1`, [id]);
   return rows[0] ? rowToAd(rows[0]) : null;
 }
 

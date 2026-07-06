@@ -42,10 +42,13 @@ export function commentToRow(c: Comment): Record<string, unknown> {
     updated_at: c.updatedAt,
     replied_at: c.repliedAt ?? null,
     seen_at: c.seenAt ?? null,
+    views: c.views ?? [],
   };
 }
 
 export function rowToComment(row: any): Comment {
+  const rawViews = row.views ?? [];
+  const views = Array.isArray(rawViews) ? rawViews : typeof rawViews === 'string' ? JSON.parse(rawViews) : [];
   return {
     id: row.id,
     platform: row.platform as Platform,
@@ -73,6 +76,11 @@ export function rowToComment(row: any): Comment {
     updatedAt: row.updated_at,
     repliedAt: row.replied_at ?? undefined,
     seenAt: row.seen_at ?? undefined,
+    views: views.map((view: any) => ({
+      userId: view.userId ?? view.user_id,
+      userName: view.userName ?? view.user_name,
+      viewedAt: view.viewedAt ?? view.viewed_at,
+    })),
   };
 }
 

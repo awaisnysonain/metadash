@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 export function rowToComment(row: any) {
+  const rawViews = row.views ?? [];
+  const views = Array.isArray(rawViews) ? rawViews : typeof rawViews === 'string' ? JSON.parse(rawViews) : [];
   return {
     id: row.id,
     platform: row.platform,
@@ -28,6 +30,11 @@ export function rowToComment(row: any) {
     updatedAt: row.updated_at,
     repliedAt: row.replied_at ?? undefined,
     seenAt: row.seen_at ?? undefined,
+    views: views.map((view: any) => ({
+      userId: view.userId ?? view.user_id,
+      userName: view.userName ?? view.user_name,
+      viewedAt: view.viewedAt ?? view.viewed_at,
+    })),
   };
 }
 
@@ -112,8 +119,12 @@ export function rowToAd(row: any) {
     likesCount: row.likes_count ?? undefined,
     sharesCount: row.shares_count ?? undefined,
     commentsCount: row.comments_count ?? undefined,
+    effectiveStatus: row.effective_status ?? undefined,
+    configuredStatus: row.configured_status ?? undefined,
+    instagramMediaId: row.instagram_media_id ?? undefined,
     postStoryId: row.post_story_id ?? undefined,
     spend: row.spend != null ? Number(row.spend) : undefined,
+    recentSpend: row.recent_spend != null ? Number(row.recent_spend) : undefined,
     accountLabel: row.account_label ?? undefined,
     metaAccountId: row.meta_account_id ?? undefined,
   };
