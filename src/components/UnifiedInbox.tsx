@@ -229,19 +229,19 @@ export default function UnifiedInbox({
   }, [safePage, totalPages]);
 
   const pagination = filteredComments.length > 0 && (
-    <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 text-sm shadow-sm sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+    <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-sm shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
         <span>
-          Showing <span className="font-semibold text-slate-900 dark:text-slate-100">{pageStartIndex + 1}-{pageEndIndex}</span> of{' '}
-          <span className="font-semibold text-slate-900 dark:text-slate-100">{filteredComments.length}</span>
+          Showing <span className="font-semibold text-slate-900">{pageStartIndex + 1}-{pageEndIndex}</span> of{' '}
+          <span className="font-semibold text-slate-900">{filteredComments.length}</span>
         </span>
-        <span className="hidden h-1 w-1 rounded-full bg-slate-300 dark:bg-slate-600 sm:inline-block" />
+        <span className="hidden h-1 w-1 rounded-full bg-slate-300 sm:inline-block" />
         <label className="inline-flex items-center gap-2">
           Rows
           <select
             value={pageSize}
             onChange={e => setPageSize(Number(e.target.value))}
-            className="h-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:border-slate-400 dark:focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 dark:focus:ring-slate-700"
+            className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
           >
             {PAGE_SIZE_OPTIONS.map(size => (
               <option key={size} value={size}>{size}</option>
@@ -254,7 +254,7 @@ export default function UnifiedInbox({
           type="button"
           disabled={safePage <= 1}
           onClick={() => setCurrentPage(page => Math.max(1, page - 1))}
-          className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 text-xs font-semibold text-slate-600 dark:text-slate-300 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <ChevronLeft className="h-3.5 w-3.5" /> Prev
         </button>
@@ -263,7 +263,7 @@ export default function UnifiedInbox({
             key={page}
             type="button"
             onClick={() => setCurrentPage(page)}
-            className={`h-8 min-w-8 rounded-lg px-2 text-xs font-bold transition-colors ${page === safePage ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900' : 'border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+            className={`h-8 min-w-8 rounded-lg px-2 text-xs font-bold transition-colors ${page === safePage ? 'bg-slate-900 text-white' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
           >
             {page}
           </button>
@@ -272,7 +272,7 @@ export default function UnifiedInbox({
           type="button"
           disabled={safePage >= totalPages}
           onClick={() => setCurrentPage(page => Math.min(totalPages, page + 1))}
-          className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 text-xs font-semibold text-slate-600 dark:text-slate-300 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Next <ChevronRight className="h-3.5 w-3.5" />
         </button>
@@ -301,20 +301,20 @@ export default function UnifiedInbox({
   return (
     <div className="space-y-5 animate-fade-in" id="inbox-screen">
       {/* Filter bar */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 shadow-sm">
+      <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-sm font-semibold text-slate-950 dark:text-slate-100 leading-5">Comment queue</h3>
+              <h3 className="text-sm font-semibold text-slate-950 leading-5">Comment queue</h3>
               {unseenCount > 0 && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-full text-xs font-semibold">
-                  <span className="w-1.5 h-1.5 bg-slate-500 dark:bg-slate-300 rounded-full animate-pulse" />
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-700 rounded-full text-xs font-semibold">
+                  <span className="w-1.5 h-1.5 bg-slate-500 rounded-full animate-pulse" />
                   {unseenCount} new
                 </span>
               )}
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              <span className="font-semibold text-slate-800 dark:text-slate-200">{comments.length}</span> loaded comments
+            <p className="text-xs text-slate-500 mt-0.5">
+              <span className="font-semibold text-slate-800">{comments.length}</span> loaded comments
             </p>
           </div>
           {onRefresh && (
@@ -322,16 +322,16 @@ export default function UnifiedInbox({
               <button
                 type="button"
                 onClick={() => setStatusFilter('Unseen')}
-                className={`inline-flex items-center gap-2 rounded-[10px] border px-3 py-1.5 text-sm font-semibold transition-colors ${unseenCount > 0 ? 'border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-950/60' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                className={`inline-flex items-center gap-2 rounded-[10px] border px-3 py-1.5 text-sm font-semibold transition-colors ${unseenCount > 0 ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100' : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'}`}
               >
                 <Bell className="w-4 h-4" />
                 Notifications
-                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${unseenCount > 0 ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'}`}>{unseenCount}</span>
+                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${unseenCount > 0 ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{unseenCount}</span>
               </button>
               <button
                 onClick={() => void onRefresh()}
                 disabled={isRefreshing}
-                className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-white disabled:opacity-60 text-white dark:text-slate-900 rounded-[10px] text-sm font-medium transition-colors"
+                className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white rounded-[10px] text-sm font-medium transition-colors"
               >
                 {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                 {isRefreshing ? 'Updating…' : 'Refresh'}
@@ -347,14 +347,14 @@ export default function UnifiedInbox({
               onClick={() => setStatusFilter(tab.id)}
               className={`px-3 py-1.5 rounded-[9px] text-sm font-medium transition-all ${
                 statusFilter === tab.id
-                  ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  ? 'bg-slate-900 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
               {tab.label}
               {tab.id === 'Unseen' && unseenCount > 0 && (
                 <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                  statusFilter === tab.id ? 'bg-white/20 dark:bg-slate-900/20' : 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
+                  statusFilter === tab.id ? 'bg-white/20' : 'bg-slate-900 text-white'
                 }`}>{unseenCount}</span>
               )}
             </button>
@@ -413,7 +413,7 @@ export default function UnifiedInbox({
           <button
             type="button"
             onClick={() => setTopSpendOnly(v => !v)}
-            className={`h-10 whitespace-nowrap rounded-lg border px-3 text-sm font-semibold transition-colors ${topSpendOnly ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-900 dark:border-slate-100' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+            className={`h-10 whitespace-nowrap rounded-lg border px-3 text-sm font-semibold transition-colors ${topSpendOnly ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
           >
             Top spend
           </button>
@@ -424,10 +424,10 @@ export default function UnifiedInbox({
         {/* Comment list */}
         <div className="xl:col-span-6 space-y-2">
           {filteredComments.length === 0 ? (
-            <div className="p-12 text-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl">
-              <Inbox className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
-              <h3 className="font-medium text-slate-800 dark:text-slate-100">No comments yet</h3>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Comments from your Facebook and Instagram ads will show up here.</p>
+            <div className="p-12 text-center bg-white border border-slate-200 rounded-2xl">
+              <Inbox className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+              <h3 className="font-medium text-slate-800">No comments yet</h3>
+              <p className="text-sm text-slate-500 mt-1">Comments from your Facebook and Instagram ads will show up here.</p>
             </div>
           ) : (
             <>
@@ -469,17 +469,17 @@ export default function UnifiedInbox({
                       <div className="flex-1 min-w-0">
                         {/* Header row: name · time · tiny signals */}
                         <div className="flex items-center gap-2 min-w-0">
-                          <p className={`min-w-0 truncate ${isUnseen ? 'text-[13.5px] font-bold text-slate-900 dark:text-slate-50' : 'text-[13.5px] font-semibold text-slate-800 dark:text-slate-100'}`}>
+                          <p className={`min-w-0 truncate ${isUnseen ? 'text-[13.5px] font-bold text-slate-900' : 'text-[13.5px] font-semibold text-slate-800'}`}>
                             {displayCommenterName(comment.commenterName)}
                           </p>
                           <PlatformBadge platform={comment.platform} />
                           {isUnseen && (
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 px-1.5 py-0.5 rounded">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
                               New
                             </span>
                           )}
                           <span
-                            className="ml-auto shrink-0 text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-1"
+                            className="ml-auto shrink-0 text-[11px] text-slate-400 flex items-center gap-1"
                             title={`Received: ${formatFullTime(comment.updatedAt)} · Comment made: ${formatFullTime(comment.createdAt)}`}
                           >
                             <Clock className="w-3 h-3" />
@@ -488,7 +488,7 @@ export default function UnifiedInbox({
                         </div>
 
                         {/* Comment body */}
-                        <p className={`mt-1.5 text-[13.5px] leading-relaxed line-clamp-3 ${isUnseen ? 'text-slate-900 dark:text-slate-100' : 'text-slate-600 dark:text-slate-300'}`}>
+                        <p className={`mt-1.5 text-[13.5px] leading-relaxed line-clamp-3 ${isUnseen ? 'text-slate-900' : 'text-slate-600'}`}>
                           {comment.commentText}
                         </p>
                         {isGenericCommenterName(comment.commenterName) && commentUrl && (
@@ -497,23 +497,23 @@ export default function UnifiedInbox({
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={e => e.stopPropagation()}
-                            className="mt-1 inline-block text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+                            className="mt-1 inline-block text-[11px] text-blue-600 hover:underline"
                           >
                             {commentLinkLabel(comment.platform)}
                           </a>
                         )}
 
                         {/* Source footer — single truncated line: brand · source · destination */}
-                        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500">
                           <BrandLogoBadge brand={brand} />
-                          <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${isOrganic ? 'border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-300'}`}>
+                          <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${isOrganic ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
                             {isOrganic ? 'Organic' : 'Ad'}
                           </span>
                           <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${sourceChipClass(source)}`} title="Source category">
                             {source}
                           </span>
                           {isTopSpend && (
-                            <span className="inline-flex items-center rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300" title="One of the top 15 recent-spend ads for this account">
+                            <span className="inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700" title="One of the top 15 recent-spend ads for this account">
                               Top spend
                             </span>
                           )}
@@ -528,7 +528,7 @@ export default function UnifiedInbox({
                               : `${comment.adName || linkedAd?.adName || '—'}`}
                           </span>
                           {assignedUser && (
-                            <span className="ml-auto shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                            <span className="ml-auto shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500">
                               <Users className="w-3 h-3" /> {assignedUser.name}
                             </span>
                           )}
@@ -544,7 +544,7 @@ export default function UnifiedInbox({
                       {comment.status !== 'Replied' && (
                         <button
                           onClick={() => onUpdateStatus(comment.id, 'Replied')}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-900 transition-colors"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors"
                         >
                           <CheckCircle className="w-3 h-3" /> Replied
                         </button>
@@ -552,7 +552,7 @@ export default function UnifiedInbox({
                       {isUnseen && (
                         <button
                           onClick={() => onUpdateStatus(comment.id, 'Seen')}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40 hover:bg-sky-100 dark:hover:bg-sky-950/60 border border-sky-200 dark:border-sky-900 transition-colors"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 transition-colors"
                         >
                           <Eye className="w-3 h-3" /> Seen
                         </button>
@@ -563,7 +563,7 @@ export default function UnifiedInbox({
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={() => { if (comment.status === 'Unseen') onUpdateStatus(comment.id, 'Seen'); }}
-                          className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 transition-colors"
+                          className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 transition-colors"
                         >
                           <MessageSquareReply className="w-3 h-3" />
                           Open
@@ -601,7 +601,7 @@ export default function UnifiedInbox({
                 onRemoveCommentTag={onRemoveCommentTag}
               />
             ) : (
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-8 text-center text-sm text-slate-500 dark:text-slate-400">
+              <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-sm text-slate-500">
                 Select a comment to review details, source, notes, and actions without leaving the list.
               </div>
             )}

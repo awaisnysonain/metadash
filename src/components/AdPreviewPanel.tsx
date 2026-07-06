@@ -82,12 +82,12 @@ export default function AdPreviewPanel({ ad: adProp, comment, compact = false, d
 
   if (!comment) {
     return (
-      <div className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 flex flex-col items-center justify-center text-center min-h-[320px] ${className}`}>
-        <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-3">
-          <Megaphone className="w-7 h-7 text-slate-300 dark:text-slate-600" />
+      <div className={`bg-white border border-slate-200 rounded-xl p-6 flex flex-col items-center justify-center text-center min-h-[320px] ${className}`}>
+        <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mb-3">
+          <Megaphone className="w-7 h-7 text-slate-300" />
         </div>
-        <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">Select a comment</h3>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-[220px]">
+        <h3 className="text-sm font-bold text-slate-800">Select a comment</h3>
+        <p className="text-sm text-slate-500 mt-1 max-w-[220px]">
           Click any comment to see the ad it came from.
         </p>
       </div>
@@ -105,8 +105,8 @@ export default function AdPreviewPanel({ ad: adProp, comment, compact = false, d
   const renderMedia = () => {
     if (loadingAd) {
       return (
-        <div className={`relative ${mediaClass} bg-slate-100 dark:bg-slate-800 rounded-lg flex items-center justify-center border border-slate-200 dark:border-slate-800`}>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Loading ad preview…</p>
+        <div className={`relative ${mediaClass} bg-slate-100 rounded-lg flex items-center justify-center border border-slate-200`}>
+          <p className="text-sm text-slate-500">Loading ad preview…</p>
         </div>
       );
     }
@@ -116,17 +116,17 @@ export default function AdPreviewPanel({ ad: adProp, comment, compact = false, d
       : ad?.mediaUrl || ad?.thumbnailUrl;
     if (!mediaSrc) {
       return (
-        <div className={`relative ${mediaClass} bg-gradient-to-br from-slate-100 to-slate-200 rounded-lg overflow-hidden flex flex-col items-center justify-center border border-slate-200 dark:border-slate-800`}>
-          <ImageOff className={`${compact ? 'w-6 h-6 mb-1' : 'w-10 h-10 mb-2'} text-slate-400 dark:text-slate-500`} />
-          <p className="text-sm text-slate-600 dark:text-slate-300">Preview not available</p>
-          <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 px-4">The comment is still visible above; Meta did not return playable media for this asset.</p>
+        <div className={`relative ${mediaClass} bg-gradient-to-br from-slate-100 to-slate-200 rounded-lg overflow-hidden flex flex-col items-center justify-center border border-slate-200`}>
+          <ImageOff className={`${compact ? 'w-6 h-6 mb-1' : 'w-10 h-10 mb-2'} text-slate-400`} />
+          <p className="text-sm text-slate-600">Preview not available</p>
+          <p className="text-xs text-slate-400 mt-0.5 px-4">The comment is still visible above; Meta did not return playable media for this asset.</p>
         </div>
       );
     }
 
     if (ad.mediaType === 'image' || !ad.mediaUrl || !canRenderDirectVideo) {
       return (
-        <div className={`relative ${mediaClass} ${detail ? 'bg-slate-950 dark:bg-slate-100' : 'bg-slate-100 dark:bg-slate-800'} rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800`}>
+        <div className={`relative ${mediaClass} ${detail ? 'bg-slate-950' : 'bg-slate-100'} rounded-lg overflow-hidden border border-slate-200`}>
           <img
             src={mediaSrc}
             alt={ad.adName}
@@ -160,8 +160,8 @@ export default function AdPreviewPanel({ ad: adProp, comment, compact = false, d
             className="absolute inset-0 flex items-center justify-center bg-black/30 cursor-pointer"
             onClick={() => setIsPlaying(true)}
           >
-            <div className="w-14 h-14 rounded-full bg-white/90 dark:bg-slate-900/90 flex items-center justify-center shadow-xl">
-              <Play className="w-6 h-6 text-slate-900 dark:text-slate-100 fill-current ml-0.5" />
+            <div className="w-14 h-14 rounded-full bg-white/90 flex items-center justify-center shadow-xl">
+              <Play className="w-6 h-6 text-slate-900 fill-current ml-0.5" />
             </div>
           </div>
         )}
@@ -186,11 +186,11 @@ export default function AdPreviewPanel({ ad: adProp, comment, compact = false, d
   };
 
   return (
-    <div className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 ${detail ? 'rounded-2xl shadow-none' : 'rounded-xl shadow-sm'} overflow-hidden ${className}`}>
-      <div className={`${compact || detail ? 'px-3 py-2' : 'px-4 py-3'} border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/80`}>
+    <div className={`bg-white border border-slate-200 ${detail ? 'rounded-2xl shadow-none' : 'rounded-xl shadow-sm'} overflow-hidden ${className}`}>
+      <div className={`${compact || detail ? 'px-3 py-2' : 'px-4 py-3'} border-b border-slate-100 flex items-center justify-between bg-slate-50/80`}>
         <div className="flex items-center gap-2">
           <BrandIcon className={`w-4 h-4 ${platform === 'facebook' ? 'text-[#1877F2]' : 'text-pink-600'}`} />
-          <h3 className="text-sm font-medium text-slate-900 dark:text-slate-100">Comment source</h3>
+          <h3 className="text-sm font-medium text-slate-900">Comment source</h3>
         </div>
         <div className="flex items-center gap-2">
           <BrandLogoBadge brand={brand} />
@@ -204,26 +204,26 @@ export default function AdPreviewPanel({ ad: adProp, comment, compact = false, d
         <div className="space-y-1.5">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-xs text-slate-500 dark:text-slate-400">Campaign</p>
-              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{ad ? comment.campaignName : 'Organic / no ad campaign'}</p>
+              <p className="text-xs text-slate-500">Campaign</p>
+              <p className="text-sm font-medium text-slate-800 truncate">{ad ? comment.campaignName : 'Organic / no ad campaign'}</p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Account</p>
-              <p className="text-sm text-slate-700 dark:text-slate-200 truncate">{ad?.accountLabel || brand}</p>
+              <p className="text-xs text-slate-500">Account</p>
+              <p className="text-sm text-slate-700 truncate">{ad?.accountLabel || brand}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Spend</p>
-              <p className="text-sm text-slate-700 dark:text-slate-200 truncate">{ad?.spend != null ? formatSpend(ad.spend) : '—'}</p>
+              <p className="text-xs text-slate-500">Spend</p>
+              <p className="text-sm text-slate-700 truncate">{ad?.spend != null ? formatSpend(ad.spend) : '—'}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Ad set</p>
-              <p className="text-sm text-slate-700 dark:text-slate-200 truncate" title={comment.adsetName}>{ad ? comment.adsetName : '—'}</p>
+              <p className="text-xs text-slate-500">Ad set</p>
+              <p className="text-sm text-slate-700 truncate" title={comment.adsetName}>{ad ? comment.adsetName : '—'}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Ad</p>
-              <p className="text-sm text-slate-700 dark:text-slate-200 truncate" title={comment.adName}>{ad ? comment.adName : 'Organic comment'}</p>
+              <p className="text-xs text-slate-500">Ad</p>
+              <p className="text-sm text-slate-700 truncate" title={comment.adName}>{ad ? comment.adName : 'Organic comment'}</p>
             </div>
           </div>
         </div>
@@ -231,16 +231,16 @@ export default function AdPreviewPanel({ ad: adProp, comment, compact = false, d
         {ad && (
           <>
             {(!compact || detail) && ad.adCopy && (
-              <p className="detail-line-clamp-2 text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">{ad.adCopy}</p>
+              <p className="detail-line-clamp-2 text-[11px] text-slate-600 leading-relaxed">{ad.adCopy}</p>
             )}
             {ad.headline && (
-              <p className="text-xs font-bold text-slate-900 dark:text-slate-100">{ad.headline}</p>
+              <p className="text-xs font-bold text-slate-900">{ad.headline}</p>
             )}
             {(!compact || detail) && ad.description && (
-              <p className="detail-line-clamp-2 text-[10px] text-slate-500 dark:text-slate-400">{ad.description}</p>
+              <p className="detail-line-clamp-2 text-[10px] text-slate-500">{ad.description}</p>
             )}
 
-            <div className="flex items-center gap-4 text-[10px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-4 text-[10px] text-slate-500 pt-1 border-t border-slate-100">
               {ad.likesCount != null && (
                 <span className="flex items-center gap-1">
                   <Heart className="w-3 h-3 text-rose-400" /> {ad.likesCount.toLocaleString()}
@@ -264,7 +264,7 @@ export default function AdPreviewPanel({ ad: adProp, comment, compact = false, d
                   href={adUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 text-white text-[11px] font-bold rounded-lg transition-colors"
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold rounded-lg transition-colors"
                 >
                   {adLinkLabel(ad.originalAdUrl)} <ExternalLink className="w-3 h-3" />
                 </a>
@@ -274,7 +274,7 @@ export default function AdPreviewPanel({ ad: adProp, comment, compact = false, d
                   href={commentUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-800 text-[11px] font-bold rounded-lg transition-colors"
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-900 border border-slate-200 text-[11px] font-bold rounded-lg transition-colors"
                 >
                   {commentLinkLabel(comment.platform)} <ExternalLink className="w-3 h-3" />
                 </a>

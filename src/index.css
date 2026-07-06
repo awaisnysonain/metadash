@@ -1,12 +1,32 @@
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
-/* Class-based dark mode — Tailwind v4 syntax. Applies whenever <html class="dark"> is present. */
-@variant dark (&:where(.dark, .dark *));
-
 @theme {
   --font-sans: 'Manrope', system-ui, -apple-system, sans-serif;
-  --font-display: 'Manrope', system-ui, sans-serif;
+  --font-display: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Consolas, monospace;
+
+  /* Palette — warm paper ground, deep-teal accent, semantic states held separate. */
+  --color-ground: #F6F5F0;
+  --color-ground-2: #FBFAF6;
+  --color-panel: #FFFFFF;
+  --color-ink: #0F1218;
+  --color-ink-2: #2A2E38;
+  --color-muted: #6B7280;
+  --color-muted-2: #9BA1AB;
+  --color-line: #E7E5DE;
+  --color-line-soft: #EFEDE7;
+  --color-accent: #0F5B4D;
+  --color-accent-soft: #E6EFEA;
+  --color-accent-ink: #0E4E42;
+  --color-sem-red: #B54545;
+  --color-sem-red-soft: #F6E9E4;
+  --color-sem-amber: #B77A20;
+  --color-sem-amber-soft: #F5EDDF;
+  --color-sem-green: #4B7A55;
+  --color-sem-green-soft: #E8EFE7;
+  --color-brand-fb: #1E4B8F;
+  --color-brand-ig: #B4326B;
 }
 
 ::-webkit-scrollbar {
@@ -27,39 +47,26 @@
   background: rgba(148, 163, 184, 1);
 }
 
-.dark ::-webkit-scrollbar-thumb {
-  background: rgba(71, 85, 105, 0.8);
-}
-
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 1);
+html {
+  color-scheme: light;
 }
 
 body {
-  background: #f4f6fa;
-  color: #0f172a;
+  background: var(--color-ground);
+  color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-.dark body {
-  background: #0b1220;
-  color: #e2e8f0;
-}
+/* Tabular numerals wherever counts line up in columns/tables. */
+.tabular { font-variant-numeric: tabular-nums; }
 
 .filter-select {
-  @apply h-10 w-full min-w-0 rounded-[10px] border border-slate-200 bg-white px-3 text-[13px] text-slate-900 focus:outline-none focus:ring-[3px] focus:ring-slate-100 focus:border-slate-400 transition-colors;
-}
-
-.dark .filter-select {
-  @apply border-slate-700 bg-slate-900 text-slate-100 focus:ring-slate-700 focus:border-slate-500;
+  @apply h-10 w-full min-w-0 rounded-[10px] border border-[--color-line] bg-white px-3 text-[13px] text-slate-900 focus:outline-none focus:ring-[3px] focus:ring-[--color-line-soft] focus:border-slate-400 transition-colors;
 }
 
 .label-text {
   @apply text-sm text-slate-600 block mb-1.5;
-}
-
-.dark .label-text {
-  @apply text-slate-400;
 }
 
 .action-btn {
@@ -94,70 +101,50 @@ body {
 
 /* Comment card states */
 .comment-card {
-  @apply bg-white border border-slate-200 rounded-2xl relative overflow-hidden transition-all;
-}
-
-.dark .comment-card {
-  @apply bg-slate-900 border-slate-800;
+  @apply bg-white border rounded-2xl relative overflow-hidden transition-all;
+  border-color: var(--color-line);
 }
 
 .comment-card--unseen {
-  @apply border-blue-200 bg-[#f8fbff] shadow-sm;
+  @apply shadow-sm;
+  background: #FDFBF4;
+  border-color: rgba(15, 91, 77, 0.18);
   border-left-width: 0;
 }
 
-.dark .comment-card--unseen {
-  @apply border-blue-900/60 bg-[#0f1a2e];
-}
-
 .comment-card--unseen:hover {
-  @apply border-blue-300 shadow-md;
-}
-
-.dark .comment-card--unseen:hover {
-  @apply border-blue-700;
+  border-color: rgba(15, 91, 77, 0.35);
+  @apply shadow-md;
 }
 
 .comment-card--seen {
-  @apply border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm;
+  @apply bg-white hover:shadow-sm;
+  border-color: var(--color-line);
 }
 
-.dark .comment-card--seen {
-  @apply border-slate-800 bg-slate-900 hover:border-slate-700;
+.comment-card--seen:hover {
+  border-color: #D9D6CC;
 }
 
 .comment-card--selected {
-  @apply border-slate-900 ring-2 ring-slate-200 shadow-xl shadow-slate-200/70;
-}
-
-.dark .comment-card--selected {
-  @apply border-slate-100 ring-slate-700 shadow-black/40;
+  @apply ring-2 shadow-xl;
+  border-color: var(--color-accent);
+  --tw-ring-color: rgba(15, 91, 77, 0.15);
+  box-shadow: 0 20px 40px -20px rgba(15, 91, 77, 0.25);
 }
 
 .comment-card--just-viewed {
   animation: markSeen 0.6s ease-out;
 }
 
-.dark .comment-card--just-viewed {
-  animation: markSeenDark 0.6s ease-out;
-}
-
 .comment-card__indicator {
-  @apply absolute left-0 top-0 bottom-0 w-1.5 bg-blue-600;
-}
-
-.dark .comment-card__indicator {
-  @apply bg-blue-500;
+  @apply absolute left-0 top-0 bottom-0 w-1.5;
+  background: var(--color-accent);
 }
 
 @keyframes markSeen {
-  0% { background-color: rgb(239 246 255); border-color: rgb(147 197 253); }
-  100% { background-color: white; border-color: rgb(226 232 240); }
-}
-
-@keyframes markSeenDark {
-  0% { background-color: rgb(30 58 138 / 0.35); border-color: rgb(29 78 216); }
-  100% { background-color: rgb(15 23 42); border-color: rgb(30 41 59); }
+  0% { background-color: #EFF6E9; border-color: #C9DDBE; }
+  100% { background-color: white; border-color: var(--color-line); }
 }
 
 @keyframes pulseDot {
@@ -175,14 +162,9 @@ body {
 }
 
 .unseen-shimmer {
-  background: linear-gradient(90deg, transparent, rgba(59,130,246,0.08), transparent);
+  background: linear-gradient(90deg, transparent, rgba(15,91,77,0.08), transparent);
   background-size: 200% 100%;
   animation: shimmer 2s infinite;
-}
-
-.dark .unseen-shimmer {
-  background: linear-gradient(90deg, transparent, rgba(59,130,246,0.18), transparent);
-  background-size: 200% 100%;
 }
 
 .detail-line-clamp-2,
@@ -198,4 +180,11 @@ body {
 
 .detail-line-clamp-3 {
   -webkit-line-clamp: 3;
+}
+
+/* Editorial serif headline helper — used sparingly for hero numbers and section titles. */
+.font-editorial {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.015em;
 }

@@ -35,7 +35,7 @@ export default function CommentAvatar({ comment, size = 'sm', highlight = false 
   }
 
   return (
-    <div className={`${sizeClasses[size]} shrink-0 rounded-full flex items-center justify-center font-extrabold ${highlight ? 'bg-blue-100 text-blue-700 ring-2 ring-blue-200' : 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 ring-2 ring-white'}`}>
+    <div className={`${sizeClasses[size]} shrink-0 rounded-full flex items-center justify-center font-extrabold ${highlight ? 'bg-blue-100 text-blue-700 ring-2 ring-blue-200' : 'bg-slate-200 text-slate-500 ring-2 ring-white'}`}>
       {commenterInitial(comment.commenterName)}
     </div>
   );

@@ -9,7 +9,7 @@ interface ConnectionStatusProps {
 export default function ConnectionStatus({ isDemoMode }: ConnectionStatusProps) {
   if (isDemoMode) {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500">
+      <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
         <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
         Sample data
       </span>
@@ -17,7 +17,7 @@ export default function ConnectionStatus({ isDemoMode }: ConnectionStatusProps) 
   }
 
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500">
+    <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
       Connected
     </span>

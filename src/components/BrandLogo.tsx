@@ -17,7 +17,7 @@ export function BrandLogo({ brand, className = 'h-5 w-5' }: { brand: BrandLabel 
     <img
       src={asset.src}
       alt={asset.alt}
-      className={`${className} rounded-full object-contain bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700`}
+      className={`${className} rounded-full object-contain bg-white ring-1 ring-slate-200`}
     />
   );
 }

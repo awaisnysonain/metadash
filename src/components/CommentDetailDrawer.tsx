@@ -262,37 +262,37 @@ export default function CommentDetailDrawer({
   );
 
   const content = (
-    <div className={`${displayMode === 'drawer' ? 'relative my-4 mr-4 h-[calc(100vh-2rem)] w-full max-w-6xl rounded-[28px] shadow-2xl z-50 border animate-slide-over overflow-y-auto' : 'relative min-h-[720px] rounded-[24px] border shadow-sm'} bg-white dark:bg-slate-900 flex flex-col border-slate-200 dark:border-slate-800`}>
+    <div className={`${displayMode === 'drawer' ? 'relative my-4 mr-4 h-[calc(100vh-2rem)] w-full max-w-6xl rounded-[28px] shadow-2xl z-50 border animate-slide-over overflow-y-auto' : 'relative min-h-[720px] rounded-[24px] border shadow-sm'} bg-white flex flex-col border-slate-200`}>
       {toastNode}
-      <div className="shrink-0 px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 bg-white/95 dark:bg-slate-900/95">
+      <div className="shrink-0 px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-3 bg-white/95">
         <div className="flex min-w-0 items-center gap-3">
           {headerThumb ? (
-            <img src={headerThumb} alt="" className="h-14 w-14 shrink-0 rounded-2xl bg-slate-100 dark:bg-slate-800 object-cover ring-1 ring-slate-200 dark:ring-slate-700" referrerPolicy="no-referrer" />
+            <img src={headerThumb} alt="" className="h-14 w-14 shrink-0 rounded-2xl bg-slate-100 object-cover ring-1 ring-slate-200" referrerPolicy="no-referrer" />
           ) : (
-            <div className="h-14 w-14 shrink-0 rounded-2xl bg-slate-100 dark:bg-slate-800 ring-1 ring-slate-200 dark:ring-slate-700" />
+            <div className="h-14 w-14 shrink-0 rounded-2xl bg-slate-100 ring-1 ring-slate-200" />
           )}
           <div className="min-w-0">
-            <p className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">Comment details</p>
-            <h3 className="detail-line-clamp-2 text-lg font-extrabold leading-tight tracking-tight text-slate-950 dark:text-slate-50" title={detailTitle}>{detailTitle}</h3>
-            <p className="truncate text-[11px] font-semibold text-slate-500 dark:text-slate-400" title={detailSubtitle}>{detailSubtitle}</p>
+            <p className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-slate-400">Comment details</p>
+            <h3 className="detail-line-clamp-2 text-lg font-extrabold leading-tight tracking-tight text-slate-950" title={detailTitle}>{detailTitle}</h3>
+            <p className="truncate text-[11px] font-semibold text-slate-500" title={detailSubtitle}>{detailSubtitle}</p>
           </div>
         </div>
         {onClose && (
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-500 dark:text-slate-400 transition-colors">
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-xl text-slate-500 transition-colors">
             <X className="w-5 h-5" />
           </button>
         )}
       </div>
 
       <div className="flex-1 p-3 flex flex-col gap-3">
-        <div className="shrink-0 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 p-3">
+        <div className="shrink-0 rounded-2xl border border-slate-200 bg-slate-50/60 p-3">
           <div className="flex items-start gap-3">
             <CommentAvatar comment={comment} size="md" highlight={comment.status === 'Unseen'} />
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <h4 className="truncate text-base font-extrabold text-slate-950 dark:text-slate-50">{displayCommenterName(comment.commenterName)}</h4>
-                  <p className="text-[10px] font-medium text-slate-400 dark:text-slate-500">{formatFullTime(comment.createdAt)}</p>
+                  <h4 className="truncate text-base font-extrabold text-slate-950">{displayCommenterName(comment.commenterName)}</h4>
+                  <p className="text-[10px] font-medium text-slate-400">{formatFullTime(comment.createdAt)}</p>
                 </div>
                 <div className="flex shrink-0 flex-wrap justify-end gap-1">
                   <PlatformBadge platform={comment.platform} />
@@ -301,11 +301,11 @@ export default function CommentDetailDrawer({
                   <SentimentBadge sentiment={comment.sentiment} />
                 </div>
               </div>
-              <blockquote className="mt-2 whitespace-pre-wrap rounded-xl border border-white dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 text-[13px] font-medium leading-relaxed text-slate-800 dark:text-slate-200 shadow-sm">
+              <blockquote className="mt-2 whitespace-pre-wrap rounded-xl border border-white bg-white px-3 py-2 text-[13px] font-medium leading-relaxed text-slate-800 shadow-sm">
                 {comment.commentText}
               </blockquote>
               <div className="mt-2 grid grid-cols-1 gap-2 2xl:grid-cols-[1fr_auto]">
-                <div className={`rounded-xl border px-3 py-2 ${comment.status === 'Unseen' ? 'border-blue-100 dark:border-blue-900/60 bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-200' : 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300'}`}>
+                <div className={`rounded-xl border px-3 py-2 ${comment.status === 'Unseen' ? 'border-blue-100 bg-blue-50 text-blue-800' : 'border-slate-100 bg-white text-slate-600'}`}>
                   <div className="flex items-center gap-2">
                     {comment.status === 'Unseen' ? <EyeOff className="h-4 w-4 shrink-0" /> : <Users className="h-4 w-4 shrink-0" />}
                     <p className="truncate text-[11px] font-extrabold">{comment.status === 'Unseen' ? 'Unread for everyone' : seenByText}</p>
@@ -347,7 +347,7 @@ export default function CommentDetailDrawer({
           </div>
         </div>
 
-        <div className="shrink-0 grid grid-cols-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-1">
+        <div className="shrink-0 grid grid-cols-3 rounded-2xl border border-slate-200 bg-white p-1">
           {[
             { id: 'details', label: 'Details' },
             { id: 'notes', label: `Notes${filteredNotes.length ? ` ${filteredNotes.length}` : ''}` },
@@ -359,8 +359,8 @@ export default function CommentDetailDrawer({
               onClick={() => setDetailTab(tab.id as typeof detailTab)}
               className={`rounded-xl px-3 py-2 text-xs font-extrabold transition-colors ${
                 detailTab === tab.id
-                  ? 'bg-slate-950 dark:bg-slate-100 text-white dark:text-slate-900 shadow-sm'
-                  : 'text-slate-400 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200'
+                  ? 'bg-slate-950 text-white shadow-sm'
+                  : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'
               }`}
             >
               {tab.label}
@@ -374,10 +374,10 @@ export default function CommentDetailDrawer({
               <AdPreviewPanel ad={matchingAd} comment={comment} detail />
 
               <div className="grid content-start gap-3">
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
+                <div className="rounded-2xl border border-slate-200 bg-white p-3">
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400 dark:text-slate-500">Moderation</p>
-                    <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500">{loadingReplies ? '...' : `${replies.length} replies`}</p>
+                    <p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400">Moderation</p>
+                    <p className="text-[10px] font-bold text-slate-400">{loadingReplies ? '...' : `${replies.length} replies`}</p>
                   </div>
                   {onModerateComment && (
                     <div className="grid grid-cols-3 gap-1.5">
@@ -395,14 +395,14 @@ export default function CommentDetailDrawer({
                   {actionError && <p className="detail-line-clamp-2 mt-2 rounded-lg border border-red-100 bg-red-50 p-2 text-[10px] font-semibold text-red-700">{actionError}</p>}
                 </div>
 
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
+                <div className="rounded-2xl border border-slate-200 bg-white p-3">
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400 dark:text-slate-500">Public reply</p>
+                    <p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400">Public reply</p>
                     {replyTarget && <button type="button" onClick={() => setReplyTarget(null)} className="text-[10px] font-bold text-slate-500">Cancel target</button>}
                   </div>
                   {onReplyToComment && (
                     <form onSubmit={handleReplySubmit} className="space-y-2">
-                      <p className="truncate rounded-lg border border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 px-2 py-1 text-[10px] font-bold text-slate-500 dark:text-slate-300">
+                      <p className="truncate rounded-lg border border-slate-100 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-500">
                         @{replyTarget?.mention || mentionName}{replyTarget ? ` to ${replyTarget.label}` : ' to original comment'}
                       </p>
                       <textarea
@@ -410,7 +410,7 @@ export default function CommentDetailDrawer({
                         value={replyText}
                         onChange={e => setReplyText(e.target.value)}
                         placeholder="Write a public reply..."
-                        className="h-14 w-full resize-none rounded-xl border border-slate-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 p-2 text-xs focus:ring-2 focus:ring-blue-500/20"
+                        className="h-14 w-full resize-none rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-blue-500/20"
                       />
                       <button type="submit" disabled={replying || !replyText.trim()} className="w-full rounded-xl bg-blue-600 py-2 text-xs font-extrabold text-white transition-colors hover:bg-blue-700 disabled:opacity-50">
                         {replying ? 'Sending...' : 'Send reply'}
@@ -419,30 +419,30 @@ export default function CommentDetailDrawer({
                   )}
                 </div>
 
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
+                <div className="rounded-2xl border border-slate-200 bg-white p-3">
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400 dark:text-slate-500">Replies</p>
+                    <p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400">Replies</p>
                     <button type="button" onClick={() => void refreshReplies()} className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 hover:text-slate-900">
                       <RefreshCw className={`w-3 h-3 ${loadingReplies ? 'animate-spin' : ''}`} /> Refresh
                     </button>
                   </div>
                   {loadingReplies ? (
-                    <p className="rounded-xl border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 p-3 text-center text-xs text-slate-400">Loading replies...</p>
+                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-center text-xs text-slate-400">Loading replies...</p>
                   ) : repliesError ? (
-                    <p className="rounded-xl border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 p-3 text-center text-xs italic text-slate-400 dark:text-slate-500">Replies unavailable from Meta.</p>
+                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-center text-xs italic text-slate-400">Replies unavailable from Meta.</p>
                   ) : replies.length === 0 ? (
-                    <p className="rounded-xl border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 p-3 text-center text-xs italic text-slate-400 dark:text-slate-500">No replies returned.</p>
+                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-center text-xs italic text-slate-400">No replies returned.</p>
                   ) : (
                     <div className="space-y-1.5">
                       {repliesPreview.map(reply => (
-                        <div key={reply.id} className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 p-2">
+                        <div key={reply.id} className="rounded-xl border border-slate-100 bg-slate-50 p-2">
                           <div className="flex items-center justify-between gap-2">
                             <p className="truncate text-[11px] font-extrabold text-slate-800">{reply.author}</p>
                             {reply.hidden && <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[9px] text-slate-600">Hidden</span>}
                           </div>
                           {editingReplyId === reply.id ? (
                             <div className="mt-1.5 space-y-1.5">
-                              <textarea rows={2} value={editingText} onChange={e => setEditingText(e.target.value)} className="h-14 w-full resize-none rounded-lg border border-slate-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 p-2 text-xs" />
+                              <textarea rows={2} value={editingText} onChange={e => setEditingText(e.target.value)} className="h-14 w-full resize-none rounded-lg border border-slate-200 p-2 text-xs" />
                               <div className="flex gap-1.5">
                                 <button type="button" onClick={() => void handleEditMetaComment(reply.id)} disabled={updatingMetaId === reply.id || !editingText.trim()} className="rounded bg-blue-600 px-2 py-1 text-[10px] font-bold text-white disabled:opacity-50">Save</button>
                                 <button type="button" onClick={() => { setEditingReplyId(''); setEditingText(''); }} className="rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold">Cancel</button>
@@ -458,7 +458,7 @@ export default function CommentDetailDrawer({
                           </div>
                         </div>
                       ))}
-                      {replies.length > repliesPreview.length && <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500">+{replies.length - repliesPreview.length} more replies on Meta</p>}
+                      {replies.length > repliesPreview.length && <p className="text-[10px] font-bold text-slate-400">+{replies.length - repliesPreview.length} more replies on Meta</p>}
                     </div>
                   )}
                 </div>
@@ -468,36 +468,36 @@ export default function CommentDetailDrawer({
 
           {detailTab === 'notes' && (
             <div className="grid gap-3">
-              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
-                <h4 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">Internal notes</h4>
+              <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                <h4 className="text-sm font-extrabold text-slate-900">Internal notes</h4>
                 <div className="mt-3 space-y-2">
                   {filteredNotes.length === 0 ? (
-                    <p className="rounded-xl border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 p-4 text-center text-xs italic text-slate-400 dark:text-slate-500">No notes yet</p>
+                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs italic text-slate-400">No notes yet</p>
                   ) : notesPreview.map(note => (
-                    <div key={note.id} className="rounded-xl border border-blue-100 dark:border-blue-900/60 bg-blue-50/50 dark:bg-blue-950/30 p-2">
-                      <p className="text-[10px] font-extrabold text-slate-700 dark:text-slate-200">{note.userName} · {formatFullTime(note.createdAt)}</p>
-                      <p className="detail-line-clamp-2 text-xs text-slate-700 dark:text-slate-200">{note.note}</p>
+                    <div key={note.id} className="rounded-xl border border-blue-100 bg-blue-50/50 p-2">
+                      <p className="text-[10px] font-extrabold text-slate-700">{note.userName} · {formatFullTime(note.createdAt)}</p>
+                      <p className="detail-line-clamp-2 text-xs text-slate-700">{note.note}</p>
                     </div>
                   ))}
-                  {filteredNotes.length > notesPreview.length && <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500">+{filteredNotes.length - notesPreview.length} more notes hidden to keep the panel fixed.</p>}
+                  {filteredNotes.length > notesPreview.length && <p className="text-[10px] font-bold text-slate-400">+{filteredNotes.length - notesPreview.length} more notes hidden to keep the panel fixed.</p>}
                 </div>
               </div>
-              <form onSubmit={handleNoteSubmit} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
-                <textarea rows={2} placeholder="Add a note for your team..." value={newNote} onChange={e => setNewNote(e.target.value)} className="h-16 w-full resize-none rounded-xl border border-slate-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 p-2 text-xs focus:ring-2 focus:ring-blue-500/20" />
+              <form onSubmit={handleNoteSubmit} className="rounded-2xl border border-slate-200 bg-white p-3">
+                <textarea rows={2} placeholder="Add a note for your team..." value={newNote} onChange={e => setNewNote(e.target.value)} className="h-16 w-full resize-none rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-blue-500/20" />
                 <button type="submit" className="mt-2 w-full rounded-xl bg-slate-950 py-2 text-xs font-extrabold text-white transition-colors hover:bg-black">Save Note</button>
               </form>
             </div>
           )}
 
           {detailTab === 'activity' && (
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
-              <h4 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">Activity</h4>
+            <div className="rounded-2xl border border-slate-200 bg-white p-3">
+              <h4 className="text-sm font-extrabold text-slate-900">Activity</h4>
               {filteredLogs.length === 0 ? (
-                <p className="mt-3 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 p-4 text-center text-xs italic text-slate-400 dark:text-slate-500">No activity recorded yet.</p>
+                <p className="mt-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs italic text-slate-400">No activity recorded yet.</p>
               ) : (
                 <div className="mt-3 grid gap-2">
                   {logsPreview.map(log => (
-                    <div key={log.id} className="flex gap-2 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 p-2">
+                    <div key={log.id} className="flex gap-2 rounded-xl border border-slate-100 bg-slate-50 p-2">
                       <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-slate-300" />
                       <div className="min-w-0">
                         <p className="truncate text-xs text-slate-800"><span className="font-extrabold">{log.userName}</span> · {log.action}</p>
@@ -506,7 +506,7 @@ export default function CommentDetailDrawer({
                       </div>
                     </div>
                   ))}
-                  {filteredLogs.length > logsPreview.length && <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500">+{filteredLogs.length - logsPreview.length} older events hidden to avoid scrolling.</p>}
+                  {filteredLogs.length > logsPreview.length && <p className="text-[10px] font-bold text-slate-400">+{filteredLogs.length - logsPreview.length} older events hidden to avoid scrolling.</p>}
                 </div>
               )}
             </div>

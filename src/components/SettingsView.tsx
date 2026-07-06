@@ -158,16 +158,16 @@ export default function SettingsView({
   return (
     <div className="space-y-4 animate-fade-in" id="settings-screen">
       <div>
-        <h2 className="text-base font-semibold text-slate-950 dark:text-slate-50 flex items-center gap-2">
-          <Settings className="w-5 h-5 text-slate-400 dark:text-slate-500" /> Settings
+        <h2 className="text-base font-semibold text-slate-950 flex items-center gap-2">
+          <Settings className="w-5 h-5 text-slate-400" /> Settings
         </h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Manage connected accounts, sync, labels, and notifications.</p>
+        <p className="text-sm text-slate-500">Manage connected accounts, sync, labels, and notifications.</p>
       </div>
 
       {/* Sync section */}
-      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-xl">
-        <h3 className="font-medium text-slate-900 dark:text-slate-100 mb-1">Update from Meta</h3>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+      <section className="bg-white border border-slate-200 p-4 rounded-xl">
+        <h3 className="font-medium text-slate-900 mb-1">Update from Meta</h3>
+        <p className="text-sm text-slate-500 mb-4">
           Pull in your latest campaigns, pages, and comments from Facebook & Instagram.
         </p>
         {!isDemoMode && tokenStatus?.valid && !tokenStatus.canSyncComments && (
@@ -205,7 +205,7 @@ export default function SettingsView({
           <button
             disabled={syncing || isDemoMode}
             onClick={() => runSync(apiClient.syncAll, 'everything')}
-            className="px-3.5 py-2 bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 text-white rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-50 transition-colors"
+            className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-50 transition-colors"
           >
             <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
             Update everything
@@ -219,7 +219,7 @@ export default function SettingsView({
               key={item.label}
               disabled={syncing || isDemoMode}
               onClick={() => runSync(item.fn, item.label)}
-              className="px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-sm disabled:opacity-50 transition-colors"
+              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm disabled:opacity-50 transition-colors"
             >
               {item.label}
             </button>
@@ -235,7 +235,7 @@ export default function SettingsView({
             className={`text-sm p-3 rounded-lg mt-3 ${
               syncWarning
                 ? 'text-amber-800 bg-amber-50 border border-amber-100'
-                : 'text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/40'
+                : 'text-slate-600 bg-slate-50'
             }`}
           >
             {syncMessage}
@@ -244,27 +244,27 @@ export default function SettingsView({
       </section>
 
       {/* Connected pages */}
-      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-xl">
-        <h3 className="font-medium text-slate-900 dark:text-slate-100 mb-3">Connected pages</h3>
+      <section className="bg-white border border-slate-200 p-4 rounded-xl">
+        <h3 className="font-medium text-slate-900 mb-3">Connected pages</h3>
         <div className="grid grid-cols-1 gap-2 max-h-[520px] overflow-y-auto lg:grid-cols-2 2xl:grid-cols-3">
           {pagesList.length === 0 && !isDemoMode ? (
-            <p className="text-sm text-slate-500 dark:text-slate-400">
+            <p className="text-sm text-slate-500">
               No pages connected yet. Use &quot;Update everything&quot; above to connect your pages.
             </p>
           ) : (
             pagesList.map(page => (
               <div
                 key={page.id}
-                 className="p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-lg flex items-center justify-between gap-3"
+                 className="p-2.5 bg-slate-50 rounded-lg flex items-center justify-between gap-3"
               >
                 <div className="flex items-center gap-3">
                   {page.avatar ? (
-                    <img src={page.avatar} alt="" className="h-9 w-9 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700" referrerPolicy="no-referrer" />
+                    <img src={page.avatar} alt="" className="h-9 w-9 rounded-full object-cover ring-1 ring-slate-200" referrerPolicy="no-referrer" />
                   ) : (
                     <span className="h-9 w-9 rounded-full bg-blue-50 text-[#1877F2] flex items-center justify-center"><Facebook className="h-4 w-4" /></span>
                   )}
                   <div>
-                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <p className="text-sm font-medium text-slate-800 flex items-center gap-1.5">
                       {page.name}
                       {page.platform === 'facebook' ? (
                         <Facebook className="w-3.5 h-3.5 text-[#1877F2]" />
@@ -272,14 +272,14 @@ export default function SettingsView({
                         <Instagram className="w-3.5 h-3.5 text-pink-600" />
                       )}
                     </p>
-                    {page.fans && <p className="text-xs text-slate-500 dark:text-slate-400">{page.fans}</p>}
+                    {page.fans && <p className="text-xs text-slate-500">{page.fans}</p>}
                   </div>
                 </div>
                 <span
                   className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
                     page.isConnected
                       ? 'bg-emerald-50 text-emerald-700'
-                      : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                      : 'bg-slate-200 text-slate-600'
                   }`}
                 >
                   {page.isConnected ? 'Connected' : 'Not connected'}
@@ -292,15 +292,15 @@ export default function SettingsView({
 
       {/* Ad accounts */}
       {(adAccountsList.length > 0 || isDemoMode) && (
-        <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-xl">
-          <h3 className="font-medium text-slate-900 dark:text-slate-100 mb-3">Ad accounts</h3>
+        <section className="bg-white border border-slate-200 p-4 rounded-xl">
+          <h3 className="font-medium text-slate-900 mb-3">Ad accounts</h3>
           {adAccountsList.length === 0 ? (
-            <p className="text-sm text-slate-500 dark:text-slate-400">No ad accounts yet. Update campaigns & ads to connect.</p>
+            <p className="text-sm text-slate-500">No ad accounts yet. Update campaigns & ads to connect.</p>
           ) : (
             <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 2xl:grid-cols-3">
               {adAccountsList.map(acc => (
-                <div key={acc.id} className="p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-lg flex justify-between items-center gap-3">
-                  <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{acc.name}</p>
+                <div key={acc.id} className="p-2.5 bg-slate-50 rounded-lg flex justify-between items-center gap-3">
+                  <p className="text-sm font-medium text-slate-800 truncate">{acc.name}</p>
                   <span className="shrink-0 text-xs font-medium bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg">
                     {acc.status}
                   </span>
@@ -312,20 +312,20 @@ export default function SettingsView({
       )}
 
       {/* Auto-tagging */}
-      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-xl">
-        <h3 className="font-medium text-slate-900 dark:text-slate-100 mb-1">Auto-labeling</h3>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+      <section className="bg-white border border-slate-200 p-4 rounded-xl">
+        <h3 className="font-medium text-slate-900 mb-1">Auto-labeling</h3>
+        <p className="text-sm text-slate-500 mb-4">
           Automatically tag comments when they contain certain words.
         </p>
         {autoTaggingRules.length === 0 ? (
-          <p className="text-sm text-slate-400 dark:text-slate-500 mb-3">No rules yet.</p>
+          <p className="text-sm text-slate-400 mb-3">No rules yet.</p>
         ) : (
           autoTaggingRules.map(rule => (
             <div
               key={rule.id}
-              className="p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-lg mb-1.5 flex justify-between items-center text-sm"
+              className="p-2.5 bg-slate-50 rounded-lg mb-1.5 flex justify-between items-center text-sm"
             >
-              <span className="text-slate-700 dark:text-slate-200">
+              <span className="text-slate-700">
                 When comment contains &quot;<strong>{rule.keyword}</strong>&quot; → tag{' '}
                 <strong>#{rule.tag}</strong> · {rule.priority} priority
               </span>
@@ -366,7 +366,7 @@ export default function SettingsView({
           </select>
           <button
             type="submit"
-            className="py-2.5 bg-slate-900 dark:bg-slate-100 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 hover:bg-slate-800 transition-colors"
+            className="py-2.5 bg-slate-900 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 hover:bg-slate-800 transition-colors"
           >
             <PlusCircle className="w-4 h-4" /> Add rule
           </button>
@@ -374,14 +374,14 @@ export default function SettingsView({
       </section>
 
       {/* Notifications */}
-      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl">
-        <h3 className="font-medium text-slate-900 dark:text-slate-100 mb-4 flex items-center gap-2">
-          <Bell className="w-4 h-4 text-slate-400 dark:text-slate-500" /> Slack alerts
+      <section className="bg-white border border-slate-200 p-5 rounded-2xl">
+        <h3 className="font-medium text-slate-900 mb-4 flex items-center gap-2">
+          <Bell className="w-4 h-4 text-slate-400" /> Slack alerts
         </h3>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <p className="text-sm text-slate-700 dark:text-slate-200">Send Slack messages for new Meta comments.</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            <p className="text-sm text-slate-700">Send Slack messages for new Meta comments.</p>
+            <p className="text-xs text-slate-500 mt-1">
               {slackStatus?.configured
                 ? `Configured for channel ${slackStatus.channelId}`
                 : 'Missing SLACK_BOT_TOKEN or SLACK_ALERT_CHANNEL_ID on the server.'}
@@ -395,7 +395,7 @@ export default function SettingsView({
               setSlackStatus(next);
               setSlackMessage(next.enabled ? 'Slack alerts enabled.' : 'Slack alerts disabled.');
             }}
-            className={`px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 ${slackStatus?.enabled ? 'bg-emerald-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 ${slackStatus?.enabled ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
           >
             {slackStatus?.enabled ? 'Enabled' : 'Disabled'}
           </button>
@@ -412,28 +412,28 @@ export default function SettingsView({
                 setSlackMessage(err instanceof Error ? err.message : 'Slack test failed.');
               }
             }}
-            className="px-3 py-2 bg-slate-900 dark:bg-slate-100 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+            className="px-3 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium disabled:opacity-50"
           >
             Send test alert
           </button>
-          {slackMessage && <p className="text-sm text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 rounded-lg px-3 py-2">{slackMessage}</p>}
+          {slackMessage && <p className="text-sm text-slate-600 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">{slackMessage}</p>}
         </div>
       </section>
 
       {/* Retention — owner-only */}
       {isOwner && retention && (
-        <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl">
-          <h3 className="text-base font-semibold text-slate-950 dark:text-slate-50 flex items-center gap-2">
-            <Archive className="w-4 h-4 text-slate-400 dark:text-slate-500" /> Comment retention
-            <span className="rounded-full border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">Owner only</span>
+        <section className="bg-white border border-slate-200 p-5 rounded-2xl">
+          <h3 className="text-base font-semibold text-slate-950 flex items-center gap-2">
+            <Archive className="w-4 h-4 text-slate-400" /> Comment retention
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700">Owner only</span>
           </h3>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          <p className="mt-1 text-xs text-slate-500">
             Comments older than this window are moved to the archive daily. They stay in the database, but disappear from the inbox and all counts.
           </p>
 
           <div className="mt-4 flex flex-wrap items-end gap-3">
-            <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
-              <span className="mb-1 text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500">Days to keep</span>
+            <label className="flex flex-col text-xs font-semibold text-slate-600">
+              <span className="mb-1 text-[10px] uppercase tracking-wider text-slate-400">Days to keep</span>
               <input
                 type="number"
                 min={retention.minDays}
@@ -441,14 +441,14 @@ export default function SettingsView({
                 step={1}
                 value={retentionDaysInput}
                 onChange={e => setRetentionDaysInput(e.target.value)}
-                className="h-10 w-28 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 text-sm text-slate-900 dark:text-slate-100 focus:border-slate-400 dark:focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 dark:focus:ring-slate-700"
+                className="h-10 w-28 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
               />
             </label>
             <button
               type="button"
               disabled={retentionBusy}
               onClick={() => void saveRetentionDays()}
-              className="h-10 px-4 rounded-lg bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-sm font-semibold hover:bg-slate-800 dark:hover:bg-white disabled:opacity-50"
+              className="h-10 px-4 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-50"
             >
               Save window
             </button>
@@ -456,27 +456,27 @@ export default function SettingsView({
               type="button"
               disabled={retentionBusy}
               onClick={() => void runRetentionNow()}
-              className="h-10 px-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
+              className="h-10 px-4 rounded-lg border border-slate-200 bg-white text-slate-800 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50"
             >
               Run sweep now
             </button>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+            <span className="text-[11px] text-slate-500">
               Allowed: {retention.minDays}–{retention.maxDays} days
             </span>
           </div>
 
           <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-            <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 p-3">
-              <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">Current window</p>
-              <p className="mt-1 text-lg font-extrabold text-slate-900 dark:text-slate-50">{retention.days} <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">day{retention.days === 1 ? '' : 's'}</span></p>
+            <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+              <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Current window</p>
+              <p className="mt-1 text-lg font-extrabold text-slate-900">{retention.days} <span className="text-xs font-semibold text-slate-500">day{retention.days === 1 ? '' : 's'}</span></p>
             </div>
-            <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 p-3">
-              <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">Archived total</p>
-              <p className="mt-1 text-lg font-extrabold text-slate-900 dark:text-slate-50">{retention.archivedTotal.toLocaleString()}</p>
+            <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+              <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Archived total</p>
+              <p className="mt-1 text-lg font-extrabold text-slate-900">{retention.archivedTotal.toLocaleString()}</p>
             </div>
-            <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 p-3">
-              <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">Last sweep</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800 dark:text-slate-100">
+            <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+              <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Last sweep</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">
                 {retention.lastRun
                   ? `${retention.lastRun.archived} archived · ${new Date(retention.lastRun.at).toLocaleString()}`
                   : 'Not run yet'}
@@ -485,7 +485,7 @@ export default function SettingsView({
           </div>
 
           {retentionMessage && (
-            <p className="mt-3 text-sm text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 rounded-lg px-3 py-2">
+            <p className="mt-3 text-sm text-slate-600 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
               {retentionMessage}
             </p>
           )}
@@ -493,21 +493,21 @@ export default function SettingsView({
       )}
 
       {/* Team preview */}
-      <section className="bg-white dark:bg-slate-900 border border-slate-200 p-5 rounded-2xl">
-        <h3 className="font-medium text-slate-900 dark:text-slate-100 mb-4">Team members</h3>
+      <section className="bg-white border border-slate-200 p-5 rounded-2xl">
+        <h3 className="font-medium text-slate-900 mb-4">Team members</h3>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-6">
           {teamMembers.map(m => (
-            <div key={m.id} className="flex items-center gap-3 p-2 bg-slate-50 dark:bg-slate-800/40 rounded-xl">
+            <div key={m.id} className="flex items-center gap-3 p-2 bg-slate-50 rounded-xl">
               {m.avatarUrl ? (
                 <img src={m.avatarUrl} alt="" className="w-8 h-8 rounded-full" />
               ) : (
-                <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-xs font-medium text-slate-600 dark:text-slate-300">
+                <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-medium text-slate-600">
                   {m.name.charAt(0)}
                 </div>
               )}
               <div className="min-w-0">
-                <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{m.name}</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{m.role}</p>
+                <p className="text-sm font-medium text-slate-800 truncate">{m.name}</p>
+                <p className="text-xs text-slate-500 truncate">{m.role}</p>
               </div>
             </div>
           ))}
@@ -515,10 +515,10 @@ export default function SettingsView({
       </section>
 
       {/* Advanced - collapsed by default */}
-      <section className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
+      <section className="border border-slate-200 rounded-2xl overflow-hidden">
         <button
           onClick={() => setShowAdvanced(!showAdvanced)}
-          className="w-full px-5 py-4 flex items-center justify-between text-sm text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+          className="w-full px-5 py-4 flex items-center justify-between text-sm text-slate-500 hover:bg-slate-50 transition-colors"
         >
           <span className="flex items-center gap-2">
             <Link2 className="w-4 h-4" /> Advanced setup
@@ -526,7 +526,7 @@ export default function SettingsView({
           {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </button>
         {showAdvanced && (
-          <div className="px-5 pb-5 border-t border-slate-100 dark:border-slate-800 pt-4 space-y-3 text-sm text-slate-500 dark:text-slate-400">
+          <div className="px-5 pb-5 border-t border-slate-100 pt-4 space-y-3 text-sm text-slate-500">
             <p>
               API credentials, webhooks, and database settings are configured by your admin team on the
               server. Contact your IT administrator if you need to change the Meta connection.
@@ -536,12 +536,12 @@ export default function SettingsView({
                 <button
                   disabled={syncing}
                   onClick={() => runSync(apiClient.syncCommentsBackfill, 'past comments')}
-                  className="px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-sm disabled:opacity-50"
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm disabled:opacity-50"
                 >
                   Import comments from last 2 years
                 </button>
-                <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
-                  <p className="font-medium text-slate-700 dark:text-slate-200">Refresh Meta access token</p>
+                <div className="pt-3 border-t border-slate-100 space-y-2">
+                  <p className="font-medium text-slate-700">Refresh Meta access token</p>
                   <p className="text-xs">
                     Paste a short-lived token from Graph API Explorer. This returns a long-lived token to put in server .env.
                   </p>
@@ -570,7 +570,7 @@ export default function SettingsView({
                     Exchange for long-lived token
                   </button>
                   {exchangeResult && (
-                    <textarea readOnly value={exchangeResult} rows={4} className="w-full filter-select text-xs font-mono bg-slate-50 dark:bg-slate-800/40" />
+                    <textarea readOnly value={exchangeResult} rows={4} className="w-full filter-select text-xs font-mono bg-slate-50" />
                   )}
                 </div>
               </>

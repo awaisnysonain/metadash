@@ -136,18 +136,18 @@ export default function WebhookSimulator({ campaigns, ads, onAddSimulatedComment
       )}
 
       <div>
-        <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+        <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
           <Bot className="w-5 h-5 text-indigo-600" /> Webhook Simulator
         </h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+        <p className="text-sm text-slate-500 mt-1">
           Simulate incoming Facebook or Instagram ad comments via Meta webhook payloads.
         </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-5 space-y-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-xl shadow-sm space-y-4">
-            <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">Event Configuration</h3>
+          <div className="bg-white border border-slate-200 p-5 rounded-xl shadow-sm space-y-4">
+            <h3 className="font-bold text-sm text-slate-900">Event Configuration</h3>
 
             <div>
               <label className="label-text">Platform</label>
@@ -160,7 +160,7 @@ export default function WebhookSimulator({ campaigns, ads, onAddSimulatedComment
                     className={`py-2 px-3 rounded-lg border text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
                       platform === p
                         ? p === 'facebook' ? 'bg-blue-50 border-blue-300 text-blue-700 ring-2 ring-blue-100' : 'bg-pink-50 border-pink-300 text-pink-700 ring-2 ring-pink-100'
-                        : 'border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
+                        : 'border-slate-200 text-slate-500 hover:bg-slate-50'
                     }`}
                   >
                     {p === 'facebook' ? <Facebook className="w-4 h-4" /> : <Instagram className="w-4 h-4" />}
@@ -234,17 +234,17 @@ export default function WebhookSimulator({ campaigns, ads, onAddSimulatedComment
             </button>
           </div>
 
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-xl">
+          <div className="bg-white border border-slate-200 p-5 rounded-xl">
             <h3 className="font-bold text-sm mb-3">Quick Presets</h3>
             <div className="space-y-2">
               {presets.map((pre, idx) => (
                 <button
                   key={idx}
                   onClick={() => { setCommentText(pre.text); setSentiment(pre.sentiment); setPriority(pre.priority); setPlatform(pre.platform); }}
-                  className="w-full p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-lg hover:border-indigo-300 text-left transition-colors"
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg hover:border-indigo-300 text-left transition-colors"
                 >
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{pre.title}</span>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">{pre.text}</p>
+                  <span className="text-xs font-bold text-slate-800">{pre.title}</span>
+                  <p className="text-[11px] text-slate-500 truncate mt-0.5">{pre.text}</p>
                 </button>
               ))}
             </div>
@@ -252,11 +252,11 @@ export default function WebhookSimulator({ campaigns, ads, onAddSimulatedComment
         </div>
 
         <div className="lg:col-span-7">
-          <div className="bg-slate-950 dark:bg-slate-100 text-slate-100 p-5 rounded-xl min-h-[480px] flex flex-col font-mono">
+          <div className="bg-slate-950 text-slate-100 p-5 rounded-xl min-h-[480px] flex flex-col font-mono">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
               <div className="flex items-center gap-2">
                 <Terminal className="w-4 h-4 text-pink-500" />
-                <span className="text-xs text-slate-400 dark:text-slate-500 font-bold uppercase">Webhook Payload Output</span>
+                <span className="text-xs text-slate-400 font-bold uppercase">Webhook Payload Output</span>
               </div>
               {generatedPayload && (
                 <button
@@ -272,12 +272,12 @@ export default function WebhookSimulator({ campaigns, ads, onAddSimulatedComment
                 <pre>{JSON.stringify(generatedPayload, null, 2)}</pre>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-center">
-                  <Bot className="w-10 h-10 text-slate-700 dark:text-slate-200 mb-2" />
-                  <p className="text-slate-500 dark:text-slate-400 text-sm">Trigger a simulation to see the payload</p>
+                  <Bot className="w-10 h-10 text-slate-700 mb-2" />
+                  <p className="text-slate-500 text-sm">Trigger a simulation to see the payload</p>
                 </div>
               )}
             </div>
-            <div className="mt-4 pt-3 border-t border-slate-800 flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400">
+            <div className="mt-4 pt-3 border-t border-slate-800 flex items-center gap-2 text-[10px] text-slate-500">
               <Info className="w-3.5 h-3.5" />
               Auto-tagging rules apply keywords from comment text on submission.
             </div>

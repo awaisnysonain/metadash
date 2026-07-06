@@ -244,10 +244,10 @@ export default function App() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 text-blue-600 dark:text-blue-400 animate-spin" />
-          <p className="text-sm text-slate-500 dark:text-slate-400">Loading…</p>
+          <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+          <p className="text-sm text-slate-500">Loading…</p>
         </div>
       </div>
     );
@@ -259,10 +259,10 @@ export default function App() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 text-blue-600 dark:text-blue-400 animate-spin" />
-          <p className="text-sm text-slate-500 dark:text-slate-400">Loading inbox…</p>
+          <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+          <p className="text-sm text-slate-500">Loading inbox…</p>
         </div>
       </div>
     );
@@ -270,10 +270,10 @@ export default function App() {
 
   if (loadError) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-6">
-        <div className="max-w-md w-full bg-white dark:bg-slate-900 border border-red-200 dark:border-red-900/60 rounded-2xl p-6 text-center space-y-4">
-          <p className="text-red-700 dark:text-red-400 font-medium">Could not load dashboard data</p>
-          <p className="text-sm text-slate-600 dark:text-slate-400">{loadError}</p>
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+        <div className="max-w-md w-full bg-white border border-red-200 rounded-2xl p-6 text-center space-y-4">
+          <p className="text-red-700 font-medium">Could not load dashboard data</p>
+          <p className="text-sm text-slate-600">{loadError}</p>
           <button
             onClick={() => void reload()}
             className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700"
@@ -286,7 +286,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex min-h-screen bg-[#f4f6fa] dark:bg-[#0b1220] text-slate-800 dark:text-slate-200 font-sans" id="app-root">
+    <div className="flex min-h-screen font-sans" style={{ background: 'var(--color-ground)', color: 'var(--color-ink)' }} id="app-root">
       <Sidebar
         currentTab={currentTab}
         setCurrentTab={tab => {
@@ -305,56 +305,85 @@ export default function App() {
       />
 
       <div className="flex-1 flex flex-col min-w-0 pb-20 md:pb-0" id="main-content-area">
-        <header className="min-h-16 bg-white/85 dark:bg-slate-950/80 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800 px-4 md:px-6 sticky top-0 z-40 flex flex-col gap-3 py-[13px] lg:flex-row lg:items-center lg:justify-between">
+        <header
+          className="min-h-16 backdrop-blur-xl px-4 md:px-8 sticky top-0 z-40 flex flex-col gap-3 py-3.5 lg:flex-row lg:items-center lg:justify-between"
+          style={{ background: 'rgba(246, 245, 240, 0.85)', borderBottom: '1px solid var(--color-line-soft)' }}
+        >
           <div className="min-w-0 flex flex-col gap-2">
             <div className="flex items-center gap-3">
-            <h2 className="text-lg font-semibold text-slate-950 dark:text-slate-100 tracking-tight">
-              {pageTitles[currentTab] || currentTab}
-            </h2>
-            <ConnectionStatus dataMode={dataMode} isDemoMode={isDemoMode} />
+              <h2 className="text-[19px] font-semibold tracking-tight" style={{ color: 'var(--color-ink)' }}>
+                {pageTitles[currentTab] || currentTab}
+              </h2>
+              <ConnectionStatus dataMode={dataMode} isDemoMode={isDemoMode} />
             </div>
             {selectedAsset && currentTab === 'inbox' && (
-              <div className="inline-flex w-fit max-w-full items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 text-[12px] text-slate-700 dark:text-slate-300">
-                <span className="inline-block w-2 h-2 rounded-full bg-slate-700 dark:bg-slate-300" />
-                <span className="font-semibold text-slate-900 dark:text-slate-100">{selectedAsset.brand}</span>
-                <span className="text-slate-300 dark:text-slate-600">/</span>
+              <div
+                className="inline-flex w-fit max-w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[12px]"
+                style={{ background: 'var(--color-panel)', color: 'var(--color-ink-2)', border: '1px solid var(--color-line)' }}
+              >
+                <span className="inline-block w-2 h-2 rounded-full" style={{ background: 'var(--color-accent)' }} />
+                <span className="font-semibold" style={{ color: 'var(--color-ink)' }}>{selectedAsset.brand}</span>
+                <span style={{ color: 'var(--color-muted-2)' }}>/</span>
                 <span className="font-medium truncate max-w-[260px]">{selectedAsset.pageName}</span>
-                {selectedAsset.igUsername && <span className="text-slate-400 dark:text-slate-500">· {selectedAsset.igUsername}</span>}
+                {selectedAsset.igUsername && <span style={{ color: 'var(--color-muted)' }}>· {selectedAsset.igUsername}</span>}
                 {selectedAsset.counts && (
-                  <span className="text-slate-500 dark:text-slate-400">
+                  <span className="tabular" style={{ color: 'var(--color-muted)' }}>
                     · {selectedAsset.counts.facebook} FB / {selectedAsset.counts.instagram} IG
                   </span>
                 )}
-                <button onClick={() => { setSelectedAsset(null); setPreconfiguredFilters(null); }} className="ml-1 px-1.5 py-0.5 text-[11px] rounded-md bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800">Clear</button>
+                <button
+                  onClick={() => { setSelectedAsset(null); setPreconfiguredFilters(null); }}
+                  className="ml-1 px-1.5 py-0.5 text-[11px] rounded-md hover:bg-black/5"
+                  style={{ border: '1px solid var(--color-line)' }}
+                >
+                  Clear
+                </button>
               </div>
             )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-            <div className="hidden sm:flex items-center gap-2 text-xs">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 font-medium text-slate-700 dark:text-slate-300">
-                <Facebook className="w-3.5 h-3.5" /> {facebookCount} FB
+            <div className="hidden sm:flex items-center gap-1.5 text-[12px]">
+              <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-semibold tabular" style={{ background: 'var(--color-panel)', border: '1px solid var(--color-line)', color: 'var(--color-ink-2)' }}>
+                <Facebook className="w-3.5 h-3.5" style={{ color: 'var(--color-brand-fb)' }} /> {facebookCount.toLocaleString()}
               </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 font-medium text-slate-700 dark:text-slate-300">
-                <Instagram className="w-3.5 h-3.5" /> {instagramCount} IG
+              <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-semibold tabular" style={{ background: 'var(--color-panel)', border: '1px solid var(--color-line)', color: 'var(--color-ink-2)' }}>
+                <Instagram className="w-3.5 h-3.5" style={{ color: 'var(--color-brand-ig)' }} /> {instagramCount.toLocaleString()}
               </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 font-medium text-slate-700 dark:text-slate-300">
-                <Megaphone className="w-3.5 h-3.5" /> {ads.length} ads
+              <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-semibold tabular" style={{ background: 'var(--color-panel)', border: '1px solid var(--color-line)', color: 'var(--color-ink-2)' }}>
+                <Megaphone className="w-3.5 h-3.5" style={{ color: 'var(--color-muted)' }} /> {ads.length.toLocaleString()}
               </span>
             </div>
             <button
               onClick={() => { setPreconfiguredFilters({ status: 'Unseen' }); navigateToTab('inbox'); }}
-              className={`hidden md:inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${totalUnseenCount > 0 ? 'border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-950/60' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+              className="hidden md:inline-flex items-center gap-2 rounded-lg px-3 py-2 text-[13px] font-semibold transition-colors"
+              style={
+                totalUnseenCount > 0
+                  ? { background: 'var(--color-accent-soft)', color: 'var(--color-accent)', border: '1px solid rgba(15,91,77,0.15)' }
+                  : { background: 'var(--color-panel)', color: 'var(--color-muted)', border: '1px solid var(--color-line)' }
+              }
             >
               <Bell className="w-4 h-4" />
               Notifications
-              <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${totalUnseenCount > 0 ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'}`}>{totalUnseenCount}</span>
+              <span
+                className="rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular"
+                style={
+                  totalUnseenCount > 0
+                    ? { background: 'var(--color-accent)', color: '#FFFFFF' }
+                    : { background: 'rgba(15,18,24,0.06)', color: 'var(--color-muted)' }
+                }
+              >
+                {totalUnseenCount}
+              </span>
             </button>
             {!isDemoMode && hasPermission('sync.run') && currentTab !== 'settings' && currentTab !== 'profile' && (
               <button
                 onClick={() => void handleRefreshComments()}
                 disabled={isRefreshing}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-xl text-sm font-medium hover:bg-slate-800 dark:hover:bg-white disabled:opacity-60 transition-colors"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[13px] font-semibold disabled:opacity-60 transition-colors"
+                style={{ background: 'var(--color-accent)', color: '#FFFFFF', border: '1px solid var(--color-accent)' }}
+                onMouseEnter={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = 'var(--color-accent-ink)'; }}
+                onMouseLeave={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = 'var(--color-accent)'; }}
               >
                 {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                 Refresh
@@ -367,7 +396,15 @@ export default function App() {
           className="flex-1 overflow-y-auto p-4 md:p-6 w-full space-y-5"
         >
           {currentTab === 'dashboard' && hasPermission('inbox.view') && (
-            <DashboardOverview comments={comments} campaigns={campaigns} teamMembers={team} currentUserId={user?.id} onNavigateToInbox={handleNavigateWithFilters} />
+            <DashboardOverview
+              comments={comments}
+              campaigns={campaigns}
+              teamMembers={team}
+              ads={ads}
+              currentUserId={user?.id}
+              onNavigateToInbox={handleNavigateWithFilters}
+              onSelectComment={comment => { setSelectedComment(comment); handleNavigateWithFilters({}); }}
+            />
           )}
 
           {(currentTab === 'inbox' || currentTab === 'facebook' || currentTab === 'instagram') && hasPermission('inbox.view') && (

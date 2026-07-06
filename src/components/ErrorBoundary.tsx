@@ -22,10 +22,10 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
     if (!this.state.error) return this.props.children;
 
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-800/40 flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-white dark:bg-slate-900 border border-red-200 rounded-2xl p-6 shadow-xl shadow-slate-200/50">
-          <p className="text-lg font-bold text-slate-900 dark:text-slate-100">Dashboard failed to render</p>
-          <p className="text-sm text-slate-600 dark:text-slate-300 mt-2">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-white border border-red-200 rounded-2xl p-6 shadow-xl shadow-slate-200/50">
+          <p className="text-lg font-bold text-slate-900">Dashboard failed to render</p>
+          <p className="text-sm text-slate-600 mt-2">
             Refresh the page. If it stays stuck, sign out and sign in again so the browser clears the old session.
           </p>
           <pre className="mt-4 max-h-40 overflow-auto rounded-xl bg-red-50 p-3 text-xs text-red-700 whitespace-pre-wrap">

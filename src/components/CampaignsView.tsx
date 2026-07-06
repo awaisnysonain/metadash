@@ -56,17 +56,17 @@ export default function CampaignsView({
   return (
     <div className="space-y-4 animate-fade-in" id="campaigns-screen">
       <div>
-        <h2 className="text-base font-semibold text-slate-950 dark:text-slate-50">Ads & Campaigns</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">
+        <h2 className="text-base font-semibold text-slate-950">Ads & Campaigns</h2>
+        <p className="text-sm text-slate-500">
           Campaigns from NOBL & FLO ad accounts — Facebook and Instagram.
         </p>
       </div>
 
       {campaignData.length === 0 ? (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-12 text-center">
-          <Megaphone className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
-          <p className="text-base font-medium text-slate-700 dark:text-slate-200">No campaigns yet</p>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
+        <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center">
+          <Megaphone className="w-10 h-10 text-slate-300 mx-auto mb-4" />
+          <p className="text-base font-medium text-slate-700">No campaigns yet</p>
+          <p className="text-sm text-slate-500 mt-1 max-w-sm mx-auto">
             {isDemoMode
               ? 'Sample campaigns will appear here when demo data is loaded.'
               : 'Connect your ad accounts in Settings to see your campaigns here.'}
@@ -83,7 +83,7 @@ export default function CampaignsView({
       ) : (
         Object.entries(accountGroups).map(([accountLabel, camps]) => (
           <div key={accountLabel} className="space-y-2.5">
-            <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
+            <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
               <Megaphone className="w-4 h-4" /> {accountLabel} ({camps.length} campaigns)
             </h3>
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
@@ -94,7 +94,7 @@ export default function CampaignsView({
             return (
               <div
                 key={camp.id}
-                className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden hover:border-slate-300 dark:hover:border-slate-600 transition-colors"
+                className="bg-white border border-slate-200 rounded-xl overflow-hidden hover:border-slate-300 transition-colors"
               >
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-3 mb-3">
@@ -107,8 +107,8 @@ export default function CampaignsView({
                         {isFB ? <Facebook className="w-5 h-5" /> : <Instagram className="w-5 h-5" />}
                       </div>
                       <div className="min-w-0">
-                        <h3 className="font-semibold text-slate-900 dark:text-slate-100 leading-snug">{camp.campaignName}</h3>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                        <h3 className="font-semibold text-slate-900 leading-snug">{camp.campaignName}</h3>
+                        <p className="text-sm text-slate-500 mt-0.5">
                           {camp.budget} spent · {camp.status}
                         </p>
                       </div>
@@ -121,27 +121,27 @@ export default function CampaignsView({
                   </div>
 
                   <div className="grid grid-cols-3 gap-3 mb-5">
-                    <div className="text-center p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-lg">
-                      <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{camp.totalComments}</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Comments</p>
+                    <div className="text-center p-2.5 bg-slate-50 rounded-lg">
+                      <p className="text-lg font-semibold text-slate-900">{camp.totalComments}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">Comments</p>
                     </div>
-                    <div className="text-center p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-lg">
-                      <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{camp.replyRate}%</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Replied</p>
+                    <div className="text-center p-2.5 bg-slate-50 rounded-lg">
+                      <p className="text-lg font-semibold text-slate-900">{camp.replyRate}%</p>
+                      <p className="text-xs text-slate-500 mt-0.5">Replied</p>
                     </div>
-                    <div className="text-center p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-lg">
-                      <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{camp.happinessScore}%</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Positive</p>
+                    <div className="text-center p-2.5 bg-slate-50 rounded-lg">
+                      <p className="text-lg font-semibold text-slate-900">{camp.happinessScore}%</p>
+                      <p className="text-xs text-slate-500 mt-0.5">Positive</p>
                     </div>
                   </div>
 
                   <div className="space-y-3">
                     <div>
                       <div className="flex justify-between text-sm mb-1.5">
-                        <span className="text-slate-600 dark:text-slate-300">Reply progress</span>
-                        <span className="font-medium text-slate-900 dark:text-slate-100">{camp.replyRate}%</span>
+                        <span className="text-slate-600">Reply progress</span>
+                        <span className="font-medium text-slate-900">{camp.replyRate}%</span>
                       </div>
-                      <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                      <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                         <div
                           className="h-full bg-blue-600 rounded-full transition-all"
                           style={{ width: `${camp.replyRate}%` }}
@@ -150,10 +150,10 @@ export default function CampaignsView({
                     </div>
                     <div>
                       <div className="flex justify-between text-sm mb-1.5">
-                        <span className="text-slate-600 dark:text-slate-300">Audience mood</span>
-                        <span className="font-medium text-slate-900 dark:text-slate-100">{camp.happinessScore}% positive</span>
+                        <span className="text-slate-600">Audience mood</span>
+                        <span className="font-medium text-slate-900">{camp.happinessScore}% positive</span>
                       </div>
-                      <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                      <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                         <div
                           className={`h-full rounded-full transition-all ${
                             camp.happinessScore >= 60
@@ -169,17 +169,17 @@ export default function CampaignsView({
                   </div>
 
                   {campaignAds.length > 0 && (
-                    <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-                      <p className="text-sm font-medium text-slate-700 dark:text-slate-200 mb-3">
+                    <div className="mt-4 pt-4 border-t border-slate-100">
+                      <p className="text-sm font-medium text-slate-700 mb-3">
                         Ads in this campaign ({campaignAds.length})
                       </p>
                       <div className="space-y-2">
                         {campaignAds.slice(0, 2).map(ad => (
                           <div
                             key={ad.id}
-                            className="flex gap-3 p-2 bg-slate-50 dark:bg-slate-800/40 rounded-lg items-center"
+                            className="flex gap-3 p-2 bg-slate-50 rounded-lg items-center"
                           >
-                            <div className="w-14 h-10 bg-slate-200 dark:bg-slate-700 rounded-lg overflow-hidden shrink-0">
+                            <div className="w-14 h-10 bg-slate-200 rounded-lg overflow-hidden shrink-0">
                               {ad.mediaType === 'image' && ad.mediaUrl ? (
                                 <img src={ad.mediaUrl} alt="" className="w-full h-full object-cover" />
                               ) : ad.thumbnailUrl ? (
@@ -194,8 +194,8 @@ export default function CampaignsView({
                               ) : null}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{ad.adName}</p>
-                              <div className="flex gap-3 text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                              <p className="text-sm font-medium text-slate-800 truncate">{ad.adName}</p>
+                              <div className="flex gap-3 text-xs text-slate-500 mt-0.5">
                                 <span className="flex items-center gap-1">
                                   <Heart className="w-3 h-3" /> {ad.likesCount ?? 0}
                                 </span>
@@ -207,7 +207,7 @@ export default function CampaignsView({
                           </div>
                         ))}
                         {campaignAds.length > 2 && (
-                          <p className="text-xs text-slate-400 dark:text-slate-500 text-center">
+                          <p className="text-xs text-slate-400 text-center">
                             +{campaignAds.length - 2} more ads
                           </p>
                         )}
@@ -216,15 +216,15 @@ export default function CampaignsView({
                   )}
                 </div>
 
-                <div className="px-4 py-3 bg-slate-50 dark:bg-slate-800/40 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                  <span className="text-sm text-slate-500 dark:text-slate-400">
+                <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+                  <span className="text-sm text-slate-500">
                     {camp.unseenComments > 0
                       ? `${camp.unseenComments} comments need a reply`
                       : 'All caught up'}
                   </span>
                   <button
                     onClick={() => onNavigateToInbox({ platform: camp.platform })}
-                    className="text-sm text-slate-900 dark:text-slate-100 font-medium hover:text-slate-600 flex items-center gap-1 transition-colors"
+                    className="text-sm text-slate-900 font-medium hover:text-slate-600 flex items-center gap-1 transition-colors"
                   >
                     View comments <ArrowRight className="w-4 h-4" />
                   </button>

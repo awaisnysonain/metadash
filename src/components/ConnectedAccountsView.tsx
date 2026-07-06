@@ -61,8 +61,8 @@ export default function ConnectedAccountsView({ comments, ads, onNavigateToInbox
   return (
     <div className="space-y-4 animate-fade-in">
       <div>
-        <h2 className="text-base font-semibold text-slate-950 dark:text-slate-50">Connected assets</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Ad accounts, Pages, Instagram accounts, and top active ads.</p>
+        <h2 className="text-base font-semibold text-slate-950">Connected assets</h2>
+        <p className="text-sm text-slate-500">Ad accounts, Pages, Instagram accounts, and top active ads.</p>
       </div>
 
       {/* Platform summary */}
@@ -75,13 +75,13 @@ export default function ConnectedAccountsView({ comments, ads, onNavigateToInbox
         ].map(stat => {
           const Icon = stat.icon;
           return (
-            <div key={stat.label} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 flex items-center gap-3">
+            <div key={stat.label} className="bg-white border border-slate-200 rounded-xl p-3 flex items-center gap-3">
               <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${stat.color}`}>
                 <Icon className="w-4 h-4" />
               </div>
               <div>
-                <p className="text-lg font-semibold text-slate-950 dark:text-slate-50 leading-none">{stat.value}</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{stat.label}</p>
+                <p className="text-lg font-semibold text-slate-950 leading-none">{stat.value}</p>
+                <p className="text-xs text-slate-500 mt-1">{stat.label}</p>
               </div>
             </div>
           );
@@ -89,31 +89,31 @@ export default function ConnectedAccountsView({ comments, ads, onNavigateToInbox
       </div>
 
       {/* Ad accounts */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
-          <h3 className="font-semibold text-slate-900 dark:text-slate-100">Ad Accounts</h3>
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100">
+          <h3 className="font-semibold text-slate-900">Ad Accounts</h3>
         </div>
         <div className="grid grid-cols-1 gap-3 p-3 xl:grid-cols-2 2xl:grid-cols-3">
           {(data?.adAccounts ?? []).length === 0 ? (
-            <p className="p-5 text-sm text-slate-500 dark:text-slate-400">No ad accounts synced yet. Run sync from Settings.</p>
+            <p className="p-5 text-sm text-slate-500">No ad accounts synced yet. Run sync from Settings.</p>
           ) : (
             data!.adAccounts.map(acc => {
               const accAds = ads.filter(a => a.accountLabel === acc.label || a.metaAccountId === acc.accountId);
               const accComments = comments.filter(c => accAds.some(ad => ad.adId === c.adId || ad.adName === c.adName));
               return (
-                <div key={acc.id} className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 px-4 py-3 flex items-center justify-between gap-4">
+                <div key={acc.id} className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-slate-900 dark:bg-slate-100 flex items-center justify-center text-white font-bold text-xs">
+                    <div className="w-9 h-9 rounded-lg bg-slate-900 flex items-center justify-center text-white font-bold text-xs">
                       {acc.label.slice(0, 2)}
                     </div>
                     <div>
-                      <p className="font-semibold text-slate-900 dark:text-slate-100">{acc.name}</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">{acc.accountId} · {acc.status}</p>
+                      <p className="font-semibold text-slate-900">{acc.name}</p>
+                      <p className="text-xs text-slate-500">{acc.accountId} · {acc.status}</p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-slate-900 dark:text-slate-100">{acc.spend || '—'}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{accAds.length} ads · {accComments.length} comments</p>
+                    <p className="font-bold text-slate-900">{acc.spend || '—'}</p>
+                    <p className="text-xs text-slate-500">{accAds.length} ads · {accComments.length} comments</p>
                   </div>
                 </div>
               );
@@ -124,29 +124,29 @@ export default function ConnectedAccountsView({ comments, ads, onNavigateToInbox
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
         {/* Facebook Pages */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
             <Facebook className="w-4 h-4 text-[#1877F2]" />
-            <h3 className="font-semibold text-slate-900 dark:text-slate-100">Facebook Pages</h3>
+            <h3 className="font-semibold text-slate-900">Facebook Pages</h3>
           </div>
           <div className="divide-y divide-slate-100 max-h-[520px] overflow-y-auto">
             {(data?.pages ?? []).length === 0 ? (
-              <p className="p-5 text-sm text-slate-500 dark:text-slate-400">No pages connected.</p>
+              <p className="p-5 text-sm text-slate-500">No pages connected.</p>
             ) : (
               data!.pages.map(page => (
                 <div key={page.id} className="px-4 py-2.5 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0">
                     {page.avatar ? (
-                      <img src={page.avatar} alt="" className="w-9 h-9 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700" referrerPolicy="no-referrer" />
+                      <img src={page.avatar} alt="" className="w-9 h-9 rounded-full object-cover ring-1 ring-slate-200" referrerPolicy="no-referrer" />
                     ) : (
                       <span className="w-9 h-9 rounded-full bg-blue-50 text-[#1877F2] flex items-center justify-center"><Facebook className="w-4 h-4" /></span>
                     )}
                     <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{page.pageName}</p>
-                    <p className="text-xs text-slate-400 dark:text-slate-500 truncate">{page.fans || `ID: ${page.pageId}`}</p>
+                    <p className="text-sm font-medium text-slate-900">{page.pageName}</p>
+                    <p className="text-xs text-slate-400 truncate">{page.fans || `ID: ${page.pageId}`}</p>
                     </div>
                   </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${page.isConnected ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'}`}>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${page.isConnected ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                     {page.isConnected ? 'Connected' : 'Offline'}
                   </span>
                 </div>
@@ -156,14 +156,14 @@ export default function ConnectedAccountsView({ comments, ads, onNavigateToInbox
         </div>
 
         {/* Instagram */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
             <Instagram className="w-4 h-4 text-pink-600" />
-            <h3 className="font-semibold text-slate-900 dark:text-slate-100">Instagram Accounts</h3>
+            <h3 className="font-semibold text-slate-900">Instagram Accounts</h3>
           </div>
           <div className="divide-y divide-slate-100 max-h-[520px] overflow-y-auto">
             {(data?.instagram ?? []).length === 0 ? (
-              <p className="p-5 text-sm text-slate-500 dark:text-slate-400">No Instagram accounts linked.</p>
+              <p className="p-5 text-sm text-slate-500">No Instagram accounts linked.</p>
             ) : (
               data!.instagram.map(ig => (
                 <div key={ig.id} className="px-4 py-2.5 flex items-center justify-between gap-3">
@@ -174,8 +174,8 @@ export default function ConnectedAccountsView({ comments, ads, onNavigateToInbox
                       <span className="w-9 h-9 rounded-full bg-pink-50 text-pink-600 flex items-center justify-center"><Instagram className="w-4 h-4" /></span>
                     )}
                     <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{ig.username}</p>
-                    <p className="text-xs text-slate-400 dark:text-slate-500">{ig.followers || 'Instagram Business'}</p>
+                    <p className="text-sm font-medium text-slate-900">{ig.username}</p>
+                    <p className="text-xs text-slate-400">{ig.followers || 'Instagram Business'}</p>
                     </div>
                   </div>
                   <span className="text-xs px-2 py-0.5 rounded-full bg-pink-50 text-pink-700">Connected</span>
@@ -187,13 +187,13 @@ export default function ConnectedAccountsView({ comments, ads, onNavigateToInbox
       </div>
 
       {/* Top ads by spend */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
           <TrendingUp className="w-4 h-4 text-amber-500" />
-          <h3 className="font-semibold text-slate-900 dark:text-slate-100">Top Ads by Spend (last 7 days)</h3>
+          <h3 className="font-semibold text-slate-900">Top Ads by Spend (last 7 days)</h3>
         </div>
         {topAds.length === 0 ? (
-          <p className="p-5 text-sm text-slate-500 dark:text-slate-400">No spend data yet. Sync ads to load spend insights.</p>
+          <p className="p-5 text-sm text-slate-500">No spend data yet. Sync ads to load spend insights.</p>
         ) : (
           <div className="grid grid-cols-1 gap-2 p-3 xl:grid-cols-2 2xl:grid-cols-3">
             {topAds.map((ad, i) => {
@@ -203,21 +203,21 @@ export default function ConnectedAccountsView({ comments, ads, onNavigateToInbox
                 <button
                   key={ad.id}
                   onClick={() => onNavigateToInbox({ adId: ad.adId || ad.id, status: 'All' })}
-                  className="w-full rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 px-4 py-3 flex items-center gap-3 text-left hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors"
+                  className="w-full rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 flex items-center gap-3 text-left hover:bg-slate-100 transition-colors"
                 >
-                  <span className="w-6 text-center text-sm font-bold text-slate-400 dark:text-slate-500">#{i + 1}</span>
-                  <div className="w-12 h-9 rounded-lg bg-slate-100 dark:bg-slate-800 overflow-hidden shrink-0">
+                  <span className="w-6 text-center text-sm font-bold text-slate-400">#{i + 1}</span>
+                  <div className="w-12 h-9 rounded-lg bg-slate-100 overflow-hidden shrink-0">
                     {(ad.thumbnailUrl || ad.mediaUrl) && (
                       <img src={ad.thumbnailUrl || ad.mediaUrl} alt="" className="w-full h-full object-cover" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{ad.adName}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{ad.campaignName} · {ad.accountLabel}</p>
+                    <p className="text-sm font-medium text-slate-900 truncate">{ad.adName}</p>
+                    <p className="text-xs text-slate-500 truncate">{ad.campaignName} · {ad.accountLabel}</p>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="font-bold text-slate-900 dark:text-slate-100">{formatSpend(ad.recentSpend ?? ad.spend)}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1 justify-end">
+                    <p className="font-bold text-slate-900">{formatSpend(ad.recentSpend ?? ad.spend)}</p>
+                    <p className="text-xs text-slate-500 flex items-center gap-1 justify-end">
                       <MessageCircle className="w-3 h-3" /> {adComments.length}
                       {unseen > 0 && <span className="text-blue-600 font-semibold">· {unseen} new</span>}
                     </p>
