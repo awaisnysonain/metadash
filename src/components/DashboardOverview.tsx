@@ -332,7 +332,7 @@ export default function DashboardOverview({
         <div className="min-w-0">
           <p className="text-[11px] font-extrabold uppercase tracking-[0.16em]" style={{ color: 'var(--color-muted)' }}>{dateLabel}</p>
           <h1
-            className="font-editorial italic mt-1"
+            className="font-editorial mt-1"
             style={{ fontSize: 32, lineHeight: 1.1, letterSpacing: '-0.015em', color: 'var(--color-ink)', textWrap: 'balance' }}
           >
             Good morning, {displayName}.

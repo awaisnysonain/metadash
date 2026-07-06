@@ -429,9 +429,9 @@ export default function CommentDetailDrawer({
                   {loadingReplies ? (
                     <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-center text-xs text-slate-400">Loading replies...</p>
                   ) : repliesError ? (
-                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-center text-xs italic text-slate-400">Replies unavailable from Meta.</p>
+                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-center text-xs text-slate-400">Replies unavailable from Meta.</p>
                   ) : replies.length === 0 ? (
-                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-center text-xs italic text-slate-400">No replies returned.</p>
+                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-center text-xs text-slate-400">No replies returned.</p>
                   ) : (
                     <div className="space-y-1.5">
                       {repliesPreview.map(reply => (
@@ -472,7 +472,7 @@ export default function CommentDetailDrawer({
                 <h4 className="text-sm font-extrabold text-slate-900">Internal notes</h4>
                 <div className="mt-3 space-y-2">
                   {filteredNotes.length === 0 ? (
-                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs italic text-slate-400">No notes yet</p>
+                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-400">No notes yet</p>
                   ) : notesPreview.map(note => (
                     <div key={note.id} className="rounded-xl border border-blue-100 bg-blue-50/50 p-2">
                       <p className="text-[10px] font-extrabold text-slate-700">{note.userName} · {formatFullTime(note.createdAt)}</p>
@@ -493,7 +493,7 @@ export default function CommentDetailDrawer({
             <div className="rounded-2xl border border-slate-200 bg-white p-3">
               <h4 className="text-sm font-extrabold text-slate-900">Activity</h4>
               {filteredLogs.length === 0 ? (
-                <p className="mt-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs italic text-slate-400">No activity recorded yet.</p>
+                <p className="mt-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-400">No activity recorded yet.</p>
               ) : (
                 <div className="mt-3 grid gap-2">
                   {logsPreview.map(log => (

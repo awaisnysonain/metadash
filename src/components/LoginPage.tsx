@@ -51,7 +51,7 @@ export default function LoginPage() {
             <img src="/metadash-icon.svg" alt="" className="h-7 w-7 object-contain" />
           </div>
           <div>
-            <p className="font-editorial italic text-xl" style={{ letterSpacing: '-0.01em' }}>MetaDash</p>
+            <p className="font-editorial text-xl">MetaDash</p>
             <p className="text-[10.5px] font-medium tracking-[0.14em] uppercase" style={{ color: 'rgba(246, 245, 240, 0.55)' }}>
               Comment operations
             </p>
@@ -65,10 +65,10 @@ export default function LoginPage() {
           </p>
           <h1
             className="font-editorial mt-4"
-            style={{ fontSize: 48, lineHeight: 1.05, letterSpacing: '-0.02em', textWrap: 'balance' }}
+            style={{ fontSize: 48, lineHeight: 1.05, letterSpacing: '-0.03em', textWrap: 'balance' }}
           >
             Every comment on every ad,{' '}
-            <em style={{ color: '#7FB29F' }}>triaged</em>{' '}
+            <span style={{ color: '#7FB29F' }}>triaged</span>{' '}
             in one place.
           </h1>
           <p className="mt-5 max-w-md text-[15px] leading-relaxed" style={{ color: 'rgba(246, 245, 240, 0.72)' }}>
@@ -76,25 +76,20 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Footer meta */}
+        {/* Footer — descriptive, no fake numbers. Numbers on this page can't be
+         * verified against the API before sign-in, so we don't invent them. */}
         <div className="relative z-10 grid grid-cols-3 gap-8">
           {[
-            { k: 'Under', v: '15 min', label: 'Median first response' },
-            { k: 'Across', v: '24 accounts', label: 'FB &amp; IG business' },
-            { k: 'Kept for', v: '3 days', label: 'Live retention window' },
+            { k: 'Ads &amp; organic', label: 'Facebook and Instagram, in one queue.' },
+            { k: 'Team-first', label: 'Assign, reply, hide, and note — with history.' },
+            { k: 'Never miss one', label: 'Live sync, retention policy, urgency signals.' },
           ].map(item => (
-            <div key={item.label}>
-              <p className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: 'rgba(246, 245, 240, 0.5)' }}>
-                {item.k}
+            <div key={item.k}>
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: 'rgba(246, 245, 240, 0.5)' }}
+                dangerouslySetInnerHTML={{ __html: item.k }} />
+              <p className="mt-2 text-[12.5px] leading-relaxed" style={{ color: 'rgba(246, 245, 240, 0.72)' }}>
+                {item.label}
               </p>
-              <p className="font-editorial mt-1 tabular" style={{ fontSize: 22, lineHeight: 1.1, color: '#EFEDE7' }}>
-                {item.v}
-              </p>
-              <p
-                className="mt-1 text-[11px]"
-                style={{ color: 'rgba(246, 245, 240, 0.55)' }}
-                dangerouslySetInnerHTML={{ __html: item.label }}
-              />
             </div>
           ))}
         </div>
@@ -114,7 +109,7 @@ export default function LoginPage() {
               <img src="/metadash-icon.svg" alt="" className="h-7 w-7 object-contain" />
             </div>
             <div>
-              <p className="font-editorial italic text-lg" style={{ color: 'var(--color-ink)' }}>MetaDash</p>
+              <p className="font-editorial text-lg" style={{ color: 'var(--color-ink)' }}>MetaDash</p>
               <p className="text-[10.5px] font-medium tracking-[0.14em] uppercase" style={{ color: 'var(--color-muted)' }}>
                 Comment operations
               </p>

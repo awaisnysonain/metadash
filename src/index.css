@@ -3,7 +3,9 @@
 
 @theme {
   --font-sans: 'Manrope', system-ui, -apple-system, sans-serif;
-  --font-display: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  /* One typeface across the app — Manrope. Display treatment is the extrabold weight
+   * with tightened tracking; we don't reach for a second family. */
+  --font-display: 'Manrope', system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Consolas, monospace;
 
   /* Palette — warm paper ground, deep-teal accent, semantic states held separate. */
@@ -211,9 +213,11 @@ body {
   -webkit-line-clamp: 3;
 }
 
-/* Editorial serif headline helper — used sparingly for hero numbers and section titles. */
+/* Display-weight helper — used for hero numbers and section titles. Manrope only,
+ * so this is the extrabold weight with tightened tracking rather than a serif. */
 .font-editorial {
   font-family: var(--font-display);
-  font-weight: 500;
-  letter-spacing: -0.015em;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  font-style: normal;
 }
