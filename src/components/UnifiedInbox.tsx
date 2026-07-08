@@ -64,6 +64,14 @@ const STATUS_TABS = [
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 250] as const;
 
+const SOURCE_FILTERS = [
+  { id: 'All', label: 'All sources' },
+  { id: 'Brand page', label: 'Brand page' },
+  { id: 'Organic', label: 'Organic' },
+  { id: 'Creator / Whitelist', label: 'Creator / WL' },
+  { id: 'Third-party page', label: 'Third-party' },
+] as const;
+
 export default function UnifiedInbox({
   comments,
   ads,
@@ -197,6 +205,15 @@ export default function UnifiedInbox({
     return counts;
   }, [baseFilteredComments]);
 
+  const sourceCounts = useMemo(() => {
+    const counts: Record<string, number> = { All: baseFilteredComments.length };
+    for (const src of SOURCE_FILTERS) {
+      if (src.id === 'All') continue;
+      counts[src.id] = baseFilteredComments.filter(c => inferSourceCategory(c, getAdForComment(c, ads)) === src.id).length;
+    }
+    return counts;
+  }, [baseFilteredComments, ads]);
+
   const filteredComments = useMemo(() => {
     if (statusFilter === 'All') return baseFilteredComments;
     return baseFilteredComments.filter(c => matchesStatusTab(c, statusFilter));
@@ -323,6 +340,26 @@ export default function UnifiedInbox({
                   <span className={`ml-1.5 rounded px-1.5 py-0.5 text-[10px] font-extrabold tabular ${
                     statusFilter === tab.id ? 'bg-white/20 text-white' : 'bg-slate-950 text-white'
                   }`}>{statusCounts[tab.id].toLocaleString()}</span>
+                )}
+              </button>
+            ))}
+            <span className="hidden h-6 w-px bg-slate-200 lg:inline-block" />
+            {SOURCE_FILTERS.map(src => (
+              <button
+                key={src.id}
+                type="button"
+                onClick={() => setSourceFilter(src.id)}
+                className={`rounded-[10px] px-2.5 py-1.5 text-[11px] font-semibold transition-all ${
+                  sourceFilter === src.id
+                    ? 'bg-violet-700 text-white shadow-sm'
+                    : 'bg-violet-50 text-violet-800 hover:bg-violet-100'
+                }`}
+              >
+                {src.label}
+                {sourceCounts[src.id] > 0 && (
+                  <span className={`ml-1 rounded px-1 py-0.5 text-[9px] font-extrabold tabular ${
+                    sourceFilter === src.id ? 'bg-white/20' : 'bg-violet-200 text-violet-900'
+                  }`}>{sourceCounts[src.id].toLocaleString()}</span>
                 )}
               </button>
             ))}

@@ -20,6 +20,7 @@ import { query } from '../db/pool.js';
 import { fallbackAnalyzeComment, type CommentAnalysis } from './ai-analysis.js';
 import { resolveBrandCode } from './brand.js';
 import { enqueueCommentEnrichment } from './comment-enrichment-queue.js';
+import { getBrandIgUsernames, isBrandIgUsername, isOrganicIgBrandOnly } from './brand-ig.js';
 
 type SyncAd = Awaited<ReturnType<typeof getAdsForCommentSync>>[number];
 
@@ -136,6 +137,7 @@ const ORGANIC_SYNC_ENABLED = process.env.COMMENT_SYNC_ORGANIC !== 'false';
 const ORGANIC_LOOKBACK_HOURS = Math.max(Number(process.env.COMMENT_SYNC_ORGANIC_LOOKBACK_HOURS || 72), 1);
 const ORGANIC_MEDIA_PER_ACCOUNT = Math.min(Math.max(Number(process.env.COMMENT_SYNC_ORGANIC_MEDIA_PER_ACCOUNT || 25), 1), 100);
 const ORGANIC_ACCOUNT_CONCURRENCY = Math.min(Math.max(Number(process.env.COMMENT_SYNC_ORGANIC_CONCURRENCY || 3), 1), 8);
+const ORGANIC_IG_BRAND_ONLY = isOrganicIgBrandOnly();
 const FULL_COVERAGE_AD_LIMIT = Math.max(Number(process.env.COMMENT_SYNC_FULL_COVERAGE_AD_LIMIT || 5000), 1);
 const FULL_COVERAGE_MODE = process.env.COMMENT_SYNC_FULL_COVERAGE !== 'false';
 const AD_CURSOR_CONFIG_KEY = 'comment_sync_ad_cursor';
@@ -646,6 +648,8 @@ async function persistMetaComment(
     since: number;
     pageAccessToken?: string | null;
     accountLabel?: string | null;
+    instagramAccountId?: string | null;
+    instagramAccountName?: string | null;
     analyzeWithAi: boolean;
     alertNewComment: boolean;
   }
@@ -691,6 +695,8 @@ async function persistMetaComment(
     campaignName: ctx.campaignName,
     campaignMetaId: ctx.campaignMetaId,
     adsetMetaId: ctx.adsetMetaId,
+    instagramAccountId: ctx.instagramAccountId ?? undefined,
+    instagramAccountName: ctx.instagramAccountName ?? undefined,
   });
   row.priority = analysis.priority;
   row.sentiment = analysis.sentiment;
@@ -1055,6 +1061,8 @@ async function persistOrganicIgComment(
     since: 0,
     pageAccessToken: null,
     accountLabel: ctx.matchedAd?.accountLabel ?? ctx.accountLabel,
+    instagramAccountId: ctx.accountId,
+    instagramAccountName: handle ? `@${handle}` : ctx.username,
     analyzeWithAi: ctx.analyzeWithAi,
     alertNewComment: ctx.alertNewComment,
   });
@@ -1114,8 +1122,19 @@ async function syncOrganicComments(opts: {
 
   const cutoff = Math.max(opts.sinceUnix, Math.floor(Date.now() / 1000) - ORGANIC_LOOKBACK_HOURS * 3600);
 
-  // --- Instagram organic ------------------------------------------------------
-  const igAccounts = await getConnectedInstagramAccountsForSync();
+  // --- Instagram organic (brand pages only by default) ------------------------
+  const igAccountsAll = await getConnectedInstagramAccountsForSync();
+  const igAccounts = ORGANIC_IG_BRAND_ONLY
+    ? igAccountsAll.filter(account => isBrandIgUsername(account.username))
+    : igAccountsAll;
+
+  if (ORGANIC_IG_BRAND_ONLY && igAccountsAll.length > igAccounts.length) {
+    console.log(
+      `[organic-sync] IG brand-only: syncing ${igAccounts.length}/${igAccountsAll.length} accounts ` +
+      `(${getBrandIgUsernames().join(', ')})`
+    );
+  }
+
   await runInPool(igAccounts, ORGANIC_ACCOUNT_CONCURRENCY, async account => {
     const token = await pickTokenForIgAccount(account.pageAccessToken);
     if (!token) {

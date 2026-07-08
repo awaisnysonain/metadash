@@ -1,4 +1,5 @@
 import { Comment, Ad, CommentStatus, CommentPriority, CommentSentiment, Platform } from '../types';
+import { igHandleFromOrganicLabel, isBrandIgUsername, normalizeIgUsername } from './brandIg';
 
 export const getAdForComment = (comment: Comment, ads: Ad[]): Ad | undefined =>
   ads.find(ad => ad.id === comment.adId || ad.adId === comment.adId);
@@ -46,7 +47,7 @@ export function adLinkLabel(url?: string | null): string {
 }
 
 export type BrandLabel = 'Nobl' | 'Flo' | 'Unattributed';
-export type SourceCategory = 'Brand page' | 'Whitelisted creator' | 'Creator/UGC' | 'Third-party page' | 'Organic';
+export type SourceCategory = 'Brand page' | 'Creator / Whitelist' | 'Third-party page' | 'Organic';
 
 // Word-boundary matching so 'nobl' inside 'noble' still counts but 'flo' doesn't fire on
 // 'workflow'/'flower'/'florist'/'flourish'.
@@ -98,34 +99,45 @@ function pageLooksBrandOwned(brand: BrandLabel, sourceName: string): boolean {
   return false;
 }
 
-export function inferSourceCategory(comment?: Comment, ad?: Ad): SourceCategory {
-  if (!ad) return 'Organic';
+function igHandleFromComment(comment?: Comment): string {
+  const fromAccount = comment?.instagramAccountName?.trim();
+  if (fromAccount) return normalizeIgUsername(fromAccount);
+  return igHandleFromOrganicLabel(comment?.adName);
+}
 
-  const brand = inferBrandLabel(comment, ad);
-  const adText = joinLower(ad.adName, ad.campaignName, ad.adsetName, comment?.adName, comment?.campaignName);
+function isOrganicLabeledComment(comment?: Comment, ad?: Ad): boolean {
+  if (!ad) return true;
+  return comment?.campaignName === 'Organic' || Boolean(comment?.adName?.startsWith('Organic'));
+}
+
+export function inferSourceCategory(comment?: Comment, ad?: Ad): SourceCategory {
+  const linkedAd = ad;
+  const isOrganicRow = isOrganicLabeledComment(comment, linkedAd);
+  const handle = igHandleFromComment(comment);
+
+  if (isOrganicRow) {
+    if (handle && !isBrandIgUsername(handle)) return 'Creator / Whitelist';
+    return 'Organic';
+  }
+
+  const brand = inferBrandLabel(comment, linkedAd);
+  const adText = joinLower(linkedAd!.adName, linkedAd!.campaignName, linkedAd!.adsetName, comment?.adName, comment?.campaignName);
   const sourceName = joinLower(comment?.pageName, comment?.instagramAccountName);
   const brandOwned = pageLooksBrandOwned(brand, sourceName);
 
-  // Strongest signal: page owner is NOT the brand's page.
-  //  - Combined with a whitelist marker → clearly a whitelisted creator asset.
-  //  - Otherwise it's a third-party page reposting an ad.
   if (sourceName && !brandOwned) {
-    if (WHITELIST_MARKERS.test(adText)) return 'Whitelisted creator';
-    if (CREATOR_MARKERS.test(adText)) return 'Creator/UGC';
+    if (WHITELIST_MARKERS.test(adText) || CREATOR_MARKERS.test(adText)) return 'Creator / Whitelist';
     return 'Third-party page';
   }
 
-  // Brand-owned (or unknown) page: rely on explicit markers in the ad name.
-  if (WHITELIST_MARKERS.test(adText)) return 'Whitelisted creator';
-  if (CREATOR_MARKERS.test(adText)) return 'Creator/UGC';
+  if (WHITELIST_MARKERS.test(adText) || CREATOR_MARKERS.test(adText)) return 'Creator / Whitelist';
   if (ORGANIC_MARKERS.test(adText)) return 'Organic';
 
   return 'Brand page';
 }
 
 export function sourceChipClass(source: SourceCategory): string {
-  if (source === 'Whitelisted creator') return 'bg-violet-50 text-violet-700 border-violet-200';
-  if (source === 'Creator/UGC') return 'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200';
+  if (source === 'Creator / Whitelist') return 'bg-violet-50 text-violet-700 border-violet-200';
   if (source === 'Third-party page') return 'bg-cyan-50 text-cyan-700 border-cyan-200';
   if (source === 'Organic') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
   return 'bg-slate-50 text-slate-700 border-slate-200';

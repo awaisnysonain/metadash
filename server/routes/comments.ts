@@ -20,7 +20,7 @@ import {
   getConfigValue,
   setConfigValue,
 } from '../db/repository.js';
-import { clearCommentViews } from '../db/user-repository.js';
+import { clearCommentViews, getCommentViews } from '../db/user-repository.js';
 import { markCommentSeenForTeam } from '../lib/comment-seen.js';
 import { isDatabaseConfigured } from '../db/pool.js';
 import { query } from '../db/pool.js';

@@ -142,6 +142,8 @@ export function mapSyncedComment(payload: {
   adName: string;
   adsetName: string;
   campaignName: string;
+  instagramAccountId?: string;
+  instagramAccountName?: string;
   campaignMetaId?: string;
   adsetMetaId?: string;
 }) {
