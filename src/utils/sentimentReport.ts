@@ -210,7 +210,8 @@ function countsToCsvRow(label: string, counts: SentimentCounts): string {
 
 export function downloadSentimentReportCsv(
   report: SentimentReportData,
-  ads: Ad[]
+  ads: Ad[],
+  comparison?: SentimentComparisonReport
 ): void {
   const lines: string[] = [];
   const periodTitle = report.period === 'daily' ? 'Daily' : 'Weekly';
@@ -234,6 +235,22 @@ export function downloadSentimentReportCsv(
   }
   lines.push(countsToCsvRow('Platform: Facebook', report.byPlatform.facebook));
   lines.push(countsToCsvRow('Platform: Instagram', report.byPlatform.instagram));
+
+  if (comparison) {
+    lines.push('');
+    lines.push(`Comparison,${csvEscape(comparison.compareLabel)}`);
+    lines.push('Sentiment,Current %,Prior %,Change (pts),Current #,Prior #,Change #');
+    for (const d of comparison.deltas) {
+      lines.push(
+        [d.sentiment, d.currentPct, d.previousPct, d.deltaPts, d.current, d.previous, d.deltaCount]
+          .map(csvEscape)
+          .join(',')
+      );
+    }
+    lines.push(`Happiness score,${comparison.happinessCurrent}%,${comparison.happinessPrevious}%,${comparison.happinessDelta} pts,,,`);
+    lines.push(`Total volume,,,${comparison.totalDelta},${comparison.current.overall.total},${comparison.previous.overall.total},`);
+  }
+
   lines.push('');
   lines.push('By Ad');
   lines.push('Ad Name,Campaign,Brand,Source,Total,Positive,Question,Neutral,Negative,Complaint');
@@ -300,4 +317,192 @@ export function happinessScore(counts: SentimentCounts): number {
   const total = positive + negative;
   if (total === 0) return 0;
   return Math.round((positive / total) * 100);
+}
+
+export function getUsYesterdayDay(now = Date.now(), tz = US_TIMEZONE): string {
+  const today = getUsCalendarDay(now, tz);
+  const d = new Date(`${today}T12:00:00`);
+  d.setDate(d.getDate() - 1);
+  return getUsCalendarDay(d.getTime(), tz);
+}
+
+export function isInUsYesterday(iso: string, now = Date.now(), tz = US_TIMEZONE): boolean {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return false;
+  return getUsCalendarDay(t, tz) === getUsYesterdayDay(now, tz);
+}
+
+/** Calendar days 7–13 before today (prior week vs current week). */
+export function isInPriorUsWeek(iso: string, now = Date.now(), tz = US_TIMEZONE): boolean {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return false;
+  const commentDay = getUsCalendarDay(t, tz);
+  const todayDay = getUsCalendarDay(now, tz);
+  const diff = daysBetweenCalendarDays(commentDay, todayDay);
+  return diff >= 7 && diff <= 13;
+}
+
+function filterCommentsForComparison(
+  comments: Comment[],
+  period: SentimentPeriod,
+  now = Date.now()
+): Comment[] {
+  if (period === 'daily') {
+    return comments.filter(c => isInUsYesterday(c.createdAt, now));
+  }
+  return comments.filter(c => isInPriorUsWeek(c.createdAt, now));
+}
+
+export interface SentimentDelta {
+  sentiment: CommentSentiment;
+  current: number;
+  previous: number;
+  currentPct: number;
+  previousPct: number;
+  deltaPts: number;
+  deltaCount: number;
+}
+
+export interface SentimentComparisonReport {
+  current: SentimentReportData;
+  previous: SentimentReportData;
+  compareLabel: string;
+  deltas: SentimentDelta[];
+  happinessCurrent: number;
+  happinessPrevious: number;
+  happinessDelta: number;
+  totalDelta: number;
+}
+
+export function buildSentimentComparison(
+  comments: Comment[],
+  ads: Ad[],
+  period: SentimentPeriod,
+  now = Date.now()
+): SentimentComparisonReport {
+  const current = buildSentimentReport(comments, ads, period, now);
+  const previousFiltered = filterCommentsForComparison(comments, period, now);
+  const previousPeriod: SentimentPeriod = period;
+  const previous = buildSentimentReportFromList(previousFiltered, ads, previousPeriod, now, true);
+
+  const compareLabel =
+    period === 'daily'
+      ? `vs yesterday (${getPeriodLabel('daily', new Date(`${getUsYesterdayDay(now)}T12:00:00`).getTime())})`
+      : 'vs prior 7 days';
+
+  const deltas: SentimentDelta[] = SENTIMENT_ORDER.map(sentiment => {
+    const cur = current.overall[sentiment];
+    const prev = previous.overall[sentiment];
+    const currentPct = sentimentPct(current.overall, sentiment);
+    const previousPct = sentimentPct(previous.overall, sentiment);
+    return {
+      sentiment,
+      current: cur,
+      previous: prev,
+      currentPct,
+      previousPct,
+      deltaPts: currentPct - previousPct,
+      deltaCount: cur - prev,
+    };
+  });
+
+  const happinessCurrent = happinessScore(current.overall);
+  const happinessPrevious = happinessScore(previous.overall);
+
+  return {
+    current,
+    previous,
+    compareLabel,
+    deltas,
+    happinessCurrent,
+    happinessPrevious,
+    happinessDelta: happinessCurrent - happinessPrevious,
+    totalDelta: current.overall.total - previous.overall.total,
+  };
+}
+
+function buildSentimentReportFromList(
+  filtered: Comment[],
+  ads: Ad[],
+  period: SentimentPeriod,
+  now: number,
+  isComparison = false
+): SentimentReportData {
+  let overall = emptySentimentCounts();
+  const byBrand: Record<BrandLabel, SentimentCounts> = {
+    Nobl: emptySentimentCounts(),
+    Flo: emptySentimentCounts(),
+    Unattributed: emptySentimentCounts(),
+  };
+  const bySource: Record<SourceCategory, SentimentCounts> = {
+    'Brand page': emptySentimentCounts(),
+    'Creator / Whitelist': emptySentimentCounts(),
+    'Third-party page': emptySentimentCounts(),
+    Organic: emptySentimentCounts(),
+  };
+  const byPlatform = {
+    facebook: emptySentimentCounts(),
+    instagram: emptySentimentCounts(),
+  };
+  const adMap = new Map<string, AdSentimentRow>();
+
+  for (const comment of filtered) {
+    const ad = getAdForComment(comment, ads);
+    const brand = inferBrandLabel(comment, ad);
+    const source = inferSourceCategory(comment, ad);
+    overall = addToCounts(overall, comment.sentiment);
+    byBrand[brand] = addToCounts(byBrand[brand], comment.sentiment);
+    bySource[source] = addToCounts(bySource[source], comment.sentiment);
+    byPlatform[comment.platform] = addToCounts(byPlatform[comment.platform], comment.sentiment);
+    const adKey = comment.adId || comment.adName || 'organic';
+    const existing = adMap.get(adKey);
+    if (existing) {
+      existing.counts = addToCounts(existing.counts, comment.sentiment);
+    } else {
+      adMap.set(adKey, {
+        adId: comment.adId || adKey,
+        adName: comment.adName || ad?.adName || 'Organic',
+        campaignName: comment.campaignName || ad?.campaignName || '—',
+        brand,
+        source,
+        counts: addToCounts(emptySentimentCounts(), comment.sentiment),
+      });
+    }
+  }
+
+  const periodLabel = isComparison
+    ? period === 'daily'
+      ? getPeriodLabel('daily', new Date(`${getUsYesterdayDay(now)}T12:00:00`).getTime())
+      : 'Prior week'
+    : getPeriodLabel(period, now);
+
+  return {
+    period,
+    periodLabel,
+    timezone: US_TIMEZONE,
+    generatedAt: new Date(now).toISOString(),
+    overall,
+    byBrand,
+    bySource,
+    byPlatform,
+    byAd: [...adMap.values()].sort((a, b) => b.counts.total - a.counts.total),
+    comments: [...filtered].sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0)),
+  };
+}
+
+export function topCommentsBySentiment(
+  comments: Comment[],
+  sentiments: CommentSentiment[],
+  limit = 30
+): Comment[] {
+  return comments
+    .filter(c => sentiments.includes(c.sentiment))
+    .sort((a, b) => {
+      const priority = (p: Comment['priority']) =>
+        p === 'Urgent' ? 4 : p === 'High' ? 3 : p === 'Medium' ? 2 : 1;
+      const pd = priority(b.priority) - priority(a.priority);
+      if (pd !== 0) return pd;
+      return (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0);
+    })
+    .slice(0, limit);
 }
