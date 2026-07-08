@@ -213,7 +213,11 @@ export async function updateCommentStatus(id: string, status: string, timestamps
   const now = new Date().toISOString();
   await query(
     `UPDATE comments SET status = $1, updated_at = $2,
-     seen_at = CASE WHEN $1 = 'Unseen' THEN NULL ELSE COALESCE($3, seen_at) END,
+     seen_at = CASE
+       WHEN $1 = 'Unseen' THEN NULL
+       WHEN $1 IN ('Seen', 'Replied', 'Ignored') THEN COALESCE($3, seen_at, $2::timestamptz)
+       ELSE COALESCE($3, seen_at)
+     END,
      replied_at = COALESCE($4, replied_at)
      WHERE id = $5`,
     [status, now, timestamps.seenAt ?? null, timestamps.repliedAt ?? null, id]
@@ -224,7 +228,12 @@ export async function updateCommentStatus(id: string, status: string, timestamps
 export async function updateCommentAssign(id: string, assignedTo: string | null) {
   const now = new Date().toISOString();
   await query(
-    `UPDATE comments SET assigned_to = $1, status = CASE WHEN status = 'Unseen' THEN 'Seen' ELSE status END, updated_at = $2 WHERE id = $3`,
+    `UPDATE comments SET
+       assigned_to = $1,
+       status = CASE WHEN status = 'Unseen' THEN 'Seen' ELSE status END,
+       seen_at = CASE WHEN status = 'Unseen' THEN $2::timestamptz ELSE seen_at END,
+       updated_at = $2
+     WHERE id = $3`,
     [assignedTo, now, id]
   );
   return getCommentById(id);

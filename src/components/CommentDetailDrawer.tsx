@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Comment, TeamMember, CommentNote, ActivityLog, CommentStatus, CommentPriority, Ad } from '../types';
+import { Comment, TeamMember, CommentNote, ActivityLog, CommentStatus, CommentPriority, Ad, CommentView } from '../types';
 import { getAdForComment, formatFullTime, displayCommenterName, commentExternalUrl, inferBrandLabel } from '../utils/helpers';
 import { StatusBadge, PriorityBadge, SentimentBadge, PlatformBadge } from './ui/Badges';
 import AdPreviewPanel from './AdPreviewPanel';
@@ -39,6 +39,7 @@ interface CommentDetailDrawerProps {
   onAssignTeam: (commentId: string, teamUserId?: string) => void;
   onRemoveCommentTag: (commentId: string, tag: string) => void;
   onAddCommentTag: (commentId: string, tag: string) => void;
+  onViewComment?: (commentId: string, views?: CommentView[], updatedComment?: Comment) => void;
 }
 
 export default function CommentDetailDrawer({
@@ -57,6 +58,7 @@ export default function CommentDetailDrawer({
   onAssignTeam,
   onRemoveCommentTag,
   onAddCommentTag,
+  onViewComment,
 }: CommentDetailDrawerProps) {
   const [newNote, setNewNote] = useState('');
   const [replyText, setReplyText] = useState('');
@@ -100,6 +102,16 @@ export default function CommentDetailDrawer({
     }
 
     let cancelled = false;
+    void apiClient.recordCommentView(comment.id).then(result => {
+      if (!cancelled) {
+        onViewComment?.(comment.id, result.views, result.comment);
+      }
+    }).catch(() => {
+      if (!cancelled && comment.status === 'Unseen') {
+        onUpdateStatus(comment.id, 'Seen');
+      }
+    });
+
     const linkedAd = getAdForComment(comment, ads);
     const brand = inferBrandLabel(comment, linkedAd);
     const loadSuggestions = async (threadReplies: MetaThreadItem[]) => {

@@ -20,7 +20,8 @@ import {
   getConfigValue,
   setConfigValue,
 } from '../db/repository.js';
-import { recordCommentView, getCommentViews, clearCommentViews } from '../db/user-repository.js';
+import { clearCommentViews } from '../db/user-repository.js';
+import { markCommentSeenForTeam } from '../lib/comment-seen.js';
 import { isDatabaseConfigured } from '../db/pool.js';
 import { query } from '../db/pool.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
@@ -239,7 +240,7 @@ commentsRouter.patch('/:id/status', async (req: AuthenticatedRequest, res) => {
     let comment = await updateCommentStatus(req.params.id, status, timestamps);
 
     if (status === 'Seen') {
-      await recordCommentView(req.params.id, user.id, user.name);
+      await markCommentSeenForTeam(req.params.id, user);
     } else if (status === 'Unseen') {
       await clearCommentViews(req.params.id);
     }
@@ -286,7 +287,8 @@ commentsRouter.post('/:id/reply', async (req: AuthenticatedRequest, res) => {
     await postMetaWithFallback(path, { message: replyMessage }, tokens);
 
     const now = new Date().toISOString();
-    const updated = await updateCommentStatus(req.params.id, 'Replied', { repliedAt: now });
+    await markCommentSeenForTeam(req.params.id, user);
+    const updated = await updateCommentStatus(req.params.id, 'Replied', { repliedAt: now, seenAt: now });
     await insertActivityLog({
       id: `log-reply-${Date.now()}`,
       comment_id: req.params.id,
@@ -480,26 +482,8 @@ commentsRouter.post('/:id/view', async (req: AuthenticatedRequest, res) => {
   try {
     const user = req.user!;
     const commentId = req.params.id;
-    await recordCommentView(commentId, user.id, user.name);
-
-    const comment = await getCommentById(commentId);
-    if (comment && comment.status === 'Unseen') {
-      const now = new Date().toISOString();
-      await updateCommentStatus(commentId, 'Seen', { seenAt: now });
-      await insertActivityLog({
-        id: `log-${Date.now()}`,
-        comment_id: commentId,
-        user_id: user.id,
-        user_name: user.name,
-        action: 'Viewed',
-        old_value: 'Unseen',
-        new_value: 'Seen',
-        created_at: now,
-      });
-    }
-
-    const views = await getCommentViews(commentId);
-    res.json({ comment: await getCommentById(commentId), views });
+    const { comment, views } = await markCommentSeenForTeam(commentId, user, { logActivity: true });
+    res.json({ comment, views });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -518,6 +502,7 @@ commentsRouter.patch('/:id/assign', async (req: AuthenticatedRequest, res) => {
   try {
     const user = req.user!;
     const { assignedTo } = req.body;
+    await markCommentSeenForTeam(req.params.id, user);
     const comment = await updateCommentAssign(req.params.id, assignedTo ?? null);
     await insertActivityLog({
       id: `log-${Date.now()}`,
@@ -568,6 +553,7 @@ commentsRouter.post('/:id/notes', async (req: AuthenticatedRequest, res) => {
   try {
     const user = req.user!;
     const now = new Date().toISOString();
+    await markCommentSeenForTeam(req.params.id, user);
     const note = {
       id: req.body.id ?? `note-${Date.now()}`,
       comment_id: req.params.id,

@@ -510,6 +510,7 @@ export default function UnifiedInbox({
                 onAssignTeam={onAssignTeam}
                 onAddCommentTag={onAddCommentTag}
                 onRemoveCommentTag={onRemoveCommentTag}
+                onViewComment={onViewComment}
               />
             ) : (
               <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-sm text-slate-500">

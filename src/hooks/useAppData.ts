@@ -143,11 +143,20 @@ export function useAppData(currentUser?: AppUser | null): UseAppDataReturn {
     const now = new Date().toISOString();
     setComments(prev =>
       prev.map(c =>
-        c.id === id ? { ...c, assignedTo, status: c.status === 'Unseen' ? 'Seen' : c.status, updatedAt: now } : c
+        c.id === id
+          ? {
+              ...c,
+              assignedTo,
+              status: c.status === 'Unseen' ? 'Seen' : c.status,
+              seenAt: c.status === 'Unseen' ? now : c.seenAt,
+              updatedAt: now,
+            }
+          : c
       )
     );
     if (modeRef.current === 'live') {
-      await updateCommentAssignApi('live', id, assignedTo, meta);
+      const updated = await updateCommentAssignApi('live', id, assignedTo, meta);
+      if (updated) setComments(prev => prev.map(c => (c.id === id ? updated : c)));
     }
   }, []);
 
