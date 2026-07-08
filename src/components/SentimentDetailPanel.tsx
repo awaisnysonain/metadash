@@ -34,6 +34,7 @@ import {
   type SentimentPeriod,
   US_TIMEZONE,
 } from '../utils/sentimentReport';
+import { downloadBrandedSentimentReport } from '../utils/brandedReportExport';
 
 interface SentimentDetailPanelProps {
   comments: Comment[];
@@ -291,6 +292,7 @@ export default function SentimentDetailPanel({
   const [period, setPeriod] = useState<SentimentPeriod>('daily');
   const [activeTab, setActiveTab] = useState<PanelTab>('summary');
   const [selectedDay, setSelectedDay] = useState(() => getUsTodayDay());
+  const [exportBusy, setExportBusy] = useState(false);
   const todayDay = getUsTodayDay();
   const minDay = getSentimentReportMinDay();
 
@@ -311,6 +313,19 @@ export default function SentimentDetailPanel({
 
   const brandSwatch = (brand: string) =>
     brand === 'Nobl' ? '#3A5F5D' : brand === 'Flo' ? 'var(--color-brand-ig)' : 'var(--color-muted)';
+
+  const handleExcelExport = async () => {
+    if (report.overall.total === 0 || exportBusy) return;
+    setExportBusy(true);
+    try {
+      await downloadBrandedSentimentReport(report, ads, comparison, selectedDay);
+    } catch (err) {
+      console.error('[export] branded xlsx failed:', err);
+      window.alert('Could not generate Excel report. Please try again.');
+    } finally {
+      setExportBusy(false);
+    }
+  };
 
   return (
     <div
@@ -338,13 +353,22 @@ export default function SentimentDetailPanel({
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
-                onClick={() => downloadSentimentReportCsv(report, ads, comparison)}
-                disabled={report.overall.total === 0}
+                onClick={handleExcelExport}
+                disabled={report.overall.total === 0 || exportBusy}
                 className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[12px] font-semibold disabled:opacity-40 transition-colors"
                 style={{ background: 'rgba(255,255,255,0.95)', color: '#0F5B4D' }}
               >
                 <Download className="w-3.5 h-3.5" />
-                Export CSV
+                {exportBusy ? 'Building…' : 'Export Excel'}
+              </button>
+              <button
+                type="button"
+                onClick={() => downloadSentimentReportCsv(report, ads, comparison)}
+                disabled={report.overall.total === 0}
+                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12px] font-semibold disabled:opacity-40 transition-colors"
+                style={{ background: 'rgba(255,255,255,0.15)', color: '#FFFFFF', border: '1px solid rgba(255,255,255,0.3)' }}
+              >
+                CSV
               </button>
               <button
                 type="button"
