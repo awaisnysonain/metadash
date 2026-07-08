@@ -1,8 +1,85 @@
+# Dependencies
 node_modules/
-build/
+
+# Build output
 dist/
-coverage/
-.DS_Store
-*.log
-.env*
+build/
+.vite/
+.parcel-cache/
+.turbo/
+out/
+
+# Environment & secrets (never commit)
+.env
+.env.*
 !.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+credentials.json
+secrets/
+.npmrc
+
+# Logs & process managers
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pm2/
+pids/
+*.pid
+
+# Test & coverage
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+
+# TypeScript
+*.tsbuildinfo
+
+# OS files
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# IDE / editor
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+.cursor/
+
+# Local scratch, audits, and one-off debug scripts
+tmp-*
+tmp/
+scratch/
+.local/
+*.local
+
+# Database dumps & migration artifacts (keep schema.sql in repo)
+*.sql.gz
+*.dump
+*.bak.sql
+backup/
+dumps/
+pgdata/
+
+# Docker local volumes
+docker-data/
+
+# Optional caches
+.cache/
+.eslintcache
+.stylelintcache

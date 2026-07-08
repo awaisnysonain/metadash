@@ -18,6 +18,20 @@ cd "$APP"
 git fetch origin main
 git reset --hard origin/main
 
+ensure_env() {
+  local key="$1"
+  local val="$2"
+  if ! grep -q "^${key}=" .env 2>/dev/null; then
+    echo "${key}=${val}" >> .env
+    echo "Added ${key}"
+  fi
+}
+ensure_env COMMENT_SYNC_HIGH_SPEND_POLL true
+ensure_env COMMENT_SYNC_HIGH_SPEND_INTERVAL_MINUTES 3
+ensure_env COMMENT_SYNC_HIGH_SPEND_ADS_PER_BRAND 15
+ensure_env COMMENT_SYNC_HIGH_SPEND_AD_CONCURRENCY 2
+ensure_env COMMENT_SYNC_HIGH_SPEND_SKIP_DURING_FULL true
+
 npm ci
 npm run build
 
