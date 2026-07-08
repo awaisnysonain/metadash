@@ -349,16 +349,16 @@ export default function UnifiedInbox({
                 key={src.id}
                 type="button"
                 onClick={() => setSourceFilter(src.id)}
-                className={`rounded-[10px] px-2.5 py-1.5 text-[11px] font-semibold transition-all ${
+                className={`rounded-[10px] px-3 py-1.5 text-sm font-semibold transition-all ${
                   sourceFilter === src.id
-                    ? 'bg-violet-700 text-white shadow-sm'
-                    : 'bg-violet-50 text-violet-800 hover:bg-violet-100'
+                    ? 'bg-slate-950 text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
                 {src.label}
                 {sourceCounts[src.id] > 0 && (
-                  <span className={`ml-1 rounded px-1 py-0.5 text-[9px] font-extrabold tabular ${
-                    sourceFilter === src.id ? 'bg-white/20' : 'bg-violet-200 text-violet-900'
+                  <span className={`ml-1.5 rounded px-1.5 py-0.5 text-[10px] font-extrabold tabular ${
+                    sourceFilter === src.id ? 'bg-white/20 text-white' : 'bg-slate-950 text-white'
                   }`}>{sourceCounts[src.id].toLocaleString()}</span>
                 )}
               </button>
