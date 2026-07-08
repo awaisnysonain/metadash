@@ -11,6 +11,7 @@ import {
   ThumbsDown,
   LayoutGrid,
   Calendar,
+  TrendingUp,
 } from 'lucide-react';
 import type { Comment, Ad, CommentSentiment } from '../types';
 import type { InboxFilters } from './UnifiedInbox';
@@ -34,6 +35,14 @@ import {
   US_TIMEZONE,
 } from '../utils/sentimentReport';
 import { downloadSentimentReportXlsx } from '../utils/sentimentReportXlsx';
+import {
+  buildTopSpendAdRows,
+  countCommentsOnTopSpend,
+  filterCommentsOnTopSpend,
+  getTopSpendCommentStats,
+  topSpendSubtitle,
+  aggregateCommentCounts,
+} from '../utils/topSpendAds';
 
 interface SentimentDetailPanelProps {
   comments: Comment[];
@@ -43,7 +52,7 @@ interface SentimentDetailPanelProps {
   onNavigateToInbox?: (filters?: InboxFilters) => void;
 }
 
-type PanelTab = 'summary' | 'positive' | 'negative' | 'ads';
+type PanelTab = 'summary' | 'positive' | 'negative' | 'topSpend';
 
 const SENTIMENT_COLORS: Record<CommentSentiment, string> = {
   Positive: '#2D7A5F',
@@ -65,7 +74,7 @@ const TABS: { id: PanelTab; label: string; icon: React.ReactNode }[] = [
   { id: 'summary', label: 'Summary', icon: <LayoutGrid className="w-3.5 h-3.5" /> },
   { id: 'positive', label: 'Top positive', icon: <ThumbsUp className="w-3.5 h-3.5" /> },
   { id: 'negative', label: 'Top negative', icon: <ThumbsDown className="w-3.5 h-3.5" /> },
-  { id: 'ads', label: 'By ad', icon: <LayoutGrid className="w-3.5 h-3.5" /> },
+  { id: 'topSpend', label: 'Top spend ads', icon: <TrendingUp className="w-3.5 h-3.5" /> },
 ];
 
 function DeltaBadge({
@@ -135,19 +144,19 @@ function ComparisonChart({
         style={{ background: 'linear-gradient(90deg, #0F5B4D 0%, #1A7A64 100%)' }}
       >
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/70">Period comparison</p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/70">How this period compares</p>
           <p className="text-[13px] font-semibold text-white mt-0.5">{compareLabel}</p>
         </div>
         <div className="flex flex-wrap gap-4 text-white">
           <div className="text-right">
-            <p className="text-[10px] uppercase tracking-wide opacity-70">Volume</p>
+            <p className="text-[10px] uppercase tracking-wide opacity-70">Comment volume</p>
             <p className="text-lg font-bold tabular flex items-center gap-1 justify-end">
               {totalDelta > 0 ? '+' : ''}{totalDelta}
-              <span className="text-[11px] font-normal opacity-80">comments</span>
+              <span className="text-[11px] font-normal opacity-80">vs prior</span>
             </p>
           </div>
           <div className="text-right">
-            <p className="text-[10px] uppercase tracking-wide opacity-70">Happiness</p>
+            <p className="text-[10px] uppercase tracking-wide opacity-70">Customer happiness</p>
             <p className="text-lg font-bold tabular">
               {happinessCurrent}%
               <span className="text-[11px] font-normal ml-1.5 opacity-90">was {happinessPrevious}%</span>
@@ -201,8 +210,64 @@ function ComparisonChart({
           </div>
         ))}
         <p className="text-[10px] pt-1" style={{ color: 'var(--color-muted)' }}>
-          Taller bar = current period · Faded bar = comparison period
+          Solid bar = this period · Light bar = previous period
         </p>
+      </div>
+    </div>
+  );
+}
+
+function TopSpendInsight({
+  stats,
+  counts,
+}: {
+  stats: ReturnType<typeof getTopSpendCommentStats>;
+  counts: import('../utils/sentimentReport').SentimentCounts;
+}) {
+  return (
+    <div
+      className="rounded-2xl overflow-hidden"
+      style={{ border: '1px solid #E8DCC8', background: 'linear-gradient(135deg, #FFFBF5 0%, #FFFFFF 100%)' }}
+    >
+      <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-4" style={{ borderBottom: '1px solid #F0E8DA' }}>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: '#B8860B' }}>
+            High-spend ad focus
+          </p>
+          <p className="text-[13px] mt-0.5" style={{ color: 'var(--color-ink-2)' }}>
+            Where your budget is going — and what customers are saying there
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-5">
+          <div className="text-right">
+            <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--color-muted)' }}>Tracked ads</p>
+            <p className="text-xl font-editorial tabular" style={{ color: 'var(--color-ink)' }}>{stats.trackedAds}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--color-muted)' }}>Comments</p>
+            <p className="text-xl font-editorial tabular" style={{ color: 'var(--color-ink)' }}>
+              {stats.totalComments.toLocaleString()}
+              <span className="text-[11px] font-sans font-semibold ml-1" style={{ color: '#B8860B' }}>{stats.shareOfPeriod}%</span>
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--color-muted)' }}>Needs attention</p>
+            <p className="text-xl font-editorial tabular" style={{ color: stats.negativeAndComplaints > 0 ? 'var(--color-sem-red)' : 'var(--color-ink)' }}>
+              {stats.negativeAndComplaints}
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--color-muted)' }}>Happiness</p>
+            <p className="text-xl font-editorial tabular" style={{ color: 'var(--color-sem-green)' }}>{stats.happiness}%</p>
+          </div>
+        </div>
+      </div>
+      <div className="px-4 py-2.5 flex flex-wrap gap-4 text-[11px]" style={{ color: 'var(--color-muted)' }}>
+        <span><strong style={{ color: SENTIMENT_COLORS.Positive }}>{counts.Positive}</strong> positive</span>
+        <span><strong style={{ color: SENTIMENT_COLORS.Question }}>{counts.Question}</strong> questions</span>
+        <span><strong style={{ color: SENTIMENT_COLORS.Neutral }}>{counts.Neutral}</strong> neutral</span>
+        <span><strong style={{ color: SENTIMENT_COLORS.Negative }}>{counts.Negative}</strong> negative</span>
+        <span><strong style={{ color: SENTIMENT_COLORS.Complaint }}>{counts.Complaint}</strong> complaints</span>
       </div>
     </div>
   );
@@ -308,6 +373,20 @@ export default function SentimentDetailPanel({
   const topNegative = useMemo(
     () => topCommentsBySentiment(report.comments, ['Complaint', 'Negative'], 40),
     [report.comments]
+  );
+  const topSpendRows = useMemo(() => buildTopSpendAdRows(report, ads), [report, ads]);
+  const topSpendStats = useMemo(() => getTopSpendCommentStats(report, ads), [report, ads]);
+  const topSpendCounts = useMemo(
+    () => aggregateCommentCounts(filterCommentsOnTopSpend(report.comments, ads)),
+    [report.comments, ads]
+  );
+  const positiveOnTopSpend = useMemo(
+    () => countCommentsOnTopSpend(topPositive, ads),
+    [topPositive, ads]
+  );
+  const negativeOnTopSpend = useMemo(
+    () => countCommentsOnTopSpend(topNegative, ads),
+    [topNegative, ads]
   );
 
   const brandSwatch = (brand: string) =>
@@ -425,10 +504,17 @@ export default function SentimentDetailPanel({
               )}
             </div>
 
-            <div className="flex gap-4 ml-auto text-white">
+            <div className="flex flex-wrap gap-4 ml-auto text-white">
               <div>
                 <p className="text-[10px] uppercase tracking-wide opacity-60">Total comments</p>
                 <p className="text-2xl font-editorial tabular leading-none mt-0.5">{report.overall.total.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wide opacity-60">On high-spend ads</p>
+                <p className="text-2xl font-editorial tabular leading-none mt-0.5">
+                  {topSpendStats.totalComments.toLocaleString()}
+                  <span className="text-[11px] font-sans font-semibold opacity-75 ml-1">{topSpendStats.shareOfPeriod}%</span>
+                </p>
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-wide opacity-60">Happiness score</p>
@@ -467,9 +553,9 @@ export default function SentimentDetailPanel({
                   {topNegative.length}
                 </span>
               )}
-              {tab.id === 'ads' && report.byAd.length > 0 && (
-                <span className="ml-1 rounded px-1.5 py-0.5 text-[9px] font-extrabold tabular bg-slate-200 text-slate-700">
-                  {report.byAd.length}
+              {tab.id === 'topSpend' && topSpendRows.length > 0 && (
+                <span className="ml-1 rounded px-1.5 py-0.5 text-[9px] font-extrabold tabular bg-amber-100 text-amber-900">
+                  {topSpendRows.length}
                 </span>
               )}
             </button>
@@ -488,6 +574,8 @@ export default function SentimentDetailPanel({
             <>
               {activeTab === 'summary' && (
                 <div className="space-y-4">
+                  <TopSpendInsight stats={topSpendStats} counts={topSpendCounts} />
+
                   <ComparisonChart
                     deltas={comparison.deltas}
                     compareLabel={comparison.compareLabel}
@@ -508,6 +596,7 @@ export default function SentimentDetailPanel({
                     </SheetHead>
                     <tbody>
                       <SheetDataRow label="Overall" counts={report.overall} bold />
+                      <SheetDataRow label="High-spend ads" counts={topSpendCounts} />
                       <SheetDataRow label="Facebook" counts={report.byPlatform.facebook} />
                       <SheetDataRow label="Instagram" counts={report.byPlatform.instagram} />
                       {(['Nobl', 'Flo', 'Unattributed'] as const).map(brand =>
@@ -523,7 +612,12 @@ export default function SentimentDetailPanel({
               {activeTab === 'positive' && (
                 <CommentSheet
                   title="Top positive comments"
-                  subtitle="Ranked by priority, then newest"
+                  subtitle={topSpendSubtitle(
+                    'Ranked by priority, then newest',
+                    topPositive.length,
+                    positiveOnTopSpend,
+                    report.overall.total
+                  )}
                   headerColor="#E8F5EF"
                   accentColor="#2D7A5F"
                   comments={topPositive}
@@ -536,7 +630,12 @@ export default function SentimentDetailPanel({
               {activeTab === 'negative' && (
                 <CommentSheet
                   title="Top negative & complaints"
-                  subtitle="Complaints and negative sentiment · urgent first"
+                  subtitle={topSpendSubtitle(
+                    'Urgent complaints and negative sentiment first',
+                    topNegative.length,
+                    negativeOnTopSpend,
+                    report.overall.total
+                  )}
                   headerColor="#FCECEC"
                   accentColor="#B54545"
                   comments={topNegative}
@@ -546,13 +645,34 @@ export default function SentimentDetailPanel({
                 />
               )}
 
-              {activeTab === 'ads' && (
+              {activeTab === 'topSpend' && (
                 <div className="space-y-3">
+                  <div
+                    className="rounded-xl px-4 py-3"
+                    style={{ background: 'linear-gradient(135deg, #FFF8EB 0%, #FFFDF8 100%)', border: '1px solid #F5E6C8' }}
+                  >
+                    <p className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: '#B8860B' }}>
+                      High-spend ad activity
+                    </p>
+                    <p className="text-[13px] mt-1" style={{ color: 'var(--color-ink-2)' }}>
+                      <span className="font-bold tabular">{topSpendStats.totalComments.toLocaleString()}</span> comments on{' '}
+                      <span className="font-bold tabular">{topSpendStats.trackedAds}</span> tracked high-spend ads
+                      {' '}({topSpendStats.shareOfPeriod}% of this period)
+                      {topSpendStats.negativeAndComplaints > 0 && (
+                        <>
+                          {' · '}
+                          <span className="font-semibold" style={{ color: 'var(--color-sem-red)' }}>
+                            {topSpendStats.negativeAndComplaints} need attention
+                          </span>
+                        </>
+                      )}
+                    </p>
+                  </div>
                   <div className="flex items-baseline justify-between gap-3">
                     <div>
-                      <h3 className="font-editorial text-[17px]" style={{ color: 'var(--color-ink)' }}>Comments by ad</h3>
+                      <h3 className="font-editorial text-[17px]" style={{ color: 'var(--color-ink)' }}>Top spend ads</h3>
                       <p className="text-[12px]" style={{ color: 'var(--color-muted)' }}>
-                        {report.byAd.length} ads with comments in period · click a row to open in inbox
+                        Highest recent spend per brand · click a row to open in inbox
                       </p>
                     </div>
                   </div>
@@ -562,17 +682,19 @@ export default function SentimentDetailPanel({
                       <Th>Ad name</Th>
                       <Th>Campaign</Th>
                       <Th>Brand</Th>
-                      <Th align="right">Total</Th>
+                      <Th align="right">Spend</Th>
+                      <Th align="right">Comments</Th>
+                      <Th align="right">Share</Th>
                       {SENTIMENT_ORDER.map(s => (
                         <SentimentTh key={s} sentiment={s} />
                       ))}
                       <Th align="right">Happy %</Th>
                     </SheetHead>
                     <tbody>
-                      {report.byAd.map((row, index) => (
+                      {topSpendRows.map((row, index) => (
                         <tr
                           key={row.adId}
-                          onClick={() => onNavigateToInbox?.({ adId: row.adId })}
+                          onClick={() => onNavigateToInbox?.({ adId: row.adId, topSpend: true })}
                           className="cursor-pointer hover:opacity-90 transition-opacity"
                         >
                           <Td align="center" muted>{index + 1}</Td>
@@ -587,7 +709,15 @@ export default function SentimentDetailPanel({
                           </Td>
                           <Td muted>{row.brand}</Td>
                           <Td align="right">
+                            <span className="font-bold tabular text-[13px]" style={{ color: '#B8860B' }}>
+                              {row.spendLabel}
+                            </span>
+                          </Td>
+                          <Td align="right">
                             <span className="font-bold tabular text-[14px]">{row.counts.total}</span>
+                          </Td>
+                          <Td align="right" muted>
+                            <span className="tabular text-[12px]">{row.shareOfPeriod}%</span>
                           </Td>
                           {SENTIMENT_ORDER.map(s => (
                             <SentimentTd key={s} value={row.counts[s]} sentiment={s} />
@@ -601,6 +731,11 @@ export default function SentimentDetailPanel({
                       ))}
                     </tbody>
                   </SheetTable>
+                  {topSpendRows.length === 0 && (
+                    <div className="py-16 text-center rounded-2xl" style={{ background: 'var(--color-panel)', border: '1px solid var(--color-line)' }}>
+                      <p className="text-[14px]" style={{ color: 'var(--color-muted)' }}>No high-spend ads with spend data for this period.</p>
+                    </div>
+                  )}
                 </div>
               )}
             </>

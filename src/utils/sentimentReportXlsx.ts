@@ -18,12 +18,26 @@ import {
   US_TIMEZONE,
   getUsTodayDay,
 } from './sentimentReport';
+import {
+  buildTopSpendAdRows,
+  countCommentsOnTopSpend,
+  getTopSpendCommentStats,
+  topSpendSubtitle,
+  aggregateCommentCounts,
+  filterCommentsOnTopSpend,
+  isCommentOnTopSpendAd,
+  type TopSpendCommentStats,
+} from './topSpendAds';
 
 const BRAND_GREEN = 'FF0F5B4D';
 const BRAND_GREEN_LIGHT = 'FF1A7A64';
+const BRAND_GREEN_DARK = 'FF1A3D36';
+const GOLD = 'FFB8860B';
+const GOLD_BG = 'FFFFF8EB';
 const WHITE = 'FFFFFFFF';
 const INK = 'FF1A1F24';
 const MUTED = 'FF6B7280';
+const LINE = 'FFE8ECE9';
 
 const SENTIMENT_COLORS: Record<CommentSentiment, string> = {
   Positive: 'FF2D7A5F',
@@ -45,7 +59,7 @@ const TAB_COLORS = {
   summary: 'FF0F5B4D',
   positive: 'FF2D7A5F',
   negative: 'FFB54545',
-  ads: 'FF64748B',
+  topSpend: 'FFB8860B',
 };
 
 function solidFill(argb: string): ExcelJS.Fill {
@@ -65,35 +79,46 @@ function setCell(
   return cell;
 }
 
+function sectionTitle(ws: ExcelJS.Worksheet, row: number, col: number, endCol: number, title: string, subtitle?: string) {
+  ws.mergeCells(row, col, row, endCol);
+  setCell(ws, row, col, title, {
+    font: { bold: true, size: 11, color: { argb: WHITE } },
+    fill: solidFill(BRAND_GREEN_DARK),
+    alignment: { vertical: 'middle' },
+  });
+  ws.getRow(row).height = 22;
+  if (subtitle) {
+    ws.mergeCells(row + 1, col, row + 1, endCol);
+    setCell(ws, row + 1, col, subtitle, {
+      font: { size: 9, color: { argb: MUTED } },
+      fill: solidFill('FFF7FAF8'),
+      alignment: { wrapText: true, vertical: 'middle' },
+    });
+    ws.getRow(row + 1).height = 18;
+    return row + 2;
+  }
+  return row + 1;
+}
+
 function headerCell(ws: ExcelJS.Worksheet, row: number, col: number, value: string, bg = BRAND_GREEN) {
   return setCell(ws, row, col, value, {
     font: { bold: true, color: { argb: WHITE }, size: 10 },
     fill: solidFill(bg),
-    alignment: { vertical: 'middle', horizontal: col <= 2 ? 'left' : 'center' },
-    border: {
-      bottom: { style: 'medium', color: { argb: '33FFFFFF' } },
-    },
+    alignment: { vertical: 'middle', horizontal: col <= 2 ? 'left' : 'center', wrapText: true },
+    border: { bottom: { style: 'medium', color: { argb: '33FFFFFF' } } },
   });
 }
 
 function sentimentHeaderCell(ws: ExcelJS.Worksheet, row: number, col: number, sentiment: CommentSentiment) {
-  return setCell(ws, row, col, sentiment.slice(0, 3).toUpperCase(), {
+  return setCell(ws, row, col, sentiment, {
     font: { bold: true, color: { argb: SENTIMENT_COLORS[sentiment] }, size: 9 },
     fill: solidFill(SENTIMENT_HEADER_BG[sentiment]),
-    alignment: { horizontal: 'center', vertical: 'middle' },
-    border: {
-      bottom: { style: 'medium', color: { argb: SENTIMENT_COLORS[sentiment].slice(0, 2) + SENTIMENT_COLORS[sentiment].slice(2) + '33' } },
-    },
+    alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
+    border: { bottom: { style: 'medium', color: { argb: SENTIMENT_COLORS[sentiment] + '33' } } },
   });
 }
 
-function sentimentValueCell(
-  ws: ExcelJS.Worksheet,
-  row: number,
-  col: number,
-  value: number,
-  sentiment: CommentSentiment
-) {
+function sentimentValueCell(ws: ExcelJS.Worksheet, row: number, col: number, value: number, sentiment: CommentSentiment) {
   const style: Partial<ExcelJS.Style> =
     value > 0
       ? {
@@ -101,15 +126,12 @@ function sentimentValueCell(
           fill: solidFill(SENTIMENT_HEADER_BG[sentiment]),
           alignment: { horizontal: 'center' },
         }
-      : {
-          font: { color: { argb: MUTED } },
-          alignment: { horizontal: 'center' },
-        };
+      : { font: { color: { argb: MUTED } }, alignment: { horizontal: 'center' } };
   return setCell(ws, row, col, value > 0 ? value : '—', style);
 }
 
-function deltaText(delta: number, suffix = 'pts'): string {
-  if (delta === 0) return 'same';
+function deltaText(delta: number, suffix = ' pts'): string {
+  if (delta === 0) return 'No change';
   return `${delta > 0 ? '+' : ''}${delta}${suffix}`;
 }
 
@@ -129,9 +151,69 @@ function sentimentDeltaFont(sentiment: CommentSentiment, deltaPts: number): Part
   return { bold: true, color: { argb: good ? 'FF2D7A5F' : 'FFB54545' } };
 }
 
+function writeSegmentTable(
+  ws: ExcelJS.Worksheet,
+  startRow: number,
+  rows: { label: string; counts: SentimentCounts; bold?: boolean }[]
+): number {
+  let row = startRow;
+  headerCell(ws, row, 1, 'Segment');
+  headerCell(ws, row, 2, 'Comments');
+  SENTIMENT_ORDER.forEach((s, i) => sentimentHeaderCell(ws, row, 3 + i, s));
+  headerCell(ws, row, 8, 'Happiness');
+  row += 1;
+
+  for (const seg of rows) {
+    if (seg.counts.total === 0 && seg.label !== 'Overall' && seg.label !== 'High-spend ads') continue;
+    const bg = seg.bold ? 'FFF5F8F7' : undefined;
+    setCell(ws, row, 1, seg.label, {
+      font: { bold: !!seg.bold, color: { argb: INK } },
+      fill: bg ? solidFill(bg) : undefined,
+    });
+    setCell(ws, row, 2, seg.counts.total, {
+      font: { bold: true },
+      alignment: { horizontal: 'right' },
+      fill: bg ? solidFill(bg) : undefined,
+    });
+    SENTIMENT_ORDER.forEach((s, i) => sentimentValueCell(ws, row, 3 + i, seg.counts[s], s));
+    setCell(ws, row, 8, `${happinessScore(seg.counts)}%`, {
+      font: { bold: true, color: { argb: 'FF2D7A5F' } },
+      alignment: { horizontal: 'right' },
+      fill: bg ? solidFill(bg) : undefined,
+    });
+    row += 1;
+  }
+  return row;
+}
+
+function buildTopSpendBanner(ws: ExcelJS.Worksheet, row: number, stats: TopSpendCommentStats, endCol: number): number {
+  ws.mergeCells(row, 1, row, endCol);
+  setCell(
+    ws,
+    row,
+    1,
+    `High-spend ads: ${stats.totalComments.toLocaleString()} comments across ${stats.trackedAds} tracked ads (${stats.shareOfPeriod}% of period) · ${stats.negativeAndComplaints} need attention · ${stats.happiness}% happiness on spend`,
+    {
+      font: { size: 10, color: { argb: INK } },
+      fill: solidFill(GOLD_BG),
+      alignment: { wrapText: true, vertical: 'middle' },
+      border: {
+        top: { style: 'thin', color: { argb: LINE } },
+        bottom: { style: 'thin', color: { argb: LINE } },
+        left: { style: 'thin', color: { argb: LINE } },
+        right: { style: 'thin', color: { argb: LINE } },
+      },
+    }
+  );
+  ws.getRow(row).height = 28;
+  return row + 2;
+}
+
 function buildSummarySheet(
   wb: ExcelJS.Workbook,
   report: SentimentReportData,
+  topSpendStats: TopSpendCommentStats,
+  topSpendCounts: SentimentCounts,
   comparison?: SentimentComparisonReport
 ) {
   const ws = wb.addWorksheet('Summary', {
@@ -139,61 +221,63 @@ function buildSummarySheet(
     views: [{ state: 'frozen', ySplit: 3 }],
   });
   ws.columns = [
-    { width: 14 },
+    { width: 18 },
+    { width: 11 },
+    { width: 11 },
+    { width: 11 },
+    { width: 11 },
+    { width: 11 },
+    { width: 11 },
     { width: 12 },
     { width: 12 },
-    { width: 12 },
-    { width: 12 },
-    { width: 12 },
-    { width: 12 },
-    { width: 12 },
-    { width: 14 },
   ];
 
-  const kind = report.period === 'daily' ? 'Daily' : 'Weekly';
+  const kind = report.period === 'daily' ? 'Daily report' : 'Weekly report';
   ws.mergeCells(1, 1, 1, 9);
-  setCell(ws, 1, 1, `MetaDash Sentiment Report — ${report.periodLabel} (${kind})`, {
-    font: { bold: true, size: 14, color: { argb: WHITE } },
+  setCell(ws, 1, 1, `MetaDash Sentiment Report`, {
+    font: { bold: true, size: 16, color: { argb: WHITE } },
     fill: solidFill(BRAND_GREEN),
     alignment: { vertical: 'middle' },
   });
-  ws.getRow(1).height = 28;
+  ws.getRow(1).height = 30;
 
   ws.mergeCells(2, 1, 2, 9);
   setCell(
     ws,
     2,
     1,
-    `US Eastern (${US_TIMEZONE}) · Generated ${formatUsDateTime(report.generatedAt)} · Total ${report.overall.total.toLocaleString()} · Happiness ${happinessScore(report.overall)}%`,
+    `${kind} · ${report.periodLabel} · US Eastern (${US_TIMEZONE}) · Generated ${formatUsDateTime(report.generatedAt)}`,
     {
       font: { size: 10, color: { argb: 'FFE8F5EF' } },
       fill: solidFill(BRAND_GREEN_LIGHT),
-      alignment: { vertical: 'middle' },
+      alignment: { vertical: 'middle', wrapText: true },
     }
   );
   ws.getRow(2).height = 20;
 
   let row = 4;
+  row = buildTopSpendBanner(ws, row, topSpendStats, 9);
+
   if (comparison) {
-    ws.mergeCells(row, 1, row, 5);
-    setCell(ws, row, 1, 'PERIOD COMPARISON', {
+    ws.mergeCells(row, 1, row, 4);
+    setCell(ws, row, 1, 'HOW THIS PERIOD COMPARES', {
       font: { bold: true, size: 9, color: { argb: 'B3FFFFFF' } },
       fill: solidFill(BRAND_GREEN),
     });
-    setCell(ws, row, 6, comparison.compareLabel, {
+    setCell(ws, row, 5, comparison.compareLabel, {
       font: { bold: true, size: 10, color: { argb: WHITE } },
       fill: solidFill(BRAND_GREEN),
     });
-    ws.mergeCells(row, 7, row, 9);
+    ws.mergeCells(row, 6, row, 8);
     setCell(
       ws,
       row,
-      7,
-      `Volume ${comparison.totalDelta > 0 ? '+' : ''}${comparison.totalDelta} · Happiness ${comparison.happinessCurrent}% (was ${comparison.happinessPrevious}%)`,
+      6,
+      `Comment volume ${comparison.totalDelta > 0 ? '+' : ''}${comparison.totalDelta} · Happiness ${comparison.happinessCurrent}% (was ${comparison.happinessPrevious}%)`,
       {
         font: { bold: true, size: 10, color: { argb: WHITE } },
         fill: solidFill(BRAND_GREEN),
-        alignment: { horizontal: 'right' },
+        alignment: { horizontal: 'right', wrapText: true },
       }
     );
     setCell(ws, row, 9, deltaText(comparison.happinessDelta, '%'), {
@@ -201,11 +285,12 @@ function buildSummarySheet(
       fill: solidFill(BRAND_GREEN),
       alignment: { horizontal: 'right' },
     });
-    ws.getRow(row).height = 22;
+    ws.getRow(row).height = 24;
     row += 1;
 
-    ['Sentiment', 'Now %', 'Prior %', 'Change', 'Now #', 'Prior #', 'Change #', '', ''].forEach((h, i) => {
-      if (i < 7) headerCell(ws, row, i + 1, h, 'FF1A3D36');
+    row = sectionTitle(ws, row, 1, 9, 'Sentiment breakdown', 'Share of comments in this period vs the prior period');
+    ['Sentiment', 'This period %', 'Prior period %', 'Change', 'This period #', 'Prior period #', 'Change #'].forEach((h, i) => {
+      headerCell(ws, row, i + 1, h, BRAND_GREEN_DARK);
     });
     row += 1;
 
@@ -222,49 +307,31 @@ function buildSummarySheet(
       });
       setCell(ws, row, 5, d.current, { alignment: { horizontal: 'center' } });
       setCell(ws, row, 6, d.previous, { alignment: { horizontal: 'center' }, font: { color: { argb: MUTED } } });
-      setCell(ws, row, 7, d.deltaCount > 0 ? `+${d.deltaCount}` : d.deltaCount, {
+      setCell(ws, row, 7, d.deltaCount > 0 ? `+${d.deltaCount}` : String(d.deltaCount), {
         alignment: { horizontal: 'center' },
-        font: { color: { argb: d.deltaCount > 0 ? INK : MUTED } },
       });
       row += 1;
     }
     row += 1;
   }
 
-  headerCell(ws, row, 1, 'Segment');
-  headerCell(ws, row, 2, 'Total');
-  SENTIMENT_ORDER.forEach((s, i) => sentimentHeaderCell(ws, row, 3 + i, s));
-  headerCell(ws, row, 8, 'Happy %');
-  row += 1;
-
-  const segmentRows: { label: string; counts: SentimentCounts; bold?: boolean }[] = [
+  row = sectionTitle(
+    ws,
+    row,
+    1,
+    9,
+    'Comments by segment',
+    `${report.overall.total.toLocaleString()} total comments · ${happinessScore(report.overall)}% overall happiness`
+  );
+  row = writeSegmentTable(ws, row, [
     { label: 'Overall', counts: report.overall, bold: true },
+    { label: 'High-spend ads', counts: topSpendCounts },
     { label: 'Facebook', counts: report.byPlatform.facebook },
     { label: 'Instagram', counts: report.byPlatform.instagram },
     { label: 'Nobl', counts: report.byBrand.Nobl },
     { label: 'Flo', counts: report.byBrand.Flo },
     { label: 'Unattributed', counts: report.byBrand.Unattributed },
-  ];
-
-  for (const seg of segmentRows) {
-    if (seg.counts.total === 0 && seg.label !== 'Overall') continue;
-    setCell(ws, row, 1, seg.label, {
-      font: { bold: !!seg.bold, color: { argb: INK } },
-      fill: seg.bold ? solidFill('FFF5F8F7') : undefined,
-    });
-    setCell(ws, row, 2, seg.counts.total, {
-      font: { bold: true },
-      alignment: { horizontal: 'right' },
-      fill: seg.bold ? solidFill('FFF5F8F7') : undefined,
-    });
-    SENTIMENT_ORDER.forEach((s, i) => sentimentValueCell(ws, row, 3 + i, seg.counts[s], s));
-    setCell(ws, row, 8, `${happinessScore(seg.counts)}%`, {
-      font: { bold: true, color: { argb: 'FF2D7A5F' } },
-      alignment: { horizontal: 'right' },
-      fill: seg.bold ? solidFill('FFF5F8F7') : undefined,
-    });
-    row += 1;
-  }
+  ]);
 }
 
 function buildCommentsSheet(
@@ -276,45 +343,62 @@ function buildCommentsSheet(
   headerBg: string,
   accent: string,
   comments: Comment[],
-  ads: Ad[]
+  ads: Ad[],
+  periodTotal: number
 ) {
+  const onTopSpend = countCommentsOnTopSpend(comments, ads);
   const ws = wb.addWorksheet(name, {
     properties: { tabColor: { argb: tabColor } },
-    views: [{ state: 'frozen', ySplit: 3 }],
+    views: [{ state: 'frozen', ySplit: 4 }],
   });
   ws.columns = [
     { width: 5 },
     { width: 18 },
-    { width: 42 },
-    { width: 28 },
+    { width: 44 },
+    { width: 30 },
     { width: 10 },
     { width: 12 },
-    { width: 10 },
+    { width: 11 },
     { width: 16 },
+    { width: 12 },
   ];
 
-  ws.mergeCells(1, 1, 1, 8);
+  ws.mergeCells(1, 1, 1, 9);
   setCell(ws, 1, 1, title, {
-    font: { bold: true, size: 14, color: { argb: accent } },
+    font: { bold: true, size: 15, color: { argb: accent } },
     fill: solidFill(headerBg),
   });
-  ws.mergeCells(2, 1, 2, 8);
+  ws.mergeCells(2, 1, 2, 9);
   setCell(ws, 2, 1, subtitle, {
     font: { size: 10, color: { argb: MUTED } },
     fill: solidFill(headerBg),
+    alignment: { wrapText: true },
   });
-  ws.getRow(1).height = 24;
-  ws.getRow(2).height = 18;
+  ws.mergeCells(3, 1, 3, 9);
+  setCell(
+    ws,
+    3,
+    1,
+    topSpendSubtitle('This tab', comments.length, onTopSpend, periodTotal),
+    {
+      font: { size: 9, italic: true, color: { argb: GOLD } },
+      fill: solidFill(GOLD_BG),
+    }
+  );
+  ws.getRow(1).height = 26;
+  ws.getRow(2).height = 20;
+  ws.getRow(3).height = 18;
 
-  const headers = ['#', 'Commenter', 'Comment', 'Ad / source', 'Brand', 'Sentiment', 'Platform', 'Time'];
-  headers.forEach((h, i) => headerCell(ws, 3, i + 1, h));
+  const headers = ['#', 'Commenter', 'Comment', 'Ad / source', 'Brand', 'Sentiment', 'Platform', 'Time', 'High spend'];
+  headers.forEach((h, i) => headerCell(ws, 4, i + 1, h));
 
-  let row = 4;
+  let row = 5;
   for (const [index, comment] of comments.entries()) {
     const ad = getAdForComment(comment, ads);
     const brand = inferBrandLabel(comment, ad);
     const source = inferSourceCategory(comment, ad);
     const zebra = index % 2 === 0 ? 'FFFDFDFB' : 'FFFFFFFF';
+    const isTopSpend = isCommentOnTopSpendAd(comment, ads);
 
     setCell(ws, row, 1, index + 1, {
       alignment: { horizontal: 'center' },
@@ -345,61 +429,94 @@ function buildCommentsSheet(
       fill: solidFill(zebra),
       font: { size: 9, color: { argb: MUTED } },
     });
-    if (comment.priority === 'Urgent') {
-      ws.getCell(row, 2).note = 'Urgent';
-    }
+    setCell(ws, row, 9, isTopSpend ? 'Yes' : '—', {
+      fill: solidFill(isTopSpend ? GOLD_BG : zebra),
+      font: { bold: isTopSpend, color: { argb: isTopSpend ? GOLD : MUTED } },
+      alignment: { horizontal: 'center' },
+    });
     row += 1;
   }
 
   if (comments.length === 0) {
-    ws.mergeCells(4, 1, 4, 8);
-    setCell(ws, 4, 1, 'No comments in this category for the selected period.', {
+    ws.mergeCells(5, 1, 5, 9);
+    setCell(ws, 5, 1, 'No comments in this category for the selected period.', {
       font: { italic: true, color: { argb: MUTED } },
       alignment: { horizontal: 'center' },
     });
   }
 }
 
-function buildByAdSheet(wb: ExcelJS.Workbook, report: SentimentReportData) {
-  const ws = wb.addWorksheet('By ad', {
-    properties: { tabColor: { argb: TAB_COLORS.ads } },
-    views: [{ state: 'frozen', ySplit: 3 }],
+function buildTopSpendSheet(
+  wb: ExcelJS.Workbook,
+  report: SentimentReportData,
+  ads: Ad[],
+  topSpendStats: TopSpendCommentStats
+) {
+  const rows = buildTopSpendAdRows(report, ads);
+  const ws = wb.addWorksheet('Top spend ads', {
+    properties: { tabColor: { argb: TAB_COLORS.topSpend } },
+    views: [{ state: 'frozen', ySplit: 4 }],
   });
   ws.columns = [
     { width: 5 },
-    { width: 36 },
+    { width: 38 },
     { width: 22 },
     { width: 12 },
-    { width: 8 },
+    { width: 12 },
+    { width: 10 },
+    { width: 10 },
     { width: 8 },
     { width: 8 },
     { width: 8 },
     { width: 8 },
     { width: 8 },
     { width: 10 },
+    { width: 10 },
   ];
 
-  ws.mergeCells(1, 1, 1, 11);
-  setCell(ws, 1, 1, `Comments by ad — ${report.periodLabel}`, {
-    font: { bold: true, size: 14, color: { argb: WHITE } },
+  ws.mergeCells(1, 1, 1, 14);
+  setCell(ws, 1, 1, `Top spend ads — ${report.periodLabel}`, {
+    font: { bold: true, size: 15, color: { argb: WHITE } },
     fill: solidFill(BRAND_GREEN),
   });
-  ws.mergeCells(2, 1, 2, 11);
-  setCell(ws, 2, 1, `${report.byAd.length} ads with comments in period`, {
-    font: { size: 10, color: { argb: 'FFE8F5EF' } },
-    fill: solidFill(BRAND_GREEN_LIGHT),
-  });
+  ws.mergeCells(2, 1, 2, 14);
+  setCell(
+    ws,
+    2,
+    1,
+    `Highest recent spend per brand account · ${rows.length} ads tracked · sorted by spend`,
+    {
+      font: { size: 10, color: { argb: 'FFE8F5EF' } },
+      fill: solidFill(BRAND_GREEN_LIGHT),
+    }
+  );
+  ws.mergeCells(3, 1, 3, 14);
+  setCell(
+    ws,
+    3,
+    1,
+    `${topSpendStats.totalComments.toLocaleString()} comments on high-spend ads (${topSpendStats.shareOfPeriod}% of period) · ${topSpendStats.negativeAndComplaints} negative or complaints`,
+    {
+      font: { size: 9, italic: true, color: { argb: GOLD } },
+      fill: solidFill(GOLD_BG),
+      alignment: { wrapText: true },
+    }
+  );
 
-  headerCell(ws, 3, 1, '#');
-  headerCell(ws, 3, 2, 'Ad name');
-  headerCell(ws, 3, 3, 'Campaign');
-  headerCell(ws, 3, 4, 'Brand');
-  headerCell(ws, 3, 5, 'Total');
-  SENTIMENT_ORDER.forEach((s, i) => sentimentHeaderCell(ws, 3, 6 + i, s));
-  headerCell(ws, 3, 11, 'Happy %');
+  const hdr = 4;
+  headerCell(ws, hdr, 1, '#');
+  headerCell(ws, hdr, 2, 'Ad name');
+  headerCell(ws, hdr, 3, 'Campaign');
+  headerCell(ws, hdr, 4, 'Brand');
+  headerCell(ws, hdr, 5, 'Recent spend');
+  headerCell(ws, hdr, 6, 'Comments');
+  headerCell(ws, hdr, 7, '% of period');
+  SENTIMENT_ORDER.forEach((s, i) => sentimentHeaderCell(ws, hdr, 8 + i, s));
+  headerCell(ws, hdr, 13, 'Happiness');
+  headerCell(ws, hdr, 14, 'Risk');
 
-  let row = 4;
-  for (const [index, adRow] of report.byAd.entries()) {
+  let row = 5;
+  for (const [index, adRow] of rows.entries()) {
     const zebra = index % 2 === 0 ? 'FFF8FAF9' : 'FFFFFFFF';
     setCell(ws, row, 1, index + 1, {
       alignment: { horizontal: 'center' },
@@ -409,18 +526,41 @@ function buildByAdSheet(wb: ExcelJS.Workbook, report: SentimentReportData) {
     setCell(ws, row, 2, adRow.adName, { font: { bold: true }, fill: solidFill(zebra) });
     setCell(ws, row, 3, adRow.campaignName, { fill: solidFill(zebra), font: { color: { argb: MUTED } } });
     setCell(ws, row, 4, adRow.brand, { fill: solidFill(zebra) });
-    setCell(ws, row, 5, adRow.counts.total, {
+    setCell(ws, row, 5, adRow.spendLabel, {
+      font: { bold: true, color: { argb: GOLD } },
+      alignment: { horizontal: 'right' },
+      fill: solidFill(zebra),
+    });
+    setCell(ws, row, 6, adRow.counts.total, {
       font: { bold: true, size: 12 },
       alignment: { horizontal: 'right' },
       fill: solidFill(zebra),
     });
-    SENTIMENT_ORDER.forEach((s, i) => sentimentValueCell(ws, row, 6 + i, adRow.counts[s], s));
-    setCell(ws, row, 11, `${happinessScore(adRow.counts)}%`, {
+    setCell(ws, row, 7, `${adRow.shareOfPeriod}%`, {
+      alignment: { horizontal: 'right' },
+      fill: solidFill(zebra),
+      font: { color: { argb: MUTED } },
+    });
+    SENTIMENT_ORDER.forEach((s, i) => sentimentValueCell(ws, row, 8 + i, adRow.counts[s], s));
+    setCell(ws, row, 13, `${happinessScore(adRow.counts)}%`, {
       font: { bold: true, color: { argb: 'FF2D7A5F' } },
       alignment: { horizontal: 'right' },
       fill: solidFill(zebra),
     });
+    setCell(ws, row, 14, adRow.riskCount, {
+      font: { bold: true, color: { argb: adRow.riskCount > 0 ? 'FFB54545' : MUTED } },
+      alignment: { horizontal: 'center' },
+      fill: solidFill(zebra),
+    });
     row += 1;
+  }
+
+  if (rows.length === 0) {
+    ws.mergeCells(5, 1, 5, 14);
+    setCell(ws, 5, 1, 'No high-spend ads with spend data available.', {
+      font: { italic: true, color: { argb: MUTED } },
+      alignment: { horizontal: 'center' },
+    });
   }
 }
 
@@ -429,11 +569,14 @@ export async function downloadSentimentReportXlsx(
   ads: Ad[],
   comparison?: SentimentComparisonReport
 ): Promise<void> {
+  const topSpendStats = getTopSpendCommentStats(report, ads);
+  const topSpendCounts = aggregateCommentCounts(filterCommentsOnTopSpend(report.comments, ads));
+
   const wb = new ExcelJS.Workbook();
   wb.creator = 'MetaDash';
   wb.created = new Date();
 
-  buildSummarySheet(wb, report, comparison);
+  buildSummarySheet(wb, report, topSpendStats, topSpendCounts, comparison);
 
   const topPositive = topCommentsBySentiment(report.comments, ['Positive'], 40);
   buildCommentsSheet(
@@ -441,11 +584,12 @@ export async function downloadSentimentReportXlsx(
     'Top positive',
     TAB_COLORS.positive,
     'Top positive comments',
-    'Ranked by priority, then newest',
+    'Best customer signals — ranked by priority, then newest first',
     SENTIMENT_HEADER_BG.Positive,
     SENTIMENT_COLORS.Positive,
     topPositive,
-    ads
+    ads,
+    report.overall.total
   );
 
   const topNegative = topCommentsBySentiment(report.comments, ['Complaint', 'Negative'], 40);
@@ -454,14 +598,15 @@ export async function downloadSentimentReportXlsx(
     'Top negative',
     TAB_COLORS.negative,
     'Top negative & complaints',
-    'Complaints and negative sentiment · urgent first',
+    'Issues that may need a fast reply — urgent items first',
     SENTIMENT_HEADER_BG.Complaint,
     SENTIMENT_COLORS.Complaint,
     topNegative,
-    ads
+    ads,
+    report.overall.total
   );
 
-  buildByAdSheet(wb, report);
+  buildTopSpendSheet(wb, report, ads, topSpendStats);
 
   const buffer = await wb.xlsx.writeBuffer();
   const blob = new Blob([buffer], {
