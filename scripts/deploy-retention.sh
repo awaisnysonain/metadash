@@ -9,9 +9,9 @@ git fetch origin main
 git reset --hard origin/main
 
 if ! grep -q '^COMMENT_RETENTION_DAYS=' .env; then
-  echo "COMMENT_RETENTION_DAYS=7" >> .env
+  echo "COMMENT_RETENTION_DAYS=30" >> .env
 else
-  sed -i 's|^COMMENT_RETENTION_DAYS=.*|COMMENT_RETENTION_DAYS=7|' .env
+  sed -i 's|^COMMENT_RETENTION_DAYS=.*|COMMENT_RETENTION_DAYS=30|' .env
 fi
 
 bash scripts/purge-comments-7d.sh

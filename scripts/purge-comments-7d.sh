@@ -9,9 +9,9 @@ pkill -f wait-and-backfill 2>/dev/null || true
 
 # Ensure retention env
 if ! grep -q '^COMMENT_RETENTION_DAYS=' "$APP/.env" 2>/dev/null; then
-  echo "COMMENT_RETENTION_DAYS=7" >> "$APP/.env"
+  echo "COMMENT_RETENTION_DAYS=30" >> "$APP/.env"
 else
-  sed -i 's|^COMMENT_RETENTION_DAYS=.*|COMMENT_RETENTION_DAYS=7|' "$APP/.env"
+  sed -i 's|^COMMENT_RETENTION_DAYS=.*|COMMENT_RETENTION_DAYS=30|' "$APP/.env"
 fi
 
 export PGPASSWORD=erp_meta_dashboard
@@ -30,7 +30,7 @@ psql -h localhost -U erp_meta_dashboard -d erp_meta_dashboard -t -c "SELECT COUN
 
 # Persist retention config for app
 psql -h localhost -U erp_meta_dashboard -d erp_meta_dashboard -c \
-  "INSERT INTO app_config (key, value) VALUES ('comment_retention_days', '7')
+  "INSERT INTO app_config (key, value) VALUES ('comment_retention_days', '30')
    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;"
 
 echo PURGE_OK

@@ -9,6 +9,8 @@ import {
 
 export const US_TIMEZONE = 'America/New_York';
 export const DAY_MS = 24 * 60 * 60 * 1000;
+/** Aligns with comment retention — oldest day available for historical reports. */
+export const SENTIMENT_REPORT_MAX_DAYS = 30;
 
 export const SENTIMENT_ORDER: CommentSentiment[] = [
   'Positive',
@@ -71,32 +73,62 @@ function daysBetweenCalendarDays(earlier: string, later: string): number {
   return Math.round((b.getTime() - a.getTime()) / DAY_MS);
 }
 
-export function isInUsPeriod(
-  iso: string,
-  period: SentimentPeriod,
-  now = Date.now(),
-  tz = US_TIMEZONE
-): boolean {
+export function getUsTodayDay(now = Date.now(), tz = US_TIMEZONE): string {
+  return getUsCalendarDay(now, tz);
+}
+
+export function getUsDayOffset(baseDay: string, offsetDays: number, tz = US_TIMEZONE): string {
+  const d = new Date(`${baseDay}T12:00:00`);
+  d.setDate(d.getDate() + offsetDays);
+  return getUsCalendarDay(d.getTime(), tz);
+}
+
+export function getSentimentReportMinDay(now = Date.now(), tz = US_TIMEZONE): string {
+  return getUsDayOffset(getUsTodayDay(now, tz), -(SENTIMENT_REPORT_MAX_DAYS - 1), tz);
+}
+
+export function isOnUsCalendarDay(iso: string, day: string, tz = US_TIMEZONE): boolean {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return false;
+  return getUsCalendarDay(t, tz) === day;
+}
+
+export function isInUsWeekEnding(iso: string, endDay: string, tz = US_TIMEZONE): boolean {
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return false;
   const commentDay = getUsCalendarDay(t, tz);
-  const todayDay = getUsCalendarDay(now, tz);
-  if (period === 'daily') return commentDay === todayDay;
-  const diff = daysBetweenCalendarDays(commentDay, todayDay);
+  const diff = daysBetweenCalendarDays(commentDay, endDay);
   return diff >= 0 && diff <= 6;
 }
 
-export function getPeriodLabel(period: SentimentPeriod, now = Date.now(), tz = US_TIMEZONE): string {
+export function isInUsPeriod(
+  iso: string,
+  period: SentimentPeriod,
+  anchorDay?: string,
+  now = Date.now(),
+  tz = US_TIMEZONE
+): boolean {
+  const day = anchorDay ?? getUsTodayDay(now, tz);
+  if (period === 'daily') return isOnUsCalendarDay(iso, day, tz);
+  return isInUsWeekEnding(iso, day, tz);
+}
+
+export function getPeriodLabel(
+  period: SentimentPeriod,
+  anchorDayOrNow?: string | number,
+  tz = US_TIMEZONE
+): string {
   const fmt = (day: string) => {
     const d = new Date(`${day}T12:00:00`);
     return d.toLocaleDateString('en-US', { timeZone: tz, month: 'short', day: 'numeric', year: 'numeric' });
   };
-  const today = getUsCalendarDay(now, tz);
-  if (period === 'daily') return fmt(today);
-  const start = new Date(`${today}T12:00:00`);
-  start.setDate(start.getDate() - 6);
-  const startDay = getUsCalendarDay(start.getTime(), tz);
-  return `${fmt(startDay)} – ${fmt(today)}`;
+  const anchorDay =
+    typeof anchorDayOrNow === 'string'
+      ? anchorDayOrNow
+      : getUsTodayDay(typeof anchorDayOrNow === 'number' ? anchorDayOrNow : Date.now(), tz);
+  if (period === 'daily') return fmt(anchorDay);
+  const startDay = getUsDayOffset(anchorDay, -6, tz);
+  return `${fmt(startDay)} – ${fmt(anchorDay)}`;
 }
 
 export function formatUsDateTime(iso: string, tz = US_TIMEZONE): string {
@@ -116,18 +148,21 @@ export function formatUsDateTime(iso: string, tz = US_TIMEZONE): string {
 function filterCommentsForPeriod(
   comments: Comment[],
   period: SentimentPeriod,
+  anchorDay: string,
   now = Date.now()
 ): Comment[] {
-  return comments.filter(c => isInUsPeriod(c.createdAt, period, now));
+  return comments.filter(c => isInUsPeriod(c.createdAt, period, anchorDay, now));
 }
 
 export function buildSentimentReport(
   comments: Comment[],
   ads: Ad[],
   period: SentimentPeriod,
+  anchorDay?: string,
   now = Date.now()
 ): SentimentReportData {
-  const filtered = filterCommentsForPeriod(comments, period, now);
+  const day = anchorDay ?? getUsTodayDay(now);
+  const filtered = filterCommentsForPeriod(comments, period, day, now);
   let overall = emptySentimentCounts();
   const byBrand: Record<BrandLabel, SentimentCounts> = {
     Nobl: emptySentimentCounts(),
@@ -176,7 +211,7 @@ export function buildSentimentReport(
 
   return {
     period,
-    periodLabel: getPeriodLabel(period, now),
+    periodLabel: getPeriodLabel(period, day),
     timezone: US_TIMEZONE,
     generatedAt: new Date(now).toISOString(),
     overall,
@@ -299,9 +334,9 @@ export function downloadSentimentReportCsv(
   const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
-  const stamp = getUsCalendarDay(Date.now()).replace(/-/g, '');
+  const dayStamp = report.periodLabel.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '');
   anchor.href = url;
-  anchor.download = `metadash-sentiment-${report.period}-${stamp}.csv`;
+  anchor.download = `metadash-sentiment-${report.period}-${dayStamp || getUsTodayDay().replace(/-/g, '')}.csv`;
   anchor.click();
   URL.revokeObjectURL(url);
 }
@@ -319,38 +354,35 @@ export function happinessScore(counts: SentimentCounts): number {
   return Math.round((positive / total) * 100);
 }
 
-export function getUsYesterdayDay(now = Date.now(), tz = US_TIMEZONE): string {
-  const today = getUsCalendarDay(now, tz);
-  const d = new Date(`${today}T12:00:00`);
-  d.setDate(d.getDate() - 1);
-  return getUsCalendarDay(d.getTime(), tz);
+export function getUsYesterdayDay(anchorDay?: string, tz = US_TIMEZONE): string {
+  const base = anchorDay ?? getUsTodayDay();
+  return getUsDayOffset(base, -1, tz);
 }
 
-export function isInUsYesterday(iso: string, now = Date.now(), tz = US_TIMEZONE): boolean {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return false;
-  return getUsCalendarDay(t, tz) === getUsYesterdayDay(now, tz);
+export function isInUsYesterday(iso: string, anchorDay?: string, tz = US_TIMEZONE): boolean {
+  return isOnUsCalendarDay(iso, getUsYesterdayDay(anchorDay, tz), tz);
 }
 
-/** Calendar days 7–13 before today (prior week vs current week). */
-export function isInPriorUsWeek(iso: string, now = Date.now(), tz = US_TIMEZONE): boolean {
+/** Calendar days 7–13 before the anchor end day (prior week vs current week). */
+export function isInPriorUsWeek(iso: string, anchorDay?: string, tz = US_TIMEZONE): boolean {
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return false;
+  const endDay = anchorDay ?? getUsTodayDay(undefined, tz);
   const commentDay = getUsCalendarDay(t, tz);
-  const todayDay = getUsCalendarDay(now, tz);
-  const diff = daysBetweenCalendarDays(commentDay, todayDay);
+  const diff = daysBetweenCalendarDays(commentDay, endDay);
   return diff >= 7 && diff <= 13;
 }
 
 function filterCommentsForComparison(
   comments: Comment[],
   period: SentimentPeriod,
-  now = Date.now()
+  anchorDay: string
 ): Comment[] {
   if (period === 'daily') {
-    return comments.filter(c => isInUsYesterday(c.createdAt, now));
+    const prevDay = getUsYesterdayDay(anchorDay);
+    return comments.filter(c => isOnUsCalendarDay(c.createdAt, prevDay));
   }
-  return comments.filter(c => isInPriorUsWeek(c.createdAt, now));
+  return comments.filter(c => isInPriorUsWeek(c.createdAt, anchorDay));
 }
 
 export interface SentimentDelta {
@@ -378,17 +410,19 @@ export function buildSentimentComparison(
   comments: Comment[],
   ads: Ad[],
   period: SentimentPeriod,
+  anchorDay?: string,
   now = Date.now()
 ): SentimentComparisonReport {
-  const current = buildSentimentReport(comments, ads, period, now);
-  const previousFiltered = filterCommentsForComparison(comments, period, now);
+  const day = anchorDay ?? getUsTodayDay(now);
+  const current = buildSentimentReport(comments, ads, period, day, now);
+  const previousFiltered = filterCommentsForComparison(comments, period, day);
   const previousPeriod: SentimentPeriod = period;
-  const previous = buildSentimentReportFromList(previousFiltered, ads, previousPeriod, now, true);
+  const previous = buildSentimentReportFromList(previousFiltered, ads, previousPeriod, day, true);
 
   const compareLabel =
     period === 'daily'
-      ? `vs yesterday (${getPeriodLabel('daily', new Date(`${getUsYesterdayDay(now)}T12:00:00`).getTime())})`
-      : 'vs prior 7 days';
+      ? `vs prior day (${getPeriodLabel('daily', getUsYesterdayDay(day))})`
+      : `vs prior 7 days (${getPeriodLabel('weekly', getUsDayOffset(day, -7))})`;
 
   const deltas: SentimentDelta[] = SENTIMENT_ORDER.map(sentiment => {
     const cur = current.overall[sentiment];
@@ -425,7 +459,7 @@ function buildSentimentReportFromList(
   filtered: Comment[],
   ads: Ad[],
   period: SentimentPeriod,
-  now: number,
+  anchorDay: string,
   isComparison = false
 ): SentimentReportData {
   let overall = emptySentimentCounts();
@@ -472,15 +506,15 @@ function buildSentimentReportFromList(
 
   const periodLabel = isComparison
     ? period === 'daily'
-      ? getPeriodLabel('daily', new Date(`${getUsYesterdayDay(now)}T12:00:00`).getTime())
-      : 'Prior week'
-    : getPeriodLabel(period, now);
+      ? getPeriodLabel('daily', getUsYesterdayDay(anchorDay))
+      : getPeriodLabel('weekly', getUsDayOffset(anchorDay, -7))
+    : getPeriodLabel(period, anchorDay);
 
   return {
     period,
     periodLabel,
     timezone: US_TIMEZONE,
-    generatedAt: new Date(now).toISOString(),
+    generatedAt: new Date().toISOString(),
     overall,
     byBrand,
     bySource,

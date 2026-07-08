@@ -10,6 +10,7 @@ import {
   ThumbsUp,
   ThumbsDown,
   LayoutGrid,
+  Calendar,
 } from 'lucide-react';
 import type { Comment, Ad, CommentSentiment } from '../types';
 import type { InboxFilters } from './UnifiedInbox';
@@ -24,6 +25,8 @@ import {
 import {
   buildSentimentComparison,
   downloadSentimentReportCsv,
+  getSentimentReportMinDay,
+  getUsTodayDay,
   happinessScore,
   SENTIMENT_ORDER,
   sentimentPct,
@@ -287,10 +290,13 @@ export default function SentimentDetailPanel({
 }: SentimentDetailPanelProps) {
   const [period, setPeriod] = useState<SentimentPeriod>('daily');
   const [activeTab, setActiveTab] = useState<PanelTab>('summary');
+  const [selectedDay, setSelectedDay] = useState(() => getUsTodayDay());
+  const todayDay = getUsTodayDay();
+  const minDay = getSentimentReportMinDay();
 
   const comparison = useMemo(
-    () => buildSentimentComparison(comments, ads, period),
-    [comments, ads, period]
+    () => buildSentimentComparison(comments, ads, period, selectedDay),
+    [comments, ads, period, selectedDay]
   );
   const { current: report } = comparison;
 
@@ -366,10 +372,45 @@ export default function SentimentDetailPanel({
                       : { color: 'rgba(255,255,255,0.85)' }
                   }
                 >
-                  {p === 'daily' ? 'Today' : 'Past 7 days'}
+                  {p === 'daily' ? 'Single day' : 'Past 7 days'}
                 </button>
               ))}
             </div>
+
+            <div
+              className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5"
+              style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)' }}
+            >
+              <Calendar className="w-3.5 h-3.5 text-white/80 shrink-0" />
+              <label className="flex flex-col gap-0.5">
+                <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-white/60">
+                  {period === 'daily' ? 'Report date' : 'Week ending'}
+                </span>
+                <input
+                  type="date"
+                  value={selectedDay}
+                  min={minDay}
+                  max={todayDay}
+                  onChange={e => {
+                    const next = e.target.value;
+                    if (next) setSelectedDay(next);
+                  }}
+                  className="bg-transparent text-[13px] font-semibold text-white outline-none cursor-pointer [color-scheme:dark]"
+                  style={{ colorScheme: 'dark' }}
+                />
+              </label>
+              {selectedDay !== todayDay && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDay(todayDay)}
+                  className="ml-1 px-2.5 py-1 rounded-md text-[11px] font-semibold whitespace-nowrap"
+                  style={{ background: 'rgba(255,255,255,0.2)', color: '#FFFFFF' }}
+                >
+                  Today
+                </button>
+              )}
+            </div>
+
             <div className="flex gap-4 ml-auto text-white">
               <div>
                 <p className="text-[10px] uppercase tracking-wide opacity-60">Total comments</p>
@@ -425,7 +466,9 @@ export default function SentimentDetailPanel({
           {report.overall.total === 0 ? (
             <div className="py-20 text-center rounded-2xl" style={{ background: 'var(--color-panel)', border: '1px solid var(--color-line)' }}>
               <p className="text-[15px] font-semibold" style={{ color: 'var(--color-ink)' }}>No comments in this period</p>
-              <p className="text-[13px] mt-1" style={{ color: 'var(--color-muted)' }}>Try switching to the past 7 days view.</p>
+              <p className="text-[13px] mt-1" style={{ color: 'var(--color-muted)' }}>
+                Pick another date (last 30 days) or switch to the 7-day view.
+              </p>
             </div>
           ) : (
             <>

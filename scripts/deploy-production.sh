@@ -34,6 +34,14 @@ ensure_env COMMENT_SYNC_HIGH_SPEND_SKIP_DURING_FULL true
 ensure_env COMMENT_SYNC_ORGANIC_IG_BRAND_ONLY true
 ensure_env COMMENT_SYNC_ORGANIC_IG_BRAND_USERNAMES nobltravel,myflopilates
 
+if ! grep -q '^COMMENT_RETENTION_DAYS=' .env 2>/dev/null; then
+  echo 'COMMENT_RETENTION_DAYS=30' >> .env
+  echo 'Added COMMENT_RETENTION_DAYS=30'
+else
+  sed -i 's|^COMMENT_RETENTION_DAYS=.*|COMMENT_RETENTION_DAYS=30|' .env
+  echo 'Set COMMENT_RETENTION_DAYS=30'
+fi
+
 npm ci
 npm run build
 

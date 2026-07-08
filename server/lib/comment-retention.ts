@@ -3,7 +3,7 @@ import { deleteOldComments, getConfigValue, setConfigValue } from '../db/reposit
 import { isServerDemoMode } from './meta.js';
 
 /** Default retention window — comments older than this are permanently deleted. */
-export const DEFAULT_RETENTION_DAYS = 7;
+export const DEFAULT_RETENTION_DAYS = 30;
 export const MIN_RETENTION_DAYS = 1;
 export const MAX_RETENTION_DAYS = 90;
 
