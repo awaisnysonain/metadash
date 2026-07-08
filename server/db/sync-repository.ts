@@ -157,12 +157,36 @@ export async function markStaleActiveAdsInactive(metaAccountId: string, syncedAf
      SET effective_status = 'INACTIVE',
          configured_status = COALESCE(configured_status, 'INACTIVE'),
          synced_at = NOW()
-     WHERE effective_status = 'ACTIVE'
+     WHERE COALESCE(effective_status, 'ACTIVE') IN ('ACTIVE', '')
        AND REPLACE(COALESCE(meta_account_id, ''), 'act_', '') = $1
        AND (synced_at IS NULL OR synced_at < $2::timestamptz)`,
     [normalizedAccountId, syncedAfterIso]
   );
   return rowCount ?? 0;
+}
+
+/** One-time / boot repair: normalize labels, deactivate orphan rows missing effective_status. */
+export async function repairAdCatalog(): Promise<{ labelsFixed: number; staleDeactivated: number }> {
+  const labelFix = await query(`
+    UPDATE ads SET account_label = 'FLO'
+    WHERE account_label IN ('APP2', 'META2')
+       OR (account_label IS NULL AND LOWER(COALESCE(campaign_name,'') || ' ' || COALESCE(ad_name,'')) ~ '(^|[^a-z0-9])flo')
+  `);
+  const labelFix2 = await query(`
+    UPDATE ads SET account_label = 'NOBL'
+    WHERE account_label IN ('META3', 'META')
+       OR (account_label = 'DEFAULT' AND LOWER(COALESCE(campaign_name,'') || ' ' || COALESCE(ad_name,'')) ~ '(^|[^a-z0-9])nobl')
+  `);
+  const stale = await query(`
+    UPDATE ads
+    SET effective_status = 'INACTIVE',
+        configured_status = COALESCE(configured_status, 'INACTIVE')
+    WHERE effective_status IS NULL
+  `);
+  return {
+    labelsFixed: (labelFix.rowCount ?? 0) + (labelFix2.rowCount ?? 0),
+    staleDeactivated: stale.rowCount ?? 0,
+  };
 }
 
 export async function upsertConnectedPage(row: {

@@ -42,9 +42,10 @@ import {
   PAGE_ACCOUNT_FIELDS,
 } from './meta-graph.js';
 import { getConfiguredMetaAccounts, getPageSyncTokenSources } from './meta-accounts.js';
+import { normalizeAccountLabel } from './brand.js';
 import { mockAds, mockCampaigns, connectedPages } from '../../src/data.js';
 
-const ACTIVE_ADS_SYNC_INTERVAL_MS = Math.max(Number(process.env.ACTIVE_ADS_SYNC_INTERVAL_MINUTES || 15), 5) * 60 * 1000;
+const ACTIVE_ADS_SYNC_INTERVAL_MS = Math.max(Number(process.env.ACTIVE_ADS_SYNC_INTERVAL_MINUTES || 1440), 5) * 60 * 1000;
 let activeAdsRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let activeAdsRefreshRunning = false;
 
@@ -54,6 +55,7 @@ type MetaAdAccount = Awaited<ReturnType<typeof fetchAdAccounts>>[number];
 interface AccountSyncJob {
   config: ConfiguredMetaAccount;
   account: MetaAdAccount;
+  tokenConfigs: ConfiguredMetaAccount[];
 }
 
 export interface SyncOutcome {
@@ -81,6 +83,40 @@ function validateOrError(): SyncOutcome | null {
     return { ok: false, synced: 0, message: check.message!, details: { status: check.status } };
   }
   return null;
+}
+
+function isRetryableMetaError(err: unknown): boolean {
+  if (!(err instanceof MetaApiError)) return false;
+  const message = err.message.toLowerCase();
+  return err.code === 4
+    || err.code === 10
+    || err.code === 17
+    || err.code === 190
+    || err.code === 200
+    || message.includes('application request limit')
+    || message.includes('too many calls')
+    || message.includes('rate limit')
+    || message.includes('permission')
+    || message.includes('invalid or expired');
+}
+
+async function withAccountTokenFallback<T>(
+  configs: ConfiguredMetaAccount[],
+  operation: (config: ConfiguredMetaAccount) => Promise<T>
+): Promise<T> {
+  let lastError: unknown;
+  const seen = new Set<string>();
+  for (const config of configs) {
+    if (seen.has(config.accessToken)) continue;
+    seen.add(config.accessToken);
+    try {
+      return await operation(config);
+    } catch (err) {
+      lastError = err;
+      if (!isRetryableMetaError(err)) throw err;
+    }
+  }
+  throw lastError ?? new MetaApiError('No Meta token available for account sync', { status: 400 });
 }
 
 async function getKnownActiveAdCountsByAccount(): Promise<Map<string, number>> {
@@ -122,7 +158,7 @@ async function buildAccountSyncJobs(configuredAccounts: ConfiguredMetaAccount[])
       if (!account) continue;
       const id = account.id.replace(/^act_/, '');
       const existing = candidatesByAccount.get(id) ?? [];
-      existing.push({ config, account: { ...account, id } });
+      existing.push({ config, account: { ...account, id }, tokenConfigs: [] });
       candidatesByAccount.set(id, existing);
     }
   }
@@ -143,7 +179,8 @@ async function buildAccountSyncJobs(configuredAccounts: ConfiguredMetaAccount[])
     });
     const accountWeight = knownAdCounts.get(accountId) ?? 1;
     profileLoads.set(selected.config.label, (profileLoads.get(selected.config.label) ?? 0) + accountWeight);
-    jobs.push(selected);
+    const tokenConfigs = [selected.config, ...candidates.map(candidate => candidate.config)];
+    jobs.push({ ...selected, tokenConfigs });
   }
 
   warnings.push(
@@ -314,9 +351,8 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
   let deactivatedAds = 0;
   const { jobs, warnings } = await buildAccountSyncJobs(configuredAccounts);
 
-  for (const { config, account } of jobs) {
+  for (const { config, account, tokenConfigs } of jobs) {
       const accountSyncStartedAt = new Date().toISOString();
-      const token = config.accessToken;
       const accountDbId = `meta-act-${account.id.replace(/^act_/, '')}`;
       await upsertAdAccount({
         id: accountDbId,
@@ -336,13 +372,13 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
       let spendMap = new Map<string, number>();
       let recentSpendMap = new Map<string, number>();
       try {
-        spendMap = await fetchAdSpendInsights(account.id, token);
+        spendMap = await withAccountTokenFallback(tokenConfigs, candidate => fetchAdSpendInsights(account.id, candidate.accessToken));
       } catch (err) {
         const msg = err instanceof MetaApiError ? err.message : String(err);
         warnings.push(`Spend skipped for ${config.label} ${account.id}: ${msg}`);
       }
       try {
-        recentSpendMap = await fetchRecentAdSpendInsights(account.id, token);
+        recentSpendMap = await withAccountTokenFallback(tokenConfigs, candidate => fetchRecentAdSpendInsights(account.id, candidate.accessToken));
       } catch (err) {
         const msg = err instanceof MetaApiError ? err.message : String(err);
         warnings.push(`Recent spend skipped for ${config.label} ${account.id}: ${msg}`);
@@ -350,7 +386,7 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
 
       let campaigns: Awaited<ReturnType<typeof fetchCampaigns>>;
       try {
-        campaigns = await fetchCampaigns(account.id, token);
+        campaigns = await withAccountTokenFallback(tokenConfigs, candidate => fetchCampaigns(account.id, candidate.accessToken));
       } catch (err) {
         const msg = err instanceof MetaApiError ? err.message : String(err);
         warnings.push(`Campaigns skipped for ${config.label} ${account.id}: ${msg}`);
@@ -369,14 +405,14 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
           status: mapCampaignStatus(camp.status),
           budget: formatBudget(camp, account.currency),
           metaAccountId: account.id,
-          accountLabel: config.label,
+          accountLabel: normalizeAccountLabel(config.label),
         });
         syncedCampaigns++;
       }
 
       let adsets: Awaited<ReturnType<typeof fetchAdSets>>;
       try {
-        adsets = await fetchAdSets(account.id, token);
+        adsets = await withAccountTokenFallback(tokenConfigs, candidate => fetchAdSets(account.id, candidate.accessToken));
       } catch (err) {
         const msg = err instanceof MetaApiError ? err.message : String(err);
         warnings.push(`Ad sets skipped for ${config.label} ${account.id}: ${msg}`);
@@ -404,7 +440,7 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
 
       let ads: Awaited<ReturnType<typeof fetchAds>>;
       try {
-        ads = await fetchAds(account.id, token, { effectiveStatus: ['ACTIVE'] });
+        ads = await withAccountTokenFallback(tokenConfigs, candidate => fetchAds(account.id, candidate.accessToken, { effectiveStatus: ['ACTIVE'] }));
       } catch (err) {
         const msg = err instanceof MetaApiError ? err.message : String(err);
         console.warn(`[sync] Skipping ads for ${config.label} ${account.id}: ${msg}`);
@@ -421,7 +457,7 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
           !creative.object_story_spec
         ) {
           try {
-            creative = await fetchAdCreative(creative.id, token);
+            creative = await withAccountTokenFallback(tokenConfigs, candidate => fetchAdCreative(creative!.id!, candidate.accessToken));
           } catch {
             /* use partial creative */
           }
@@ -463,7 +499,7 @@ export async function syncAdsFromMeta(): Promise<SyncOutcome> {
           postStoryId,
           spend: adSpend,
           recentSpend,
-          accountLabel: config.label,
+          accountLabel: normalizeAccountLabel(config.label),
           metaAccountId: account.id,
           effectiveStatus: ad.effective_status ?? 'ACTIVE',
           configuredStatus: ad.configured_status ?? ad.status ?? null,
@@ -573,6 +609,8 @@ export async function syncPagesFromMeta(): Promise<SyncOutcome> {
             id: `meta-ig-${igId}`,
             accountId: igId,
             username,
+            linkedPageId: page.id,
+            linkedPageName: page.name,
             followers,
             avatar: igProfile?.profile_picture_url ? igProfile.profile_picture_url : '📸',
             isConnected: true,

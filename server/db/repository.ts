@@ -16,11 +16,26 @@ const ACTIVE_AD_EXISTS = `EXISTS (
     AND a.effective_status = 'ACTIVE'
 )`;
 
-const ORGANIC_COMMENT_EXISTS = `(comments.ad_id IS NULL OR comments.ad_id = '')`;
+const ORGANIC_COMMENT_EXISTS = `(
+  comments.ad_id IS NULL OR comments.ad_id = ''
+  OR comments.campaign_name = 'Organic'
+  OR comments.adset_name = 'Organic'
+  OR comments.ad_name LIKE 'Organic%'
+)`;
 
 const NOT_ARCHIVED = `comments.archived_at IS NULL`;
 
-const VISIBLE_COMMENT_WHERE = `(${NOT_ARCHIVED} AND (${ACTIVE_AD_EXISTS} OR ${ORGANIC_COMMENT_EXISTS}))`;
+const NOT_CONNECTED_ASSET_AUTHOR = `NOT EXISTS (
+  SELECT 1 FROM connected_instagram_accounts cia
+  WHERE LOWER(REGEXP_REPLACE(COALESCE(cia.username, ''), '[^a-zA-Z0-9]', '', 'g')) =
+        LOWER(REGEXP_REPLACE(COALESCE(comments.commenter_name, ''), '[^a-zA-Z0-9]', '', 'g'))
+) AND NOT EXISTS (
+  SELECT 1 FROM connected_pages cp
+  WHERE LOWER(REGEXP_REPLACE(COALESCE(cp.name, ''), '[^a-zA-Z0-9]', '', 'g')) =
+        LOWER(REGEXP_REPLACE(COALESCE(comments.commenter_name, ''), '[^a-zA-Z0-9]', '', 'g'))
+)`;
+
+const VISIBLE_COMMENT_WHERE = `(${NOT_ARCHIVED} AND ${NOT_CONNECTED_ASSET_AUTHOR} AND (${ACTIVE_AD_EXISTS} OR ${ORGANIC_COMMENT_EXISTS}))`;
 
 const ACTIVE_AD_WHERE = `effective_status = 'ACTIVE'`;
 
@@ -89,6 +104,11 @@ export async function getCommentsPaginated(opts: CommentsQuery = {}) {
 
 export async function getCommentById(id: string) {
   const { rows } = await query(`SELECT ${COMMENT_SELECT} FROM comments WHERE id = $1`, [id]);
+  return rows[0] ? rowToComment(rows[0]) : null;
+}
+
+export async function getCommentByMetaId(commentId: string) {
+  const { rows } = await query(`SELECT ${COMMENT_SELECT} FROM comments WHERE comment_id = $1 LIMIT 1`, [commentId]);
   return rows[0] ? rowToComment(rows[0]) : null;
 }
 

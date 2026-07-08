@@ -13,9 +13,12 @@ import {
   getAllActivityLogs,
   getAllTeam,
   getCampaignsWithAds,
+  getAdById,
   getAllRules,
   upsertRules,
   deleteRule,
+  getConfigValue,
+  setConfigValue,
 } from '../db/repository.js';
 import { recordCommentView, getCommentViews, clearCommentViews } from '../db/user-repository.js';
 import { isDatabaseConfigured } from '../db/pool.js';
@@ -24,10 +27,17 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { metaGraphDelete, metaGraphGet, metaGraphPaginate, metaGraphPost, getMetaConfig, MetaApiError } from '../lib/meta.js';
 import { getTokensForAccount } from '../lib/meta-accounts.js';
 import { getPageAccessToken } from '../db/sync-repository.js';
+import { suggestCommentReplies } from '../lib/ai-analysis.js';
 
 export const commentsRouter = Router();
 
 type CommentRecord = NonNullable<Awaited<ReturnType<typeof getCommentById>>>;
+
+interface CachedReplySuggestion {
+  suggestion: string;
+  confidence: number;
+  generatedAt: string;
+}
 
 interface MetaThreadItem {
   id: string;
@@ -291,6 +301,51 @@ commentsRouter.post('/:id/reply', async (req: AuthenticatedRequest, res) => {
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: friendlyMetaActionError(err, 'reply to', undefined) });
+  }
+});
+
+commentsRouter.post('/:id/reply-suggestions', async (req, res) => {
+  try {
+    if (!isDatabaseConfigured()) return res.status(503).json({ error: 'Database not configured' });
+    const comment = await getCommentById(req.params.id);
+    if (!comment) return res.status(404).json({ error: 'Comment not found' });
+    const cacheKey = `reply_suggestion:${comment.id}`;
+    const refresh = req.body?.refresh === true;
+    const cached = await getConfigValue<CachedReplySuggestion | null>(cacheKey, null);
+    if (!refresh && cached?.suggestion) {
+      return res.json({ suggestion: cached.suggestion, suggestions: [cached.suggestion], confidence: cached.confidence, generatedAt: cached.generatedAt, cached: true });
+    }
+
+    const ad = comment.adId ? await getAdById(comment.adId) : null;
+    const existingReplies = Array.isArray(req.body?.replies) ? req.body.replies : [];
+    const result = await suggestCommentReplies({
+      text: comment.commentText,
+      platform: comment.platform,
+      commenterName: comment.commenterName,
+      brand: req.body?.brand,
+      campaignName: comment.campaignName,
+      adName: comment.adName,
+      ad: ad ? {
+        adName: ad.adName,
+        campaignName: ad.campaignName,
+        adsetName: ad.adsetName,
+        accountLabel: ad.accountLabel,
+        headline: ad.headline,
+        description: ad.description,
+        adCopy: ad.adCopy,
+        cta: ad.cta,
+        originalAdUrl: ad.originalAdUrl,
+      } : null,
+      existingReplies: existingReplies.map((reply: Record<string, unknown>) => ({
+        author: String(reply.author || ''),
+        text: String(reply.text || ''),
+      })),
+    });
+    const generatedAt = new Date().toISOString();
+    await setConfigValue(cacheKey, { suggestion: result.suggestion, confidence: result.confidence, generatedAt });
+    res.json({ suggestion: result.suggestion, suggestions: [result.suggestion], confidence: result.confidence, generatedAt, cached: false });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 

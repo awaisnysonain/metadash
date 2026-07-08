@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { getMetaConfig } from '../lib/meta.js';
 import { isDatabaseConfigured, query } from '../db/pool.js';
-import { upsertComment, insertActivityLog, commentExistsByMetaId, getConfigValue, setConfigValue } from '../db/repository.js';
+import { upsertComment, insertActivityLog, commentExistsByMetaId, getCommentByMetaId, updateCommentStatus, getConfigValue, setConfigValue } from '../db/repository.js';
 import { mapWebhookComment } from '../lib/webhook.js';
 import { fallbackAnalyzeComment } from '../lib/ai-analysis.js';
 import { enqueueCommentEnrichment } from '../lib/comment-enrichment-queue.js';
@@ -113,6 +113,56 @@ async function resolveAdContext(input: {
   return null;
 }
 
+function normalizeAuthorKey(value?: string | null): string {
+  return String(value || '').trim().replace(/^@+/, '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+}
+
+async function isConnectedAssetAuthor(authorName?: string | null, authorId?: string | null): Promise<boolean> {
+  if (!isDatabaseConfigured()) return false;
+  const key = normalizeAuthorKey(authorName);
+  const id = String(authorId || '').trim();
+  if (!key && !id) return false;
+
+  const { rows } = await query<{ exists: number }>(
+    `SELECT 1 AS exists
+     FROM connected_instagram_accounts
+     WHERE ($2 <> '' AND account_id = $2)
+        OR ($1 <> '' AND LOWER(REGEXP_REPLACE(COALESCE(username, ''), '[^a-zA-Z0-9]', '', 'g')) = $1)
+     UNION ALL
+     SELECT 1 AS exists
+     FROM connected_pages
+     WHERE ($2 <> '' AND page_id = $2)
+        OR ($1 <> '' AND LOWER(REGEXP_REPLACE(COALESCE(name, ''), '[^a-zA-Z0-9]', '', 'g')) = $1)
+     LIMIT 1`,
+    [key, id]
+  );
+
+  return rows.length > 0;
+}
+
+async function applyBrandReplyToParent(parentCommentId: string, authorName: string): Promise<boolean> {
+  if (!isDatabaseConfigured()) return false;
+  const parent = await getCommentByMetaId(parentCommentId);
+  if (!parent) return false;
+
+  const now = new Date().toISOString();
+  if (parent.status !== 'Replied') {
+    await updateCommentStatus(parent.id, 'Replied', { repliedAt: now });
+    await insertActivityLog({
+      id: `log-wh-reply-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      comment_id: parent.id,
+      user_id: 'system',
+      user_name: 'Webhook',
+      action: 'Meta Reply Detected',
+      old_value: parent.status,
+      new_value: `Reply by ${authorName || 'connected asset'} on Meta`,
+      created_at: now,
+    });
+  }
+
+  return true;
+}
+
 /** GET /api/meta/webhook — Meta verification */
 metaWebhookRouter.get('/', (req, res) => {
   const mode = req.query['hub.mode'];
@@ -174,6 +224,18 @@ metaWebhookRouter.post('/', (req, res) => {
             const commentId = String(value.comment_id || value.id);
             const message = value.message || value.text || '';
             const fromName = value.from?.name || value.username || 'Commenter';
+            const fromId = value.from?.id ? String(value.from.id) : '';
+            const parentCommentId = value.parent_id || value.parent?.id;
+            const isConnectedAuthor = await isConnectedAssetAuthor(String(fromName), fromId);
+            if (parentCommentId) {
+              if (isConnectedAuthor) await applyBrandReplyToParent(String(parentCommentId), String(fromName));
+              if (isDatabaseConfigured()) await incrementWebhookMetric('webhook_non_comment_count');
+              continue;
+            }
+            if (isConnectedAuthor) {
+              if (isDatabaseConfigured()) await incrementWebhookMetric('webhook_non_comment_count');
+              continue;
+            }
             const exists = isDatabaseConfigured() ? await commentExistsByMetaId(commentId) : false;
             const postId = String(value.post_id || value.media?.id || '');
             const permalinkUrl = String(value.permalink_url || value.permalink || '') || (
@@ -197,7 +259,7 @@ metaWebhookRouter.post('/', (req, res) => {
               commentId,
               message,
               fromName,
-              fromId: value.from?.id,
+              fromId,
               profileUrl: value.from?.picture?.data?.url || (value.from?.id ? `https://graph.facebook.com/${encodeURIComponent(String(value.from.id))}/picture?type=large` : undefined),
               createdTime: parseWebhookCreatedTime(value.created_time),
               postId,

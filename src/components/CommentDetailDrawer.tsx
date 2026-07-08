@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Comment, TeamMember, CommentNote, ActivityLog, CommentStatus, CommentPriority, Ad } from '../types';
-import { getAdForComment, formatFullTime, displayCommenterName, commentExternalUrl, commentLinkLabel } from '../utils/helpers';
+import { getAdForComment, formatFullTime, displayCommenterName, commentExternalUrl, inferBrandLabel } from '../utils/helpers';
 import { StatusBadge, PriorityBadge, SentimentBadge, PlatformBadge } from './ui/Badges';
 import AdPreviewPanel from './AdPreviewPanel';
 import CommentAvatar from './CommentAvatar';
@@ -18,6 +18,7 @@ import {
   Users,
   AlertTriangle,
   CheckCheck,
+  Sparkles,
 } from 'lucide-react';
 
 type Toast = { kind: 'success' | 'error'; text: string };
@@ -66,6 +67,9 @@ export default function CommentDetailDrawer({
   const [replyTarget, setReplyTarget] = useState<{ id: string; mention: string; label: string } | null>(null);
   const [replies, setReplies] = useState<MetaThreadItem[]>([]);
   const [loadingReplies, setLoadingReplies] = useState(false);
+  const [replySuggestion, setReplySuggestion] = useState('');
+  const [replySuggestionMeta, setReplySuggestionMeta] = useState<{ confidence?: number; cached?: boolean; generatedAt?: string }>({});
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [repliesError, setRepliesError] = useState('');
   const [editingReplyId, setEditingReplyId] = useState('');
   const [editingText, setEditingText] = useState('');
@@ -87,6 +91,8 @@ export default function CommentDetailDrawer({
     setEditingText('');
     setActionError('');
     setRepliesError('');
+    setReplySuggestion('');
+    setReplySuggestionMeta({});
     setDetailTab('details');
     if (!comment) {
       setReplies([]);
@@ -94,24 +100,47 @@ export default function CommentDetailDrawer({
     }
 
     let cancelled = false;
+    const linkedAd = getAdForComment(comment, ads);
+    const brand = inferBrandLabel(comment, linkedAd);
+    const loadSuggestions = async (threadReplies: MetaThreadItem[]) => {
+      setLoadingSuggestions(true);
+      try {
+        const suggested = await apiClient.getReplySuggestions(comment.id, { brand, replies: threadReplies });
+        if (!cancelled) {
+          setReplySuggestion(suggested.suggestion || suggested.suggestions?.[0] || '');
+          setReplySuggestionMeta({ confidence: suggested.confidence, cached: suggested.cached, generatedAt: suggested.generatedAt });
+        }
+      } catch {
+        if (!cancelled) {
+          setReplySuggestion('');
+          setReplySuggestionMeta({});
+        }
+      } finally {
+        if (!cancelled) setLoadingSuggestions(false);
+      }
+    };
+
     setLoadingReplies(true);
     apiClient.getCommentReplies(comment.id)
       .then(result => {
         if (!cancelled) setReplies(result.items);
+        void loadSuggestions(result.items);
       })
       .catch(err => {
         if (!cancelled) {
-          setReplies([]);
           setRepliesError(err instanceof Error ? err.message : String(err));
+          void loadSuggestions([]);
         }
       })
       .finally(() => {
-        if (!cancelled) setLoadingReplies(false);
+        if (!cancelled) {
+          setLoadingReplies(false);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [comment?.id]);
+  }, [comment?.id, ads]);
 
   if (!comment) return null;
 
@@ -126,7 +155,6 @@ export default function CommentDetailDrawer({
   const seenByText = seenNames.length === 0
     ? comment.seenAt ? 'Seen by team' : 'Unread for everyone'
     : `Seen by ${seenNames.join(', ')}`;
-  const repliesPreview = replies.slice(0, 2);
   const notesPreview = filteredNotes.slice(0, 3);
   const logsPreview = filteredLogs.slice(0, 8);
   const isOrganicComment = !matchingAd || comment.campaignName === 'Organic' || comment.adName?.startsWith('Organic');
@@ -140,6 +168,8 @@ export default function CommentDetailDrawer({
     ? `${ownerName} · Organic / no linked ad`
     : `${matchingAd?.accountLabel || 'Ad account'} · ${comment.campaignName || matchingAd?.campaignName || 'Campaign'} · ${comment.adsetName || matchingAd?.adsetName || 'Ad set'}`;
   const headerThumb = matchingAd?.thumbnailUrl || (matchingAd?.mediaType === 'image' ? matchingAd.mediaUrl : undefined);
+  const brand = inferBrandLabel(comment, matchingAd);
+  const allReplies = replies;
 
   const refreshReplies = async () => {
     setLoadingReplies(true);
@@ -147,11 +177,51 @@ export default function CommentDetailDrawer({
     try {
       const result = await apiClient.getCommentReplies(comment.id);
       setReplies(result.items);
+      setLoadingSuggestions(true);
+      try {
+        const suggested = await apiClient.getReplySuggestions(comment.id, { brand, replies: result.items });
+        setReplySuggestion(suggested.suggestion || suggested.suggestions?.[0] || '');
+        setReplySuggestionMeta({ confidence: suggested.confidence, cached: suggested.cached, generatedAt: suggested.generatedAt });
+      } catch {
+        setReplySuggestion('');
+        setReplySuggestionMeta({});
+      } finally {
+        setLoadingSuggestions(false);
+      }
     } catch (err) {
       setReplies([]);
       setRepliesError(err instanceof Error ? err.message : String(err));
+      setLoadingSuggestions(true);
+      try {
+        const suggested = await apiClient.getReplySuggestions(comment.id, { brand, replies: [] });
+        setReplySuggestion(suggested.suggestion || suggested.suggestions?.[0] || '');
+        setReplySuggestionMeta({ confidence: suggested.confidence, cached: suggested.cached, generatedAt: suggested.generatedAt });
+      } catch {
+        setReplySuggestion('');
+        setReplySuggestionMeta({});
+      } finally {
+        setLoadingSuggestions(false);
+      }
     } finally {
       setLoadingReplies(false);
+    }
+  };
+
+  const useSuggestion = (suggestion: string) => {
+    setReplyText(suggestion);
+    setReplyTarget(null);
+  };
+
+  const regenerateSuggestion = async () => {
+    setLoadingSuggestions(true);
+    try {
+      const suggested = await apiClient.getReplySuggestions(comment.id, { brand, replies, refresh: true });
+      setReplySuggestion(suggested.suggestion || suggested.suggestions?.[0] || '');
+      setReplySuggestionMeta({ confidence: suggested.confidence, cached: suggested.cached, generatedAt: suggested.generatedAt });
+    } catch (err) {
+      notify(`Suggestion failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+    } finally {
+      setLoadingSuggestions(false);
     }
   };
 
@@ -262,19 +332,19 @@ export default function CommentDetailDrawer({
   );
 
   const content = (
-    <div className={`${displayMode === 'drawer' ? 'relative my-4 mr-4 h-[calc(100vh-2rem)] w-full max-w-6xl rounded-[28px] shadow-2xl z-50 border animate-slide-over overflow-y-auto' : 'relative min-h-[720px] rounded-[24px] border shadow-sm'} bg-white flex flex-col border-slate-200`}>
+    <div className={`${displayMode === 'drawer' ? 'relative my-4 mr-4 h-[calc(100vh-2rem)] w-full max-w-7xl rounded-[28px] shadow-2xl z-50 border animate-slide-over overflow-y-auto' : 'relative min-h-[calc(100vh-8rem)] rounded-[26px] border shadow-sm'} bg-white flex flex-col border-slate-200`}>
       {toastNode}
-      <div className="shrink-0 px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-3 bg-white/95">
+      <div className="shrink-0 px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3 bg-white/95">
         <div className="flex min-w-0 items-center gap-3">
           {headerThumb ? (
-            <img src={headerThumb} alt="" className="h-14 w-14 shrink-0 rounded-2xl bg-slate-100 object-cover ring-1 ring-slate-200" referrerPolicy="no-referrer" />
+            <img src={headerThumb} alt="" className="h-16 w-16 shrink-0 rounded-2xl bg-slate-100 object-cover ring-1 ring-slate-200" referrerPolicy="no-referrer" />
           ) : (
-            <div className="h-14 w-14 shrink-0 rounded-2xl bg-slate-100 ring-1 ring-slate-200" />
+            <div className="h-16 w-16 shrink-0 rounded-2xl bg-slate-100 ring-1 ring-slate-200" />
           )}
           <div className="min-w-0">
-            <p className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-slate-400">Comment details</p>
-            <h3 className="detail-line-clamp-2 text-lg font-extrabold leading-tight tracking-tight text-slate-950" title={detailTitle}>{detailTitle}</h3>
-            <p className="truncate text-[11px] font-semibold text-slate-500" title={detailSubtitle}>{detailSubtitle}</p>
+            <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-slate-400">Comment details</p>
+            <h3 className="detail-line-clamp-2 text-sm font-semibold leading-snug text-slate-700" title={detailTitle}>{detailTitle}</h3>
+            <p className="truncate text-sm font-semibold text-slate-500" title={detailSubtitle}>{detailSubtitle}</p>
           </div>
         </div>
         {onClose && (
@@ -284,15 +354,15 @@ export default function CommentDetailDrawer({
         )}
       </div>
 
-      <div className="flex-1 p-3 flex flex-col gap-3">
-        <div className="shrink-0 rounded-2xl border border-slate-200 bg-slate-50/60 p-3">
+      <div className="flex-1 p-4 flex flex-col gap-3.5">
+        <div className="shrink-0 rounded-[22px] border border-slate-200 bg-slate-50/60 p-4">
           <div className="flex items-start gap-3">
             <CommentAvatar comment={comment} size="md" highlight={comment.status === 'Unseen'} />
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <h4 className="truncate text-base font-extrabold text-slate-950">{displayCommenterName(comment.commenterName)}</h4>
-                  <p className="text-[10px] font-medium text-slate-400">{formatFullTime(comment.createdAt)}</p>
+                  <h4 className="truncate text-lg font-extrabold text-slate-950">{displayCommenterName(comment.commenterName)}</h4>
+                  <p className="text-xs font-semibold text-slate-500">{formatFullTime(comment.createdAt)}</p>
                 </div>
                 <div className="flex shrink-0 flex-wrap justify-end gap-1">
                   <PlatformBadge platform={comment.platform} />
@@ -301,14 +371,14 @@ export default function CommentDetailDrawer({
                   <SentimentBadge sentiment={comment.sentiment} />
                 </div>
               </div>
-              <blockquote className="mt-2 whitespace-pre-wrap rounded-xl border border-white bg-white px-3 py-2 text-[13px] font-medium leading-relaxed text-slate-800 shadow-sm">
+              <blockquote className="mt-3 whitespace-pre-wrap rounded-2xl border border-white bg-white px-4 py-3 text-base font-semibold leading-relaxed text-slate-900 shadow-sm">
                 {comment.commentText}
               </blockquote>
-              <div className="mt-2 grid grid-cols-1 gap-2 2xl:grid-cols-[1fr_auto]">
+              <div className="mt-3 grid grid-cols-1 gap-2 2xl:grid-cols-[1fr_auto]">
                 <div className={`rounded-xl border px-3 py-2 ${comment.status === 'Unseen' ? 'border-blue-100 bg-blue-50 text-blue-800' : 'border-slate-100 bg-white text-slate-600'}`}>
                   <div className="flex items-center gap-2">
                     {comment.status === 'Unseen' ? <EyeOff className="h-4 w-4 shrink-0" /> : <Users className="h-4 w-4 shrink-0" />}
-                    <p className="truncate text-[11px] font-extrabold">{comment.status === 'Unseen' ? 'Unread for everyone' : seenByText}</p>
+                    <p className="truncate text-sm font-extrabold">{comment.status === 'Unseen' ? 'Unread for everyone' : seenByText}</p>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
@@ -357,7 +427,7 @@ export default function CommentDetailDrawer({
               key={tab.id}
               type="button"
               onClick={() => setDetailTab(tab.id as typeof detailTab)}
-              className={`rounded-xl px-3 py-2 text-xs font-extrabold transition-colors ${
+              className={`rounded-xl px-3 py-2.5 text-sm font-extrabold transition-colors ${
                 detailTab === tab.id
                   ? 'bg-slate-950 text-white shadow-sm'
                   : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'
@@ -370,97 +440,173 @@ export default function CommentDetailDrawer({
 
         <div className="flex-1">
           {detailTab === 'details' && (
-            <div className="grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)]">
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
               <AdPreviewPanel ad={matchingAd} comment={comment} detail />
 
-              <div className="grid content-start gap-3">
-                <div className="rounded-2xl border border-slate-200 bg-white p-3">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400">Moderation</p>
-                    <p className="text-[10px] font-bold text-slate-400">{loadingReplies ? '...' : `${replies.length} replies`}</p>
-                  </div>
-                  {onModerateComment && (
-                    <div className="grid grid-cols-3 gap-1.5">
-                      <button type="button" disabled={moderating || comment.status === 'Ignored'} onClick={() => void handleModerate(true)} className="rounded-lg bg-slate-950 px-2 py-2 text-[10px] font-extrabold text-white disabled:opacity-50">
-                        {moderating ? '...' : 'Hide'}
-                      </button>
-                      <button type="button" disabled={moderating || comment.status !== 'Ignored'} onClick={() => void handleModerate(false)} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-[10px] font-extrabold text-slate-800 disabled:opacity-50">
-                        {moderating ? '...' : 'Unhide'}
-                      </button>
-                      <button type="button" disabled={Boolean(updatingMetaId)} onClick={() => void handleDeleteMetaComment(comment.commentId)} className="rounded-lg border border-red-200 bg-red-50 px-2 py-2 text-[10px] font-extrabold text-red-700 disabled:opacity-50">
-                        {updatingMetaId === comment.commentId ? '...' : 'Delete'}
-                      </button>
+              <div className="grid content-start gap-3.5">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[11px] font-extrabold uppercase tracking-wide text-slate-400">Moderation</p>
+                      <p className="text-xs font-semibold text-slate-500">{loadingReplies ? 'Loading thread...' : `${replies.length} replies in thread`}</p>
                     </div>
-                  )}
-                  {actionError && <p className="detail-line-clamp-2 mt-2 rounded-lg border border-red-100 bg-red-50 p-2 text-[10px] font-semibold text-red-700">{actionError}</p>}
+                    {onModerateComment && (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          title="Hide on Meta"
+                          disabled={moderating || comment.status === 'Ignored'}
+                          onClick={() => void handleModerate(true)}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm transition-colors hover:bg-slate-950 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <EyeOff className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          title="Unhide on Meta"
+                          disabled={moderating || comment.status !== 'Ignored'}
+                          onClick={() => void handleModerate(false)}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm transition-colors hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          title="Delete on Meta"
+                          disabled={Boolean(updatingMetaId)}
+                          onClick={() => void handleDeleteMetaComment(comment.commentId)}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-100 bg-white text-red-600 shadow-sm transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  {actionError && <p className="mt-2 rounded-lg border border-red-100 bg-red-50 p-2 text-xs font-semibold text-red-700">{actionError}</p>}
                 </div>
 
-                <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400">Public reply</p>
-                    {replyTarget && <button type="button" onClick={() => setReplyTarget(null)} className="text-[10px] font-bold text-slate-500">Cancel target</button>}
+                    <p className="text-[11px] font-extrabold uppercase tracking-wide text-slate-400">Public reply</p>
+                    {replyTarget && <button type="button" onClick={() => setReplyTarget(null)} className="text-xs font-bold text-slate-500">Cancel target</button>}
                   </div>
                   {onReplyToComment && (
                     <form onSubmit={handleReplySubmit} className="space-y-2">
-                      <p className="truncate rounded-lg border border-slate-100 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-500">
+                      <p className="truncate rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600">
                         @{replyTarget?.mention || mentionName}{replyTarget ? ` to ${replyTarget.label}` : ' to original comment'}
                       </p>
+                      <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-2.5">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <p className="inline-flex items-center gap-1.5 text-xs font-extrabold text-blue-800">
+                            <Sparkles className="h-3.5 w-3.5" /> Best suggested reply
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => void regenerateSuggestion()}
+                            disabled={loadingSuggestions}
+                            className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-white px-2 py-1 text-[10px] font-extrabold text-blue-700 transition-colors hover:bg-blue-50 disabled:opacity-50"
+                          >
+                            <RefreshCw className={`h-3 w-3 ${loadingSuggestions ? 'animate-spin' : ''}`} /> New
+                          </button>
+                        </div>
+                        <div className="grid gap-1.5">
+                          {loadingSuggestions && !replySuggestion && (
+                            <p className="rounded-lg border border-blue-100 bg-white px-3 py-2 text-xs font-semibold text-slate-500">Reading the comment and ad details...</p>
+                          )}
+                          {!loadingSuggestions && !replySuggestion && (
+                            <p className="rounded-lg border border-blue-100 bg-white px-3 py-2 text-xs font-semibold text-slate-500">Suggestions unavailable. You can still write your own reply.</p>
+                          )}
+                          {replySuggestion && (
+                            <button
+                              type="button"
+                              onClick={() => useSuggestion(replySuggestion)}
+                              className="rounded-lg border border-blue-100 bg-white px-3 py-2 text-left text-xs font-semibold leading-relaxed text-slate-700 transition-colors hover:border-blue-200 hover:bg-blue-50"
+                            >
+                              <span className="block">{replySuggestion}</span>
+                              <span className="mt-1 block text-[10px] font-bold text-slate-400">
+                                {replySuggestionMeta.cached ? 'Saved suggestion' : 'New suggestion'}
+                                {typeof replySuggestionMeta.confidence === 'number' ? ` · ${Math.round(replySuggestionMeta.confidence * 100)}% confidence` : ''}
+                              </span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
                       <textarea
-                        rows={2}
+                        rows={5}
                         value={replyText}
                         onChange={e => setReplyText(e.target.value)}
                         placeholder="Write a public reply..."
-                        className="h-14 w-full resize-none rounded-xl border border-slate-200 p-2 text-xs focus:ring-2 focus:ring-blue-500/20"
+                        className="min-h-32 w-full resize-y rounded-xl border border-slate-200 p-3 text-sm font-medium leading-relaxed text-slate-900 placeholder:text-slate-400 focus:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                       />
-                      <button type="submit" disabled={replying || !replyText.trim()} className="w-full rounded-xl bg-blue-600 py-2 text-xs font-extrabold text-white transition-colors hover:bg-blue-700 disabled:opacity-50">
+                      <button type="submit" disabled={replying || !replyText.trim()} className="w-full rounded-xl bg-blue-600 py-3 text-sm font-extrabold text-white transition-colors hover:bg-blue-700 disabled:opacity-50">
                         {replying ? 'Sending...' : 'Send reply'}
                       </button>
                     </form>
                   )}
                 </div>
 
-                <div className="rounded-2xl border border-slate-200 bg-white p-3">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400">Replies</p>
-                    <button type="button" onClick={() => void refreshReplies()} className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 hover:text-slate-900">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[11px] font-extrabold uppercase tracking-wide text-slate-400">Comment thread</p>
+                      <p className="text-xs font-semibold text-slate-500">Original comment and Meta replies</p>
+                    </div>
+                    <button type="button" onClick={() => void refreshReplies()} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-500 shadow-sm hover:text-slate-900">
                       <RefreshCw className={`w-3 h-3 ${loadingReplies ? 'animate-spin' : ''}`} /> Refresh
                     </button>
                   </div>
-                  {loadingReplies ? (
-                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-center text-xs text-slate-400">Loading replies...</p>
-                  ) : repliesError ? (
-                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-center text-xs text-slate-400">Replies unavailable from Meta.</p>
-                  ) : replies.length === 0 ? (
-                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-center text-xs text-slate-400">No replies returned.</p>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {repliesPreview.map(reply => (
-                        <div key={reply.id} className="rounded-xl border border-slate-100 bg-slate-50 p-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="truncate text-[11px] font-extrabold text-slate-800">{reply.author}</p>
-                            {reply.hidden && <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[9px] text-slate-600">Hidden</span>}
+                  <div className="space-y-3">
+                    <div className="flex gap-2.5">
+                      <CommentAvatar comment={comment} size="sm" highlight={comment.status === 'Unseen'} />
+                      <div className="min-w-0 flex-1 rounded-2xl rounded-tl-sm border border-slate-200 bg-slate-50 px-3 py-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="truncate text-sm font-extrabold text-slate-950">{displayCommenterName(comment.commenterName)}</p>
+                          <span className="shrink-0 text-[10px] font-semibold text-slate-400">{formatFullTime(comment.createdAt)}</span>
+                        </div>
+                        <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-slate-800">{comment.commentText}</p>
+                      </div>
+                    </div>
+                    {loadingReplies ? (
+                      <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-center text-xs text-slate-400">Loading replies...</p>
+                    ) : repliesError ? (
+                      <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-center text-xs text-slate-400">Replies unavailable from Meta.</p>
+                    ) : allReplies.length === 0 ? (
+                      <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-center text-xs text-slate-400">No replies returned.</p>
+                    ) : (
+                      allReplies.map(reply => (
+                        <div key={reply.id} className="flex gap-2.5 pl-8">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-extrabold text-white">
+                            {(reply.author || '?').slice(0, 1).toUpperCase()}
                           </div>
-                          {editingReplyId === reply.id ? (
-                            <div className="mt-1.5 space-y-1.5">
-                              <textarea rows={2} value={editingText} onChange={e => setEditingText(e.target.value)} className="h-14 w-full resize-none rounded-lg border border-slate-200 p-2 text-xs" />
-                              <div className="flex gap-1.5">
-                                <button type="button" onClick={() => void handleEditMetaComment(reply.id)} disabled={updatingMetaId === reply.id || !editingText.trim()} className="rounded bg-blue-600 px-2 py-1 text-[10px] font-bold text-white disabled:opacity-50">Save</button>
-                                <button type="button" onClick={() => { setEditingReplyId(''); setEditingText(''); }} className="rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold">Cancel</button>
+                          <div className="min-w-0 flex-1 rounded-2xl rounded-tl-sm border border-slate-100 bg-white px-3 py-2.5 shadow-sm">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="truncate text-sm font-extrabold text-slate-800">{reply.author}</p>
+                              <div className="flex shrink-0 items-center gap-1.5">
+                                {reply.hidden && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-500">Hidden</span>}
+                                {reply.createdAt && <span className="text-[10px] font-semibold text-slate-400">{formatFullTime(reply.createdAt)}</span>}
                               </div>
                             </div>
-                          ) : (
-                            <p className="detail-line-clamp-2 mt-1 text-[11px] text-slate-600">{reply.text}</p>
-                          )}
-                          <div className="mt-1.5 flex flex-wrap gap-1.5">
-                            <button type="button" onClick={() => setReplyTarget({ id: reply.id, mention: reply.username || reply.author, label: reply.author })} className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-1.5 py-1 text-[10px] font-bold text-slate-700"><MessageSquareReply className="w-3 h-3" /> Reply</button>
-                            <button type="button" onClick={() => { setEditingReplyId(reply.id); setEditingText(reply.text); }} className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-1.5 py-1 text-[10px] font-bold text-slate-700"><Pencil className="w-3 h-3" /> Edit</button>
-                            <button type="button" disabled={updatingMetaId === reply.id} onClick={() => void handleDeleteMetaComment(reply.id)} className="inline-flex items-center gap-1 rounded border border-red-100 bg-red-50 px-1.5 py-1 text-[10px] font-bold text-red-700 disabled:opacity-50"><Trash2 className="w-3 h-3" /> Del</button>
+                            {editingReplyId === reply.id ? (
+                              <div className="mt-2 space-y-2">
+                                <textarea rows={3} value={editingText} onChange={e => setEditingText(e.target.value)} className="min-h-20 w-full resize-y rounded-lg border border-slate-200 p-2 text-sm" />
+                                <div className="flex gap-1.5">
+                                  <button type="button" onClick={() => void handleEditMetaComment(reply.id)} disabled={updatingMetaId === reply.id || !editingText.trim()} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50">Save</button>
+                                  <button type="button" onClick={() => { setEditingReplyId(''); setEditingText(''); }} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold">Cancel</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{reply.text}</p>
+                            )}
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              <button type="button" onClick={() => setReplyTarget({ id: reply.id, mention: reply.username || reply.author, label: reply.author })} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-50"><MessageSquareReply className="w-3 h-3" /> Reply</button>
+                              <button type="button" onClick={() => { setEditingReplyId(reply.id); setEditingText(reply.text); }} className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" title="Edit reply"><Pencil className="w-3 h-3" /></button>
+                              <button type="button" disabled={updatingMetaId === reply.id} onClick={() => void handleDeleteMetaComment(reply.id)} className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-red-100 bg-white text-red-600 hover:bg-red-50 disabled:opacity-50" title="Delete reply"><Trash2 className="w-3 h-3" /></button>
+                            </div>
                           </div>
                         </div>
-                      ))}
-                      {replies.length > repliesPreview.length && <p className="text-[10px] font-bold text-slate-400">+{replies.length - repliesPreview.length} more replies on Meta</p>}
-                    </div>
-                  )}
+                      ))
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

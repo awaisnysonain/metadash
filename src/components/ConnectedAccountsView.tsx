@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Comment, Ad } from '../types';
 import { apiClient } from '../services/apiClient';
 import { getCommentsForCampaign, formatSpend } from '../utils/campaignHelpers';
+import { inferBrandLabel } from '../utils/helpers';
 import {
   Facebook,
   Instagram,
@@ -32,6 +33,7 @@ export default function ConnectedAccountsView({ comments, ads, onNavigateToInbox
   const [data, setData] = useState<ConnectedData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [activeTopSpendBrand, setActiveTopSpendBrand] = useState<'NOBL' | 'FLO'>('NOBL');
 
   useEffect(() => {
     apiClient.getConnectedAccounts()
@@ -56,7 +58,15 @@ export default function ConnectedAccountsView({ comments, ads, onNavigateToInbox
 
   const fbComments = comments.filter(c => c.platform === 'facebook').length;
   const igComments = comments.filter(c => c.platform === 'instagram').length;
-  const topAds = data?.topAds ?? [...ads].sort((a, b) => (b.recentSpend ?? b.spend ?? 0) - (a.recentSpend ?? a.spend ?? 0)).slice(0, 15);
+  const allTopAds = data?.topAds ?? [...ads].sort((a, b) => (b.recentSpend ?? b.spend ?? 0) - (a.recentSpend ?? a.spend ?? 0)).slice(0, 20);
+  const topAds = allTopAds
+    .filter(ad => inferBrandLabel(undefined, ad) === (activeTopSpendBrand === 'NOBL' ? 'Nobl' : 'Flo'))
+    .sort((a, b) => (b.recentSpend ?? b.spend ?? 0) - (a.recentSpend ?? a.spend ?? 0))
+    .slice(0, 10);
+  const topSpendCounts = {
+    NOBL: allTopAds.filter(ad => inferBrandLabel(undefined, ad) === 'Nobl').length,
+    FLO: allTopAds.filter(ad => inferBrandLabel(undefined, ad) === 'Flo').length,
+  };
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -191,12 +201,36 @@ export default function ConnectedAccountsView({ comments, ads, onNavigateToInbox
 
       {/* Top ads by spend */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
-          <TrendingUp className="w-4 h-4 text-amber-500" />
-          <h3 className="font-semibold text-slate-900">Top Ads by Spend (last 7 days)</h3>
+        <div className="px-4 py-3 border-b border-slate-100 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-amber-500" />
+            <div>
+              <h3 className="font-semibold text-slate-900">Top Ads by Spend (today + yesterday)</h3>
+              <p className="text-xs text-slate-500">High spend ads are prioritized first in every comment sync batch.</p>
+            </div>
+          </div>
+          <div className="inline-flex rounded-xl border border-slate-200 bg-slate-100 p-1">
+            {(['NOBL', 'FLO'] as const).map(brand => (
+              <button
+                key={brand}
+                type="button"
+                onClick={() => setActiveTopSpendBrand(brand)}
+                className={`rounded-lg px-4 py-1.5 text-sm font-extrabold transition-colors ${
+                  activeTopSpendBrand === brand
+                    ? 'bg-slate-950 text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-white hover:text-slate-950'
+                }`}
+              >
+                {brand === 'NOBL' ? 'Nobl' : 'Flo'}
+                <span className={`ml-1.5 rounded px-1.5 py-0.5 text-[10px] ${activeTopSpendBrand === brand ? 'bg-white/20' : 'bg-white text-slate-500'}`}>
+                  {topSpendCounts[brand]}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
         {topAds.length === 0 ? (
-          <p className="p-5 text-sm text-slate-500">No spend data yet. Sync ads to load spend insights.</p>
+          <p className="p-5 text-sm text-slate-500">No {activeTopSpendBrand === 'NOBL' ? 'Nobl' : 'Flo'} spend data yet. Sync ads to load today/yesterday spend insights.</p>
         ) : (
           <div className="grid grid-cols-1 gap-2 p-3 xl:grid-cols-2 2xl:grid-cols-3">
             {topAds.map((ad, i) => {

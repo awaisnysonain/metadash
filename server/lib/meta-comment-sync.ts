@@ -1,5 +1,5 @@
 import { isDatabaseConfigured, hasDatabaseUrl } from '../db/pool.js';
-import { getAdsForCommentSync, upsertComment, insertActivityLog, commentExistsByMetaId, getConfigValue, setConfigValue } from '../db/repository.js';
+import { getAdsForCommentSync, upsertComment, insertActivityLog, commentExistsByMetaId, getCommentByMetaId, updateCommentStatus, getConfigValue, setConfigValue } from '../db/repository.js';
 import {
   realignCommentPlatformsFromAds,
   getPageAccessToken,
@@ -18,6 +18,7 @@ import { mapSyncedComment } from './webhook.js';
 import { syncErrorMessage, syncPagesFromMeta, syncAdsFromMeta } from './meta-sync-service.js';
 import { query } from '../db/pool.js';
 import { fallbackAnalyzeComment, type CommentAnalysis } from './ai-analysis.js';
+import { resolveBrandCode } from './brand.js';
 import { enqueueCommentEnrichment } from './comment-enrichment-queue.js';
 
 type SyncAd = Awaited<ReturnType<typeof getAdsForCommentSync>>[number];
@@ -70,6 +71,8 @@ interface ProcessAdsResult {
   adsChecked: number;
   skipReasons: Record<string, number>;
   errors: string[];
+  /** Ads that hit fetch errors — eligible for a same-run retry without advancing watermarks. */
+  failedAds: SyncAd[];
 }
 
 interface ParallelProcessAdsResult extends ProcessAdsResult {
@@ -87,6 +90,7 @@ interface AdsSelection {
   cursor: number | null;
   tokenLaneCursors?: Record<string, number>;
   laneSizes?: number[];
+  pinnedHighSpendCount?: number;
 }
 
 const BACKFILL_DAYS = 730;
@@ -97,6 +101,8 @@ const PARALLEL_TOKEN_LANES = process.env.COMMENT_SYNC_PARALLEL_TOKEN_LANES !== '
 const PER_TOKEN_AD_LIMIT = Math.max(Number(process.env.MAX_COMMENT_SYNC_ADS_PER_TOKEN_PER_RUN || process.env.MAX_COMMENT_SYNC_ADS_PER_RUN || 75), 1);
 const AD_CONCURRENCY_PER_TOKEN = Math.min(Math.max(Number(process.env.COMMENT_SYNC_AD_CONCURRENCY_PER_TOKEN || 3), 1), 8);
 const INSTAGRAM_PRIORITY_AD_LIMIT = Math.max(Number(process.env.COMMENT_SYNC_INSTAGRAM_PRIORITY_ADS_PER_TOKEN_PER_RUN || PER_TOKEN_AD_LIMIT), 0);
+const REGULAR_ADS_PER_TOKEN_RESERVE = Math.min(Math.max(Number(process.env.COMMENT_SYNC_REGULAR_ADS_PER_TOKEN_RESERVE || 10), 0), PER_TOKEN_AD_LIMIT);
+const HIGH_SPEND_PINNED_ADS_PER_BRAND = Math.max(Number(process.env.COMMENT_SYNC_HIGH_SPEND_ADS_PER_BRAND || 10), 0);
 const FACEBOOK_WATERMARK_OVERLAP_SECONDS = Math.max(Number(process.env.COMMENT_SYNC_WATERMARK_OVERLAP_MINUTES || 60), 0) * 60;
 const INSTAGRAM_WATERMARK_OVERLAP_SECONDS = Math.max(Number(process.env.COMMENT_SYNC_INSTAGRAM_WATERMARK_OVERLAP_HOURS || 24), 0) * 60 * 60;
 const INSTAGRAM_INITIAL_LOOKBACK_SECONDS = Math.max(Number(process.env.COMMENT_SYNC_INSTAGRAM_LOOKBACK_HOURS || 24), 1) * 60 * 60;
@@ -114,6 +120,8 @@ const ORGANIC_SYNC_ENABLED = process.env.COMMENT_SYNC_ORGANIC !== 'false';
 const ORGANIC_LOOKBACK_HOURS = Math.max(Number(process.env.COMMENT_SYNC_ORGANIC_LOOKBACK_HOURS || 72), 1);
 const ORGANIC_MEDIA_PER_ACCOUNT = Math.min(Math.max(Number(process.env.COMMENT_SYNC_ORGANIC_MEDIA_PER_ACCOUNT || 25), 1), 100);
 const ORGANIC_ACCOUNT_CONCURRENCY = Math.min(Math.max(Number(process.env.COMMENT_SYNC_ORGANIC_CONCURRENCY || 3), 1), 8);
+const FULL_COVERAGE_AD_LIMIT = Math.max(Number(process.env.COMMENT_SYNC_FULL_COVERAGE_AD_LIMIT || 5000), 1);
+const FULL_COVERAGE_MODE = process.env.COMMENT_SYNC_FULL_COVERAGE !== 'false';
 const AD_CURSOR_CONFIG_KEY = 'comment_sync_ad_cursor';
 const TOKEN_CURSOR_CONFIG_KEY = 'comment_sync_token_lane_cursors';
 const AD_WATERMARKS_CONFIG_KEY = 'comment_sync_ad_watermarks';
@@ -212,15 +220,68 @@ async function sinceTimestamp(mode: 'incremental' | 'backfill'): Promise<number>
   return Math.floor((now - INCREMENTAL_FALLBACK_HOURS * 60 * 60 * 1000) / 1000);
 }
 
-async function selectAdsForMode<T>(ads: T[], mode: 'incremental' | 'backfill'): Promise<{ selected: T[]; cursor: number | null }> {
-  if (mode === 'backfill' || ads.length <= INCREMENTAL_AD_LIMIT) return { selected: ads, cursor: null };
+function normalizedBrandLabel(ad: SyncAd): 'NOBL' | 'FLO' | null {
+  return resolveBrandCode({
+    accountLabel: ad.accountLabel,
+    campaignName: ad.campaignName,
+    adName: ad.adName,
+  });
+}
 
-  const cursor = Math.min(Math.max(await getConfigValue<number>(AD_CURSOR_CONFIG_KEY, 0), 0), ads.length - 1);
-  const selected = [...ads.slice(cursor, cursor + INCREMENTAL_AD_LIMIT)];
-  if (selected.length < INCREMENTAL_AD_LIMIT) {
-    selected.push(...ads.slice(0, INCREMENTAL_AD_LIMIT - selected.length));
+function highSpendScore(ad: SyncAd): number {
+  return Number(ad.recentSpend ?? 0) || Number(ad.spend ?? 0) || 0;
+}
+
+function getPinnedHighSpendAds(ads: SyncAd[]): SyncAd[] {
+  if (HIGH_SPEND_PINNED_ADS_PER_BRAND <= 0) return [];
+
+  const pinned: SyncAd[] = [];
+  for (const brand of ['NOBL', 'FLO'] as const) {
+    pinned.push(
+      ...ads
+        .filter(ad => normalizedBrandLabel(ad) === brand && highSpendScore(ad) > 0)
+        .sort((a, b) => highSpendScore(b) - highSpendScore(a))
+        .slice(0, HIGH_SPEND_PINNED_ADS_PER_BRAND)
+    );
   }
-  return { selected, cursor: (cursor + selected.length) % ads.length };
+
+  const seen = new Set<string>();
+  return pinned.filter(ad => {
+    const key = ad.id || ad.adId;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function uniqueAds(ads: SyncAd[]): SyncAd[] {
+  const seen = new Set<string>();
+  return ads.filter(ad => {
+    const key = ad.id || ad.adId;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function selectAdsForMode(ads: SyncAd[], mode: 'incremental' | 'backfill'): Promise<AdsSelection> {
+  if (mode === 'backfill' || ads.length <= INCREMENTAL_AD_LIMIT) return { selected: ads, cursor: null, pinnedHighSpendCount: 0 };
+
+  const pinnedHighSpendAds = getPinnedHighSpendAds(ads);
+  const pinnedIds = new Set(pinnedHighSpendAds.map(ad => ad.id || ad.adId));
+  const rotatingAds = ads.filter(ad => !pinnedIds.has(ad.id || ad.adId));
+  if (rotatingAds.length === 0) return { selected: pinnedHighSpendAds, cursor: null, pinnedHighSpendCount: pinnedHighSpendAds.length };
+
+  const cursor = Math.min(Math.max(await getConfigValue<number>(AD_CURSOR_CONFIG_KEY, 0), 0), rotatingAds.length - 1);
+  const selected = [...rotatingAds.slice(cursor, cursor + INCREMENTAL_AD_LIMIT)];
+  if (selected.length < INCREMENTAL_AD_LIMIT) {
+    selected.push(...rotatingAds.slice(0, INCREMENTAL_AD_LIMIT - selected.length));
+  }
+  return {
+    selected: uniqueAds([...pinnedHighSpendAds, ...selected]),
+    cursor: (cursor + selected.length) % rotatingAds.length,
+    pinnedHighSpendCount: pinnedHighSpendAds.length,
+  };
 }
 
 function selectFromCursor<T>(items: T[], limit: number, cursor: number): T[] {
@@ -259,6 +320,54 @@ function shouldProbeInstagramAd(ad: SyncAd): boolean {
   return IG_DISCOVERY_FOR_FB_ADS;
 }
 
+function normalizeAuthorKey(value?: string | null): string {
+  return String(value || '').trim().replace(/^@+/, '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+}
+
+async function isConnectedAssetAuthor(authorName?: string | null, authorId?: string | null): Promise<boolean> {
+  const key = normalizeAuthorKey(authorName);
+  const id = String(authorId || '').trim();
+  if (!key && !id) return false;
+
+  const { rows } = await query<{ exists: number }>(
+    `SELECT 1 AS exists
+     FROM connected_instagram_accounts
+     WHERE ($2 <> '' AND account_id = $2)
+        OR ($1 <> '' AND LOWER(REGEXP_REPLACE(COALESCE(username, ''), '[^a-zA-Z0-9]', '', 'g')) = $1)
+     UNION ALL
+     SELECT 1 AS exists
+     FROM connected_pages
+     WHERE ($2 <> '' AND page_id = $2)
+        OR ($1 <> '' AND LOWER(REGEXP_REPLACE(COALESCE(name, ''), '[^a-zA-Z0-9]', '', 'g')) = $1)
+     LIMIT 1`,
+    [key, id]
+  );
+
+  return rows.length > 0;
+}
+
+async function applyBrandReplyToParent(parentCommentId: string, authorName: string): Promise<boolean> {
+  const parent = await getCommentByMetaId(parentCommentId);
+  if (!parent) return false;
+
+  const now = new Date().toISOString();
+  if (parent.status !== 'Replied') {
+    await updateCommentStatus(parent.id, 'Replied', { repliedAt: now });
+    await insertActivityLog({
+      id: `log-sync-reply-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      comment_id: parent.id,
+      user_id: 'system',
+      user_name: 'Sync',
+      action: 'Meta Reply Detected',
+      old_value: parent.status,
+      new_value: `Reply by ${authorName || 'connected asset'} on Meta`,
+      created_at: now,
+    });
+  }
+
+  return true;
+}
+
 function platformSince(
   ctx: ProcessAdsContext,
   ad: SyncAd,
@@ -291,17 +400,52 @@ function hashString(value: string): number {
   return hash;
 }
 
-function selectTokenForAd(ad: SyncAd): string | null {
+function tokensForAd(ad: SyncAd): string[] {
   const tokens = ad.metaAccountId
     ? getTokensForAccount(ad.metaAccountId, ad.accountLabel)
     : getTokensForAccount(ad.accountLabel || '');
-  if (tokens.length === 0) return getMetaConfig().accessToken?.trim() || null;
-  return tokens[hashString(ad.adId || ad.id) % tokens.length];
+  const fallback = getMetaConfig().accessToken?.trim();
+  const unique = [...new Set([...tokens, fallback].filter((token): token is string => Boolean(token?.trim())))];
+  if (unique.length <= 1) return unique;
+  const primaryIndex = hashString(ad.adId || ad.id) % unique.length;
+  return [...unique.slice(primaryIndex), ...unique.slice(0, primaryIndex)];
+}
+
+function selectTokenForAd(ad: SyncAd): string | null {
+  return tokensForAd(ad)[0] ?? null;
 }
 
 function getTokenLaneKey(ad: SyncAd): string {
   const token = selectTokenForAd(ad) ?? 'default';
   return hashString(token).toString(36);
+}
+
+function shouldTryNextToken(err: unknown): boolean {
+  if (!(err instanceof MetaApiError)) return false;
+  const message = err.message.toLowerCase();
+  return err.code === 4
+    || err.code === 10
+    || err.code === 17
+    || err.code === 190
+    || err.code === 200
+    || message.includes('application request limit')
+    || message.includes('too many calls')
+    || message.includes('rate limit')
+    || message.includes('permission')
+    || message.includes('invalid or expired');
+}
+
+async function withTokenFallback<T>(tokens: string[], operation: (token: string) => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (const token of tokens) {
+    try {
+      return await operation(token);
+    } catch (err) {
+      lastError = err;
+      if (!shouldTryNextToken(err)) throw err;
+    }
+  }
+  throw lastError ?? new MetaApiError('No Meta token available for this ad', { status: 400 });
 }
 
 function groupAdsByTokenLane(ads: SyncAd[]): TokenLane[] {
@@ -316,28 +460,42 @@ function groupAdsByTokenLane(ads: SyncAd[]): TokenLane[] {
 }
 
 async function selectAdsForCommentRun(ads: SyncAd[], mode: 'incremental' | 'backfill'): Promise<AdsSelection> {
+  // Process every active ad each cycle when under the coverage cap (production default).
+  if (FULL_COVERAGE_MODE && mode === 'incremental' && ads.length > 0 && ads.length <= FULL_COVERAGE_AD_LIMIT) {
+    return {
+      selected: uniqueAds(ads),
+      cursor: null,
+      pinnedHighSpendCount: getPinnedHighSpendAds(ads).length,
+    };
+  }
+
   if (mode !== 'incremental' || !PARALLEL_TOKEN_LANES) {
     return selectAdsForMode(ads, mode);
   }
 
   const lanes = groupAdsByTokenLane(ads);
+  const pinnedHighSpendAds = getPinnedHighSpendAds(ads);
+  const pinnedHighSpendIds = new Set(pinnedHighSpendAds.map(ad => ad.id || ad.adId));
   const laneCursors = await getConfigValue<Record<string, number>>(TOKEN_CURSOR_CONFIG_KEY, {});
   const nextCursors: Record<string, number> = { ...laneCursors };
   const selected: SyncAd[] = [];
   const laneSizes: number[] = [];
 
   for (const lane of lanes) {
-    const priorityLimit = Math.min(INSTAGRAM_PRIORITY_AD_LIMIT, PER_TOKEN_AD_LIMIT);
-    const priorityAds = priorityLimit > 0 ? lane.ads.filter(shouldPrioritizeInstagramAd) : [];
+    const lanePinnedAds = lane.ads.filter(ad => pinnedHighSpendIds.has(ad.id || ad.adId));
+    const regularCandidateCount = lane.ads.filter(ad => !pinnedHighSpendIds.has(ad.id || ad.adId) && !shouldPrioritizeInstagramAd(ad)).length;
+    const regularReserve = regularCandidateCount > 0 ? REGULAR_ADS_PER_TOKEN_RESERVE : 0;
+    const priorityLimit = Math.min(INSTAGRAM_PRIORITY_AD_LIMIT, Math.max(PER_TOKEN_AD_LIMIT - regularReserve, 0));
+    const priorityAds = priorityLimit > 0 ? lane.ads.filter(ad => !pinnedHighSpendIds.has(ad.id || ad.adId) && shouldPrioritizeInstagramAd(ad)) : [];
     const priorityCursorKey = `${lane.key}:instagram`;
     const priorityCursor = priorityAds.length > 0
       ? Math.min(Math.max(Number(laneCursors[priorityCursorKey] ?? 0), 0), priorityAds.length - 1)
       : 0;
     const prioritySelected = priorityAds.length <= priorityLimit
       ? priorityAds
-      : selectFromCursor(priorityAds, priorityLimit, priorityCursor);
+        : selectFromCursor(priorityAds, priorityLimit, priorityCursor);
     const priorityIds = new Set(prioritySelected.map(ad => ad.id));
-    const regularAds = lane.ads.filter(ad => !priorityIds.has(ad.id));
+    const regularAds = lane.ads.filter(ad => !pinnedHighSpendIds.has(ad.id || ad.adId) && !priorityIds.has(ad.id) && !shouldPrioritizeInstagramAd(ad));
     const regularLimit = Math.max(PER_TOKEN_AD_LIMIT - prioritySelected.length, 0);
     const regularCursorKey = `${lane.key}:regular`;
     const regularCursor = regularAds.length > 0
@@ -348,7 +506,7 @@ async function selectAdsForCommentRun(ads: SyncAd[], mode: 'incremental' | 'back
       : regularAds.length <= regularLimit
         ? regularAds
         : selectFromCursor(regularAds, regularLimit, regularCursor);
-    const laneSelected = [...prioritySelected, ...regularSelected];
+    const laneSelected = uniqueAds([...lanePinnedAds, ...prioritySelected, ...regularSelected]);
     selected.push(...laneSelected);
     laneSizes.push(laneSelected.length);
     nextCursors[priorityCursorKey] = priorityAds.length > 0 ? (priorityCursor + prioritySelected.length) % priorityAds.length : 0;
@@ -356,7 +514,7 @@ async function selectAdsForCommentRun(ads: SyncAd[], mode: 'incremental' | 'back
     nextCursors[lane.key] = lane.ads.length > 0 ? ((laneCursors[lane.key] ?? 0) + laneSelected.length) % lane.ads.length : 0;
   }
 
-  return { selected, cursor: null, tokenLaneCursors: nextCursors, laneSizes };
+  return { selected: uniqueAds(selected), cursor: null, tokenLaneCursors: nextCursors, laneSizes, pinnedHighSpendCount: pinnedHighSpendAds.length };
 }
 
 function mergeProcessAdsResults(results: ProcessAdsResult[]): ProcessAdsResult {
@@ -368,7 +526,9 @@ function mergeProcessAdsResults(results: ProcessAdsResult[]): ProcessAdsResult {
     adsChecked: 0,
     skipReasons: { no_story: 0, fetch_error: 0, ignored_page: 0 },
     errors: [],
+    failedAds: [],
   };
+  const failedIds = new Set<string>();
   for (const result of results) {
     merged.synced += result.synced;
     merged.adsProcessed += result.adsProcessed;
@@ -376,6 +536,13 @@ function mergeProcessAdsResults(results: ProcessAdsResult[]): ProcessAdsResult {
     merged.adsWithStory += result.adsWithStory;
     merged.adsChecked += result.adsChecked;
     merged.errors.push(...result.errors);
+    for (const ad of result.failedAds) {
+      const key = ad.id || ad.adId;
+      if (!failedIds.has(key)) {
+        failedIds.add(key);
+        merged.failedAds.push(ad);
+      }
+    }
     for (const [reason, count] of Object.entries(result.skipReasons)) {
       merged.skipReasons[reason] = (merged.skipReasons[reason] ?? 0) + count;
     }
@@ -440,14 +607,20 @@ async function persistMetaComment(
     ? new Date(metaComment.created_time).toISOString()
     : new Date().toISOString();
 
-  // Deliberately NOT dropping comments older than ctx.since here. Meta returns replies with the
-  // parent's window, and IG frequently delivers late arrivals. The DB has UNIQUE(comment_id), so
-  // re-persisting an old comment is a no-op — but silently dropping it means the inbox never
-  // learns about it. Watermarks still drive the /comments query so re-sync stays incremental.
+  // Deliberately NOT dropping comments older than ctx.since here. IG frequently
+  // delivers late arrivals. The DB has UNIQUE(comment_id), so re-persisting an
+  // old root comment is a no-op, while watermarks keep the Meta query incremental.
   const exists = await commentExistsByMetaId(metaComment.id);
 
   const enriched = await enrichMetaCommentAuthor(metaComment, ctx.pageAccessToken);
   const author = resolveCommenterInfo(enriched.from, enriched.username);
+  const isConnectedAuthor = await isConnectedAssetAuthor(author.name, author.id);
+  const parentCommentId = enriched.parent?.id || metaComment.parent?.id;
+  if (parentCommentId) {
+    if (isConnectedAuthor) return applyBrandReplyToParent(parentCommentId, author.name);
+    return false;
+  }
+  if (isConnectedAuthor) return false;
 
   const platform = inferCommentPlatform(ctx.platform, enriched);
   const text = enriched.message || metaComment.message || '';
@@ -515,8 +688,17 @@ async function processAdsForComments(adsToProcess: SyncAd[], ctx: ProcessAdsCont
   let adsWithStory = 0;
   let adsChecked = 0;
   const errors: string[] = [];
+  const failedAds: SyncAd[] = [];
+  const failedAdIds = new Set<string>();
   const skipReasons: Record<string, number> = { no_story: 0, fetch_error: 0, ignored_page: 0 };
   const checkedAdIds = new Set<string>();
+
+  const markAdFailed = (ad: SyncAd) => {
+    const key = ad.id || ad.adId;
+    if (failedAdIds.has(key)) return;
+    failedAdIds.add(key);
+    failedAds.push(ad);
+  };
   let nextAdIndex = 0;
   let stopLane = false;
 
@@ -525,9 +707,8 @@ async function processAdsForComments(adsToProcess: SyncAd[], ctx: ProcessAdsCont
       if (ctx.updateProgress && adsProcessed > 0 && adsProcessed % 25 === 0) {
         syncState.lastMessage = `Comment ${ctx.modeLabel}: ${adsProcessed}/${adsToProcess.length} ads processed this run, ${synced} comment(s) synced…`;
       }
-      const adToken = selectTokenForAd(ad);
-      const token = adToken ?? getMetaConfig().accessToken?.trim();
-      if (!token) return;
+      const adTokens = tokensForAd(ad);
+      if (!adTokens.length) return;
       const markPlatformSynced = async (platform: 'facebook' | 'instagram') => {
         if (!ctx.adWatermarks || !ctx.until) return;
         const iso = new Date(ctx.until * 1000).toISOString();
@@ -549,7 +730,7 @@ async function processAdsForComments(adsToProcess: SyncAd[], ctx: ProcessAdsCont
       let pageId = pageIdFromStoryId(storyId);
 
       if (!storyId) {
-        const resolved = await resolveAdStoryId(ad.adId, token);
+        const resolved = await withTokenFallback(adTokens, fallbackToken => resolveAdStoryId(ad.adId, fallbackToken));
         storyId = resolved.storyId;
         pageId = resolved.pageId;
         if (storyId) {
@@ -557,7 +738,6 @@ async function processAdsForComments(adsToProcess: SyncAd[], ctx: ProcessAdsCont
         }
       }
 
-      const commentToken = token;
       const pageToken = pageId ? await getPageAccessToken(pageId) : null;
       const facebookSince = platformSince(ctx, ad, 'facebook');
       const instagramSince = platformSince(ctx, ad, 'instagram');
@@ -566,32 +746,34 @@ async function processAdsForComments(adsToProcess: SyncAd[], ctx: ProcessAdsCont
         if (!storyId) return { synced: 0, skipped: true, skipReason: 'no_story' };
         if (pageId && isIgnoredPageId(pageId)) return { synced: 0, skipped: true, skipReason: 'ignored_page' };
         try {
-          const comments = await fetchStoryComments(storyId, commentToken, {
-            since: facebookSince,
-            until: ctx.until,
-            limit: 100,
-            pageAccessToken: pageToken,
-          });
-          let laneSynced = 0;
-          for (const c of comments) {
-            const saved = await persistMetaComment(c, {
-              platform: ad.platform,
-              adId: ad.adId,
-              adName: ad.adName,
-              adsetName: ad.adsetName,
-              campaignName: ad.campaignName,
-              campaignMetaId: ad.campaignId,
-              adsetMetaId: ad.adsetId,
-              storyId,
+          return await withTokenFallback(adTokens, async fallbackToken => {
+            const comments = await fetchStoryComments(storyId, fallbackToken, {
               since: facebookSince,
+              until: ctx.until,
+              limit: 100,
               pageAccessToken: pageToken,
-              accountLabel: ad.accountLabel,
-              analyzeWithAi: ctx.analyzeWithAi,
-              alertNewComment: ctx.alertNewComment,
             });
-            if (saved) laneSynced++;
-          }
-          return { synced: laneSynced, skipped: false };
+            let laneSynced = 0;
+            for (const c of comments) {
+              const saved = await persistMetaComment(c, {
+                platform: ad.platform,
+                adId: ad.adId,
+                adName: ad.adName,
+                adsetName: ad.adsetName,
+                campaignName: ad.campaignName,
+                campaignMetaId: ad.campaignId,
+                adsetMetaId: ad.adsetId,
+                storyId,
+                since: facebookSince,
+                pageAccessToken: pageToken,
+                accountLabel: ad.accountLabel,
+                analyzeWithAi: ctx.analyzeWithAi,
+                alertNewComment: ctx.alertNewComment,
+              });
+              if (saved) laneSynced++;
+            }
+            return { synced: laneSynced, skipped: false };
+          });
         } catch (err) {
           if (isMetaRateLimitError(err) || (err instanceof MetaApiError && err.code === 190)) throw err;
           return { synced: 0, skipped: false, error: err instanceof Error ? err.message : String(err) };
@@ -601,42 +783,44 @@ async function processAdsForComments(adsToProcess: SyncAd[], ctx: ProcessAdsCont
       const runInstagram = async (): Promise<{ synced: number; probed: boolean; error?: string }> => {
         if (!shouldProbeInstagramAd(ad)) return { synced: 0, probed: false };
         try {
-          let instagramMediaId = ad.instagramMediaId?.trim() || null;
-          if (!instagramMediaId) {
-            instagramMediaId = await resolveAdInstagramMediaId(ad.adId, commentToken);
-            if (instagramMediaId) await saveAdInstagramMediaId(ad.id, instagramMediaId);
-          }
-          if (!instagramMediaId) return { synced: 0, probed: true };
-          const needsMediaPreview = !ad.mediaUrl?.trim() && !ad.thumbnailUrl?.trim();
-          const mediaDetails = needsMediaPreview ? await fetchInstagramMediaDetails(instagramMediaId, commentToken) : null;
-          if (mediaDetails) await saveAdInstagramMediaPreview(ad.id, mediaDetails);
-          const mediaPermalink = mediaDetails?.permalink || await fetchInstagramMediaPermalink(instagramMediaId, commentToken);
-          const instagramComments = await fetchInstagramMediaComments(instagramMediaId, commentToken, {
-            since: instagramSince,
-            until: ctx.until,
-            limit: 100,
-            mediaPermalink,
-          });
-          let laneSynced = 0;
-          for (const c of instagramComments) {
-            const saved = await persistMetaComment(c, {
-              platform: 'instagram',
-              adId: ad.adId,
-              adName: ad.adName,
-              adsetName: ad.adsetName,
-              campaignName: ad.campaignName,
-              campaignMetaId: ad.campaignId,
-              adsetMetaId: ad.adsetId,
-              storyId: instagramMediaId,
+          return await withTokenFallback(adTokens, async fallbackToken => {
+            let instagramMediaId = ad.instagramMediaId?.trim() || null;
+            if (!instagramMediaId) {
+              instagramMediaId = await resolveAdInstagramMediaId(ad.adId, fallbackToken);
+              if (instagramMediaId) await saveAdInstagramMediaId(ad.id, instagramMediaId);
+            }
+            if (!instagramMediaId) return { synced: 0, probed: true };
+            const needsMediaPreview = !ad.mediaUrl?.trim() && !ad.thumbnailUrl?.trim();
+            const mediaDetails = needsMediaPreview ? await fetchInstagramMediaDetails(instagramMediaId, fallbackToken) : null;
+            if (mediaDetails) await saveAdInstagramMediaPreview(ad.id, mediaDetails);
+            const mediaPermalink = mediaDetails?.permalink || await fetchInstagramMediaPermalink(instagramMediaId, fallbackToken);
+            const instagramComments = await fetchInstagramMediaComments(instagramMediaId, fallbackToken, {
               since: instagramSince,
-              pageAccessToken: null,
-              accountLabel: ad.accountLabel,
-              analyzeWithAi: ctx.analyzeWithAi,
-              alertNewComment: ctx.alertNewComment,
+              until: ctx.until,
+              limit: 100,
+              mediaPermalink,
             });
-            if (saved) laneSynced++;
-          }
-          return { synced: laneSynced, probed: true };
+            let laneSynced = 0;
+            for (const c of instagramComments) {
+              const saved = await persistMetaComment(c, {
+                platform: 'instagram',
+                adId: ad.adId,
+                adName: ad.adName,
+                adsetName: ad.adsetName,
+                campaignName: ad.campaignName,
+                campaignMetaId: ad.campaignId,
+                adsetMetaId: ad.adsetId,
+                storyId: instagramMediaId,
+                since: instagramSince,
+                pageAccessToken: null,
+                accountLabel: ad.accountLabel,
+                analyzeWithAi: ctx.analyzeWithAi,
+                alertNewComment: ctx.alertNewComment,
+              });
+              if (saved) laneSynced++;
+            }
+            return { synced: laneSynced, probed: true };
+          });
         } catch (err) {
           if (isMetaRateLimitError(err) || (err instanceof MetaApiError && err.code === 190)) throw err;
           return { synced: 0, probed: true, error: err instanceof Error ? err.message : String(err) };
@@ -655,21 +839,27 @@ async function processAdsForComments(adsToProcess: SyncAd[], ctx: ProcessAdsCont
         if (fb.error) {
           errors.push(`${ad.adName}: ${fb.error}`);
           skipReasons.fetch_error++;
+          markAdFailed(ad);
+        } else {
+          synced += fb.synced;
+          await markPlatformSynced('facebook');
         }
-        synced += fb.synced;
-        await markPlatformSynced('facebook');
       }
 
       if (ig.probed) {
-        synced += ig.synced;
-        if (ig.error && process.env.META_COMMENT_DEBUG === 'true') {
-          console.warn(`[comments] Instagram comments skipped for ad ${ad.adId}: ${ig.error}`);
+        if (ig.error) {
+          errors.push(`${ad.adName} (IG): ${ig.error}`);
+          skipReasons.fetch_error++;
+          markAdFailed(ad);
+        } else {
+          synced += ig.synced;
+          await markPlatformSynced('instagram');
         }
-        await markPlatformSynced('instagram');
       }
 
       adsProcessed++;
-      await sleep(AD_BATCH_DELAY_MS);
+      const skipDelay = FULL_COVERAGE_MODE && adsToProcess.length >= 200;
+      if (!skipDelay && AD_BATCH_DELAY_MS > 0) await sleep(AD_BATCH_DELAY_MS);
     } catch (err) {
       if (isMetaRateLimitError(err)) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -691,6 +881,7 @@ async function processAdsForComments(adsToProcess: SyncAd[], ctx: ProcessAdsCont
       errors.push(`${ad.adName}: ${msg}`);
       adsSkipped++;
       skipReasons.fetch_error++;
+      markAdFailed(ad);
     }
   };
 
@@ -703,7 +894,7 @@ async function processAdsForComments(adsToProcess: SyncAd[], ctx: ProcessAdsCont
     }
   }));
 
-  return { synced, adsProcessed, adsSkipped, adsWithStory, adsChecked, skipReasons, errors };
+  return { synced, adsProcessed, adsSkipped, adsWithStory, adsChecked, skipReasons, errors, failedAds };
 }
 
 async function processAdsForCommentsParallel(adsToProcess: SyncAd[], ctx: ProcessAdsContext): Promise<ParallelProcessAdsResult> {
@@ -802,10 +993,11 @@ async function persistOrganicIgComment(
     alertNewComment: boolean;
   }
 ): Promise<boolean> {
+  const handle = ctx.username.trim().replace(/^@+/, '');
   return persistMetaComment(metaComment, {
     platform: 'instagram',
     adId: ctx.matchedAd?.adId ?? mediaId,
-    adName: ctx.matchedAd?.adName ?? `Organic · @${ctx.username}`,
+    adName: ctx.matchedAd?.adName ?? `Organic · @${handle || ctx.username}`,
     adsetName: ctx.matchedAd?.adsetName ?? 'Organic',
     campaignName: ctx.matchedAd?.campaignName ?? 'Organic',
     campaignMetaId: ctx.matchedAd?.campaignId ?? undefined,
@@ -987,8 +1179,8 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
   const adWatermarks = mode === 'incremental'
     ? await getConfigValue<Record<string, string>>(AD_WATERMARKS_CONFIG_KEY, {})
     : undefined;
-  const { selected: adsToProcess, cursor, tokenLaneCursors, laneSizes: selectedLaneSizes } = await selectAdsForCommentRun(ads, mode);
-  const { synced, adsProcessed, adsSkipped, adsWithStory, adsChecked, skipReasons, errors, laneCount, laneSizes } = await processAdsForCommentsParallel(adsToProcess, {
+  const { selected: adsToProcess, cursor, tokenLaneCursors, laneSizes: selectedLaneSizes, pinnedHighSpendCount } = await selectAdsForCommentRun(ads, mode);
+  const processCtx: ProcessAdsContext = {
     modeLabel: mode,
     since,
     until: mode === 'incremental' ? until : undefined,
@@ -996,7 +1188,34 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
     analyzeWithAi: mode === 'incremental',
     alertNewComment: mode === 'incremental',
     updateProgress: true,
-  });
+  };
+  let { synced, adsProcessed, adsSkipped, adsWithStory, adsChecked, skipReasons, errors, laneCount, laneSizes, failedAds } = await processAdsForCommentsParallel(adsToProcess, processCtx);
+
+  if (failedAds.length > 0) {
+    const retryAds = uniqueAds(failedAds).slice(0, 500);
+    console.log(`[comment-sync] Retrying ${retryAds.length} ad(s) after fetch errors…`);
+    await sleep(3000);
+    const retry = await processAdsForCommentsParallel(retryAds, {
+      ...processCtx,
+      modeLabel: `${mode}-retry`,
+      updateProgress: false,
+    });
+    synced += retry.synced;
+    adsProcessed += retry.adsProcessed;
+    adsSkipped += retry.adsSkipped;
+    adsWithStory += retry.adsWithStory;
+    adsChecked += retry.adsChecked;
+    errors.push(...retry.errors);
+    for (const [reason, count] of Object.entries(retry.skipReasons)) {
+      skipReasons[reason] = (skipReasons[reason] ?? 0) + count;
+    }
+    if (retry.synced > 0) {
+      console.log(`[comment-sync] Retry recovered ${retry.synced} comment(s) from ${retryAds.length} ad(s)`);
+    }
+    if (retry.failedAds.length) {
+      console.warn(`[comment-sync] ${retry.failedAds.length} ad(s) still failing after retry`);
+    }
+  }
 
   const fatalTokenError = errors.find(error => error.startsWith('Meta token expired during sync.'));
   if (fatalTokenError) {
@@ -1045,6 +1264,7 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
 
   const label = mode === 'backfill' ? `${BACKFILL_DAYS}-day backfill` : 'incremental';
   let message = `Comment ${label}: synced ${totalSynced} comment(s) — ${synced} from ${adsProcessed}/${adsToProcess.length} ad(s) across ${laneCount} lane(s), ${organic.synced} from organic media (${organic.mediaChecked} IG · ${organic.postsChecked} FB posts).`;
+  if (pinnedHighSpendCount) message += ` Included ${pinnedHighSpendCount} high-spend NOBL/FLO ad(s) first.`;
   if (adsSkipped) {
     message += ` Skipped ${adsSkipped} ad(s)`;
     if (skipReasons.no_story) message += ` (${skipReasons.no_story} without post story ID)`;
@@ -1072,6 +1292,9 @@ async function syncCommentsFromMeta(mode: 'incremental' | 'backfill'): Promise<C
       laneCount,
       laneSizes,
       selectedLaneSizes,
+      pinnedHighSpendCount,
+      highSpendPinnedAdsPerBrand: HIGH_SPEND_PINNED_ADS_PER_BRAND,
+      regularAdsPerTokenReserve: REGULAR_ADS_PER_TOKEN_RESERVE,
       perTokenAdLimit: PARALLEL_TOKEN_LANES ? PER_TOKEN_AD_LIMIT : undefined,
       adConcurrencyPerToken: AD_CONCURRENCY_PER_TOKEN,
       skipReasons,
@@ -1242,7 +1465,18 @@ export function startCommentSyncCron(): void {
 
   console.log(`[comment-sync] Cron scheduled every ${CRON_INTERVAL_MS / 60000} minutes`);
 
-  console.log('[comment-sync] Startup sync disabled; cron will run the next safe incremental batch.');
+  void (async () => {
+    const resolved = await resolveCommentSyncToken();
+    if (!resolved?.status.canSyncComments) {
+      console.warn('[comment-sync] Startup sync skipped — no valid token for comment sync');
+      return;
+    }
+    syncState.tokenValid = resolved.status.valid;
+    syncState.tokenMessage = resolved.status.message;
+    console.log('[comment-sync] Startup: starting incremental sync');
+    await runCommentSync('incremental');
+    syncState.nextRunAt = new Date(Date.now() + CRON_INTERVAL_MS).toISOString();
+  })();
 }
 
 export function stopCommentSyncCron(): void {

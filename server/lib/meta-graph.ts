@@ -481,7 +481,7 @@ export async function fetchAdSpendInsights(
   return spendMap;
 }
 
-/** Fetch spend for the last 7 days, used for active top-spend filtering. */
+/** Fetch spend for today + yesterday, used for active top-spend prioritization. */
 export async function fetchRecentAdSpendInsights(
   adAccountId: string,
   accessToken?: string
@@ -489,21 +489,26 @@ export async function fetchRecentAdSpendInsights(
   const actId = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
   const spendMap = new Map<string, number>();
 
-  try {
-    const rows = await metaGraphPaginate<{ ad_id?: string; spend?: string }>(
-      `/${actId}/insights?level=ad&fields=ad_id,spend&date_preset=last_7d&limit=500`,
-      accessToken
-    );
-    for (const row of rows) {
-      if (row.ad_id && row.spend) {
-        spendMap.set(row.ad_id, parseFloat(row.spend));
+  for (const preset of ['today', 'yesterday']) {
+    try {
+      const rows = await metaGraphPaginate<{ ad_id?: string; spend?: string }>(
+        `/${actId}/insights?level=ad&fields=ad_id,spend&date_preset=${preset}&limit=500`,
+        accessToken
+      );
+      for (const row of rows) {
+        if (row.ad_id && row.spend) {
+          const amount = parseFloat(row.spend);
+          if (Number.isFinite(amount) && amount > 0) {
+            spendMap.set(row.ad_id, (spendMap.get(row.ad_id) ?? 0) + amount);
+          }
+        }
       }
+    } catch (err) {
+      console.warn(
+        `[insights] Could not fetch ${preset} spend for ${actId}:`,
+        err instanceof Error ? err.message : err
+      );
     }
-  } catch (err) {
-    console.warn(
-      `[insights] Could not fetch 7-day spend for ${actId}:`,
-      err instanceof Error ? err.message : err
-    );
   }
 
   return spendMap;
@@ -544,6 +549,7 @@ export interface MetaComment {
   username?: string;
   created_time?: string;
   permalink_url?: string;
+  parent?: { id?: string };
 }
 
 export interface MetaInstagramComment {
@@ -804,8 +810,8 @@ async function fetchStoryCommentsWithToken(
   opts?: { since?: number; until?: number; limit?: number }
 ): Promise<MetaComment[]> {
   const fields = 'id,message,from{id,name,picture},username,created_time,permalink_url,parent{id}';
-  // filter=stream returns replies flattened alongside top-level comments — otherwise nested
-  // replies never appear in the sync (the reply-thread edge is only queried on demand).
+  // filter=stream returns replies with parent{id}. Persistence routes replies
+  // onto their parent comment instead of inserting them as standalone inbox rows.
   const params = [`fields=${fields}`, `limit=${opts?.limit ?? 100}`, 'filter=stream', 'order=reverse_chronological'];
   if (opts?.since) params.push(`since=${opts.since}`);
   if (opts?.until) params.push(`until=${opts.until}`);
@@ -876,8 +882,6 @@ export async function fetchInstagramMediaComments(
   const token = accessToken || getMetaConfig().accessToken;
   if (!token) throw new MetaApiError('No access token available for Instagram comment fetch', { status: 400 });
 
-  // Expand reply threads inline — IG's /comments edge does NOT include replies by default,
-  // so without this every non-root comment is silently dropped by the sync.
   const replyFields = 'id,text,timestamp,username';
   const fields = `id,text,timestamp,username,permalink,replies.limit(50){${replyFields}}`;
   const limit = opts?.limit ?? 100;
@@ -901,7 +905,7 @@ export async function fetchInstagramMediaComments(
   const seen = new Set<string>();
   const out: MetaComment[] = [];
 
-  const push = (row: MetaInstagramComment) => {
+  const push = (row: MetaInstagramComment, parentId?: string) => {
     if (!row?.id || seen.has(row.id)) return;
     seen.add(row.id);
     out.push({
@@ -910,12 +914,13 @@ export async function fetchInstagramMediaComments(
       username: row.username,
       created_time: row.timestamp,
       permalink_url: instagramCommentPermalink(row.permalink || mediaPermalink, row.id),
+      parent: parentId ? { id: parentId } : undefined,
     });
   };
 
   for (const row of rows) {
     push(row);
-    for (const reply of row.replies?.data ?? []) push(reply);
+    for (const reply of row.replies?.data ?? []) push(reply, row.id);
   }
 
   return out;

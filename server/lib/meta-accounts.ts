@@ -3,6 +3,8 @@
  * Admin credentials stay separate; these are for ads/pages/comments sync.
  */
 
+import { normalizeAccountLabel, resolveBrandCode } from './brand.js';
+
 export interface MetaAccountConfig {
   label: string;
   accountId: string;
@@ -30,7 +32,7 @@ function addAccountToken(
 ): void {
   const cleanToken = accessToken.trim();
   if (!cleanToken) return;
-  const cleanLabel = label.trim() || `META${accounts.length + 1}`;
+  const cleanLabel = normalizeAccountLabel(label.trim() || `META${accounts.length + 1}`);
   const ids = accountIds.map(id => id.trim()).filter(Boolean);
   if (ids.length === 0) {
     accounts.push({ label: cleanLabel, accountId: '', accessToken: cleanToken });
@@ -45,11 +47,33 @@ function splitAccountIds(value: string): string[] {
   return value.split(',').map(id => id.trim()).filter(Boolean);
 }
 
+function isExcludedTokenKey(key: string): boolean {
+  return /(^|_)FLO(_|$)|(^|_)NOBL(_|$)/i.test(key);
+}
+
+function looksLikeMetaAccessTokenKey(key: string, value: string): boolean {
+  if (isExcludedTokenKey(key)) return false;
+  if (!value.trim() || value.trim().length < 80) return false;
+  if (/VERIFY|SECRET|WEBHOOK|SLACK|OPENAI/i.test(key)) return false;
+  if (/^META_?\d+_ACCESS_TOKEN$/i.test(key) || /^META_TOKEN_\d+(_ACCESS_TOKEN)?$/i.test(key)) return false;
+  return /(META|FACEBOOK|FB).*TOKEN|TOKEN.*(META|FACEBOOK|FB)|ACCESS_TOKEN/i.test(key);
+}
+
 function addIndexedMetaTokens(accounts: MetaAccountConfig[]): void {
-  for (let i = 2; i <= 8; i++) {
-    const label = firstEnv(`META_${i}_LABEL`, `META${i}_LABEL`) || `META${i}`;
-    const accessToken = firstEnv(`META_${i}_ACCESS_TOKEN`, `META${i}_ACCESS_TOKEN`);
-    const accountIds = splitAccountIds(firstEnv(`META_${i}_ACCOUNT_IDS`, `META${i}_ACCOUNT_IDS`));
+  for (let i = 1; i <= 8; i++) {
+    const configuredLabel = firstEnv(`META_${i}_LABEL`, `META${i}_LABEL`, `META_TOKEN_${i}_LABEL`);
+    const label = configuredLabel && !isExcludedTokenKey(configuredLabel) ? configuredLabel : `META${i}`;
+    const accessToken = firstEnv(
+      `META_${i}_ACCESS_TOKEN`,
+      `META${i}_ACCESS_TOKEN`,
+      `META_TOKEN_${i}`,
+      `META_TOKEN_${i}_ACCESS_TOKEN`
+    );
+    const accountIds = splitAccountIds(firstEnv(
+      `META_${i}_ACCOUNT_IDS`,
+      `META${i}_ACCOUNT_IDS`,
+      `META_TOKEN_${i}_ACCOUNT_IDS`
+    ));
     addAccountToken(accounts, label, accessToken, accountIds);
   }
 }
@@ -58,25 +82,39 @@ export function getConfiguredMetaAccounts(): MetaAccountConfig[] {
   const accounts: MetaAccountConfig[] = [];
   const defaultToken = process.env.META_ACCESS_TOKEN?.trim();
 
-  const noblId = process.env.NOBL_META_ACCOUNT_ID?.trim();
-  const noblToken = process.env.NOBL_META_ACCESS_TOKEN?.trim() || defaultToken;
-  if (noblId && noblToken) {
-    accounts.push({ label: 'NOBL', accountId: normalizeAccountId(noblId), accessToken: noblToken });
-  }
-
-  const floId = process.env.FLO_META_ACCOUNT_ID?.trim();
-  const floToken = process.env.FLO_META_ACCESS_TOKEN?.trim() || defaultToken;
-  if (floId && floToken) {
-    accounts.push({ label: 'FLO', accountId: normalizeAccountId(floId), accessToken: floToken });
-  }
-
   addIndexedMetaTokens(accounts);
 
-  if (accounts.length === 0 && defaultToken) {
-    accounts.push({ label: 'DEFAULT', accountId: '', accessToken: defaultToken });
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!looksLikeMetaAccessTokenKey(key, value ?? '')) continue;
+    const label = key.replace(/_?ACCESS_TOKEN$/i, '').replace(/_?TOKEN$/i, '') || 'META';
+    addAccountToken(accounts, label, value ?? '', []);
   }
 
-  return accounts;
+  const seen = new Set<string>();
+  const unique = accounts.filter(account => {
+    const key = `${account.accountId}|${account.accessToken}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  if (unique.length === 0 && defaultToken) {
+    unique.push({ label: 'DEFAULT', accountId: '', accessToken: defaultToken });
+  }
+
+  return unique.map(account => ({
+    ...account,
+    label: normalizeAccountLabel(account.label),
+  }));
+}
+
+/** Labels that should resolve to the same token set (APP2 → FLO, META3 → NOBL). */
+function labelLookupKeys(label: string): string[] {
+  const upper = label.trim().toUpperCase();
+  const code = resolveBrandCode({ accountLabel: upper });
+  if (code === 'FLO') return ['FLO', 'APP2', 'META2', upper];
+  if (code === 'NOBL') return ['NOBL', 'META3', 'META', upper];
+  return [upper];
 }
 
 export function getTokenForAccount(accountIdOrLabel: string, fallbackLabel?: string): string | null {
@@ -96,11 +134,13 @@ export function getTokensForAccount(accountIdOrLabel: string, fallbackLabel?: st
   );
   if (byId.length > 0) return [...new Set(byId.map(a => a.accessToken))];
 
-  const byLabel = accounts.filter(a => a.label.toUpperCase() === accountIdOrLabel.toUpperCase());
+  const lookupKeys = new Set(labelLookupKeys(accountIdOrLabel));
+  const byLabel = accounts.filter(a => labelLookupKeys(a.label).some(k => lookupKeys.has(k)));
   if (byLabel.length > 0) return [...new Set(byLabel.map(a => a.accessToken))];
 
   if (fallbackLabel) {
-    const byFallbackLabel = accounts.filter(a => a.label.toUpperCase() === fallbackLabel.toUpperCase());
+    const fbKeys = new Set(labelLookupKeys(fallbackLabel));
+    const byFallbackLabel = accounts.filter(a => labelLookupKeys(a.label).some(k => fbKeys.has(k)));
     if (byFallbackLabel.length > 0) return [...new Set(byFallbackLabel.map(a => a.accessToken))];
   }
 

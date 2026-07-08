@@ -7,8 +7,10 @@ import {
 } from '../db/sync-repository.js';
 import { isDatabaseConfigured } from '../db/pool.js';
 import { query } from '../db/pool.js';
-import { getMetaConfig, metaGraphGet } from '../lib/meta.js';
+import { metaGraphGet } from '../lib/meta.js';
+import { getPageSyncTokenSources } from '../lib/meta-accounts.js';
 import { isIgnoredInstagramAccountId, isIgnoredPageId } from '../lib/ignore-list.js';
+import { brandAdSqlPredicate } from '../lib/brand.js';
 
 // Simple in-memory cache for brand assets; TTL 5 minutes
 const brandAssetsCache: Map<string, { at: number; data: { brand: string; count: number; assets: Array<{ pageId: string; pageName: string; pageAvatar?: string; ads: number; instagram?: { id: string; username: string; avatar?: string }; comments: { facebook: number; instagram: number; total: number } }> } }> = new Map();
@@ -24,7 +26,7 @@ accountsRouter.get('/', async (_req, res) => {
       getAllConnectedAdAccounts(),
       getAllConnectedPages(),
       getAllInstagramAccounts(),
-      getTopAdsBySpend(15),
+      getTopAdsBySpend(10),
     ]);
 
     res.json({ adAccounts, pages, instagram, topAds });
@@ -54,8 +56,9 @@ accountsRouter.get('/brand-assets', async (req, res) => {
 
     // Serve from cache if fresh
     const key = brand;
+    const refresh = req.query.refresh === '1' || req.query.refresh === 'true';
     const cached = brandAssetsCache.get(key);
-    if (cached && Date.now() - cached.at < BRAND_ASSETS_TTL_MS) {
+    if (!refresh && cached && Date.now() - cached.at < BRAND_ASSETS_TTL_MS) {
       return res.json(cached.data);
     }
 
@@ -66,7 +69,7 @@ accountsRouter.get('/brand-assets', async (req, res) => {
              MAX(account_label) AS account_label
       FROM ads
       WHERE effective_status = 'ACTIVE'
-        AND account_label = $1
+        AND ${brandAdSqlPredicate('ads')}
         AND post_story_id IS NOT NULL
         AND split_part(post_story_id, '_', 1) <> ''
       GROUP BY 1
@@ -98,9 +101,9 @@ accountsRouter.get('/brand-assets', async (req, res) => {
          LEFT JOIN ads a ON (a.ad_id = c.ad_id OR a.id = c.ad_id) AND a.effective_status = 'ACTIVE'
          WHERE c.platform = 'facebook'
            AND (
-             c.page_id IS NOT NULL
-             OR (a.account_label = $1 AND a.post_story_id IS NOT NULL)
-           )
+              c.page_id IS NOT NULL
+              OR (${brandAdSqlPredicate('a')} AND a.post_story_id IS NOT NULL)
+            )
          GROUP BY 1`,
         [brand]
       );
@@ -111,11 +114,11 @@ accountsRouter.get('/brand-assets', async (req, res) => {
         `SELECT split_part(a.post_story_id, '_', 1) AS page_id,
                 COUNT(DISTINCT c.comment_id)::int AS count
          FROM comments c
-         JOIN ads a ON (a.ad_id = c.ad_id OR a.id = c.ad_id)
-         WHERE c.platform = 'instagram'
-           AND a.effective_status = 'ACTIVE'
-           AND a.account_label = $1
-           AND a.post_story_id IS NOT NULL
+          JOIN ads a ON (a.ad_id = c.ad_id OR a.id = c.ad_id)
+          WHERE c.platform = 'instagram'
+            AND a.effective_status = 'ACTIVE'
+            AND ${brandAdSqlPredicate('a')}
+            AND a.post_story_id IS NOT NULL
          GROUP BY 1`,
         [brand]
       );
@@ -134,19 +137,19 @@ accountsRouter.get('/brand-assets', async (req, res) => {
         if (r.linked_page_id) igByPage.set(r.linked_page_id, { id: r.account_id, username: r.username, avatar: r.avatar ?? undefined });
       }
     }
-    const appToken = getMetaConfig().accessToken;
-    if (appToken) {
+    const tokenSources = getPageSyncTokenSources();
+    for (const source of tokenSources) {
       try {
         const data = await metaGraphGet<{ data?: Array<{ id: string; instagram_business_account?: { id?: string; username?: string } }> }>(
           `/me/accounts?fields=id,instagram_business_account{id,username}&limit=100`,
-          appToken
+          source.accessToken
         );
         for (const p of data.data || []) {
           const ig = p.instagram_business_account;
           if (ig?.id && !igByPage.has(p.id)) igByPage.set(p.id, { id: ig.id, username: ig.username ? `@${ig.username}` : '' });
         }
       } catch (err) {
-        console.warn('[brand-assets] me/accounts read failed:', err instanceof Error ? err.message : String(err));
+        console.warn(`[brand-assets] me/accounts read failed for ${source.label}:`, err instanceof Error ? err.message : String(err));
       }
     }
     const assets = [] as Array<{ pageId: string; pageName: string; pageAvatar?: string; ads: number; instagram?: { id: string; username: string; avatar?: string }; comments: { facebook: number; instagram: number; total: number } }>;

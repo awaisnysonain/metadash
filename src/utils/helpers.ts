@@ -61,11 +61,10 @@ function joinLower(...parts: Array<string | undefined | null>): string {
 }
 
 export function inferBrandLabel(comment?: Comment, ad?: Ad): BrandLabel {
-  // Prefer the account label — it's set explicitly per Meta ad account and doesn't
-  // depend on brittle name matching.
+  // Prefer the account label — normalized token aliases from production env.
   const label = (ad?.accountLabel || '').toUpperCase();
-  if (label === 'NOBL') return 'Nobl';
-  if (label === 'FLO') return 'Flo';
+  if (label === 'NOBL' || label === 'META3' || label === 'META') return 'Nobl';
+  if (label === 'FLO' || label === 'APP2' || label === 'META2') return 'Flo';
 
   const text = joinLower(
     comment?.campaignName,

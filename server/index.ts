@@ -15,6 +15,7 @@ process.on('uncaughtException', err => {
 });
 import { initDatabase, isDatabaseConfigured, hasDatabaseUrl } from './db/pool.js';
 import { seedIfEmpty } from './db/repository.js';
+import { repairAdCatalog } from './db/sync-repository.js';
 import { metaWebhookRouter } from './routes/meta-webhook.js';
 import { commentsRouter, bootstrapRouter } from './routes/comments.js';
 import { adsRouter } from './routes/ads.js';
@@ -179,6 +180,14 @@ async function start() {
   if (dbOk) {
     await seedIfEmpty();
     await removeStaleAdminFromDb();
+    try {
+      const repair = await repairAdCatalog();
+      if (repair.labelsFixed > 0 || repair.staleDeactivated > 0) {
+        console.log(`[db] Ad catalog repair: ${repair.labelsFixed} label(s) normalized, ${repair.staleDeactivated} stale row(s) deactivated`);
+      }
+    } catch (err) {
+      console.warn('[db] Ad catalog repair skipped:', err instanceof Error ? err.message : String(err));
+    }
   }
 
   if (dbOk && !isServerDemoMode()) {

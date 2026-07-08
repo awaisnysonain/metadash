@@ -8,18 +8,15 @@ import { BrandLogoBadge } from './BrandLogo';
 import { apiClient } from '../services/apiClient';
 import {
   Search,
-  CheckCircle,
-  Eye,
   ExternalLink,
   Clock,
   Inbox,
-  Bell,
   RefreshCw,
   Loader2,
-  MessageSquareReply,
   Users,
   ChevronLeft,
   ChevronRight,
+  SlidersHorizontal,
 } from 'lucide-react';
 
 export interface InboxFilters {
@@ -299,133 +296,65 @@ export default function UnifiedInbox({
   };
 
   return (
-    <div className="space-y-5 animate-fade-in" id="inbox-screen">
-      {/* Filter bar */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="font-editorial" style={{ fontSize: 20, lineHeight: 1.15, letterSpacing: '-0.015em', color: 'var(--color-ink)' }}>The queue</h3>
-              {unseenCount > 0 && (
-                <span
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold tabular"
-                  style={{ background: 'var(--color-accent-soft)', color: 'var(--color-accent)' }}
-                >
-                  <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--color-accent)' }} />
-                  {unseenCount.toLocaleString()} new
-                </span>
-              )}
-            </div>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--color-muted)' }}>
-              <span className="font-semibold tabular" style={{ color: 'var(--color-ink-2)' }}>{comments.length.toLocaleString()}</span> loaded comments
-            </p>
-          </div>
-          {onRefresh && (
-            <div className="flex flex-wrap items-center gap-2">
+    <div className="space-y-3 animate-fade-in" id="inbox-screen">
+      <div className="rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {STATUS_TABS.map(tab => (
               <button
-                type="button"
-                onClick={() => setStatusFilter('Unseen')}
-                className={`inline-flex items-center gap-2 rounded-[10px] border px-3 py-1.5 text-sm font-semibold transition-colors ${unseenCount > 0 ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100' : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'}`}
+                key={tab.id}
+                onClick={() => setStatusFilter(tab.id)}
+                className={`rounded-[10px] px-3 py-1.5 text-sm font-semibold transition-all ${
+                  statusFilter === tab.id
+                    ? 'bg-slate-950 text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
               >
-                <Bell className="w-4 h-4" />
-                Notifications
-                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${unseenCount > 0 ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{unseenCount}</span>
+                {tab.label}
+                {tab.id === 'Unseen' && unseenCount > 0 && (
+                  <span className={`ml-1.5 rounded px-1.5 py-0.5 text-[10px] font-extrabold tabular ${
+                    statusFilter === tab.id ? 'bg-white/20 text-white' : 'bg-slate-950 text-white'
+                  }`}>{unseenCount.toLocaleString()}</span>
+                )}
               </button>
+            ))}
+            <button
+              type="button"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900"
+              title="Simple status filters are active"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="flex min-w-0 flex-1 items-center gap-2 lg:max-w-xl">
+            <div className="relative min-w-0 flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder="Search comments..."
+                className="h-9 w-full rounded-[10px] border border-slate-200 bg-white pl-9 pr-3 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-[3px] focus:ring-slate-100"
+              />
+            </div>
+            {onRefresh && (
               <button
                 onClick={() => void onRefresh()}
                 disabled={isRefreshing}
-                className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white rounded-[10px] text-sm font-medium transition-colors"
+                className="inline-flex h-9 shrink-0 items-center gap-2 rounded-[10px] bg-slate-950 px-3 text-sm font-bold text-white transition-colors hover:bg-slate-800 disabled:opacity-60"
               >
-                {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                {isRefreshing ? 'Updating…' : 'Refresh'}
+                {isRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                <span className="hidden sm:inline">{isRefreshing ? 'Updating' : 'Refresh'}</span>
               </button>
-            </div>
-          )}
-        </div>
-
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {STATUS_TABS.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setStatusFilter(tab.id)}
-              className={`px-3 py-1.5 rounded-[9px] text-sm font-medium transition-all ${
-                statusFilter === tab.id
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {tab.label}
-              {tab.id === 'Unseen' && unseenCount > 0 && (
-                <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                  statusFilter === tab.id ? 'bg-white/20' : 'bg-slate-900 text-white'
-                }`}>{unseenCount}</span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-[minmax(280px,1.2fr)_minmax(140px,0.7fr)_minmax(140px,0.7fr)_minmax(150px,0.7fr)_minmax(140px,0.7fr)_minmax(170px,0.8fr)_auto]">
-          <div className="relative min-w-0">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Search comment text, author, campaign, or ad…"
-              className="h-10 w-full rounded-[10px] border border-slate-200 bg-white pl-9 pr-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-[3px] focus:ring-slate-100"
-            />
+            )}
           </div>
-          <select
-            value={platformFilter}
-            onChange={e => setPlatformFilter(e.target.value as typeof platformFilter)}
-            className="filter-select"
-          >
-            <option value="All">All platforms</option>
-            <option value="facebook">Facebook</option>
-            <option value="instagram">Instagram</option>
-          </select>
-          <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} className="filter-select">
-            <option value="All">All priorities</option>
-            <option value="Urgent">Urgent</option>
-            <option value="High">High</option>
-            <option value="Medium">Medium</option>
-            <option value="Low">Low</option>
-          </select>
-          <select value={sentimentFilter} onChange={e => setSentimentFilter(e.target.value)} className="filter-select">
-            <option value="All">All sentiment</option>
-            <option value="Complaint">Complaint</option>
-            <option value="Negative">Negative</option>
-            <option value="Question">Question</option>
-            <option value="Positive">Positive</option>
-            <option value="Neutral">Neutral</option>
-          </select>
-          <select value={brandFilter} onChange={e => setBrandFilter(e.target.value)} className="filter-select">
-            <option value="All">All brands</option>
-            <option value="Nobl">Nobl</option>
-            <option value="Flo">Flo</option>
-            <option value="Unattributed">Unattributed</option>
-          </select>
-          <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} className="filter-select">
-            <option value="All">All sources</option>
-            <option value="Brand page">Brand page</option>
-            <option value="Whitelisted creator">Whitelisted creator</option>
-            <option value="Creator/UGC">Creator / UGC</option>
-            <option value="Third-party page">Third-party page</option>
-            <option value="Organic">Organic</option>
-          </select>
-          <button
-            type="button"
-            onClick={() => setTopSpendOnly(v => !v)}
-            className={`h-10 whitespace-nowrap rounded-lg border px-3 text-sm font-semibold transition-colors ${topSpendOnly ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
-          >
-            Top spend
-          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
+      <div className={`grid grid-cols-1 gap-3 items-start ${previewComment ? 'xl:grid-cols-[minmax(260px,20%)_minmax(0,80%)]' : 'xl:grid-cols-[minmax(360px,0.42fr)_minmax(0,0.58fr)]'}`}>
         {/* Comment list */}
-        <div className="xl:col-span-6 space-y-2">
+        <div className="space-y-2">
           {filteredComments.length === 0 ? (
             <div className="p-12 text-center bg-white border border-slate-200 rounded-2xl">
               <Inbox className="w-10 h-10 text-slate-300 mx-auto mb-3" />
@@ -463,26 +392,19 @@ export default function UnifiedInbox({
                   {/* Unseen indicator bar */}
                   {isUnseen && <div className="comment-card__indicator" />}
 
-                  <div className="p-3.5 pl-4 group/card">
-                    <div className="flex items-start gap-3">
+                  <div className="p-2.5 pl-3 group/card">
+                    <div className="flex items-start gap-2.5">
                       <div className="relative shrink-0">
                         <CommentAvatar comment={comment} highlight={isUnseen} />
                       </div>
 
                       <div className="flex-1 min-w-0">
-                        {/* Header row: name · time · tiny signals */}
-                        <div className="flex items-center gap-2 min-w-0">
-                          <p className={`min-w-0 truncate ${isUnseen ? 'text-[13.5px] font-bold text-slate-900' : 'text-[13.5px] font-semibold text-slate-800'}`}>
+                        <div className="flex items-start gap-2 min-w-0">
+                          <p className={`min-w-0 flex-1 truncate ${isUnseen ? 'text-[13px] font-extrabold text-slate-950' : 'text-[13px] font-bold text-slate-800'}`}>
                             {displayCommenterName(comment.commenterName)}
                           </p>
-                          <PlatformBadge platform={comment.platform} />
-                          {isUnseen && (
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
-                              New
-                            </span>
-                          )}
                           <span
-                            className="ml-auto shrink-0 text-[11px] text-slate-400 flex items-center gap-1"
+                            className="shrink-0 text-[10px] text-slate-400 flex items-center gap-1"
                             title={`Received: ${formatFullTime(comment.updatedAt)} · Comment made: ${formatFullTime(comment.createdAt)}`}
                           >
                             <Clock className="w-3 h-3" />
@@ -490,8 +412,7 @@ export default function UnifiedInbox({
                           </span>
                         </div>
 
-                        {/* Comment body */}
-                        <p className={`mt-1.5 text-[13.5px] leading-relaxed line-clamp-3 ${isUnseen ? 'text-slate-900' : 'text-slate-600'}`}>
+                        <p className={`mt-1 text-[12.5px] leading-snug line-clamp-2 ${isUnseen ? 'font-semibold text-slate-900' : 'text-slate-600'}`}>
                           {comment.commentText}
                         </p>
                         {isGenericCommenterName(comment.commenterName) && commentUrl && (
@@ -506,20 +427,42 @@ export default function UnifiedInbox({
                           </a>
                         )}
 
-                        {/* Source footer — single truncated line: brand · source · destination */}
-                        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500">
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10.5px] text-slate-500">
                           <BrandLogoBadge brand={brand} />
-                          <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${isOrganic ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
-                            {isOrganic ? 'Organic' : 'Ad'}
-                          </span>
-                          <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${sourceChipClass(source)}`} title="Source category">
-                            {source}
+                          <PlatformBadge platform={comment.platform} />
+                          <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-bold ${isOrganic ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+                            {linkedAd?.accountLabel || comment.pageName || comment.instagramAccountName || (isOrganic ? 'Organic' : 'Ad')}
                           </span>
                           {isTopSpend && (
-                            <span className="inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700" title="One of the top 15 recent-spend ads for this account">
+                            <span className="inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700" title="One of the top 15 recent-spend ads for this account">
                               Top spend
                             </span>
                           )}
+                          <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-bold ${sourceChipClass(source)}`} title="Source category">
+                            {source}
+                          </span>
+                        </div>
+
+                        <div className="mt-2 flex items-center gap-1.5 text-[10.5px] text-slate-500">
+                          <span className={`inline-flex min-w-0 flex-1 items-center gap-1 rounded-lg border px-2 py-1 ${comment.status === 'Unseen' ? 'border-blue-100 bg-blue-50 text-blue-800' : 'border-slate-100 bg-slate-50 text-slate-600'}`} title={seenLabel}>
+                            <Users className="h-3 w-3 shrink-0" />
+                            <span className="truncate font-bold">{seenLabel}</span>
+                          </span>
+                          {commentUrl && (
+                            <a
+                              href={commentUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 transition-colors hover:bg-slate-50"
+                              title="Open comment"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                            </a>
+                          )}
+                        </div>
+
+                        <div className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[10.5px] text-slate-500">
                           <span
                             className="min-w-0 truncate"
                             title={isOrganic
@@ -538,42 +481,6 @@ export default function UnifiedInbox({
                         </div>
                       </div>
                     </div>
-
-                    {/* Action row — appears on hover / selected / unseen. Keeps the card quiet otherwise. */}
-                    <div
-                      onClick={e => e.stopPropagation()}
-                      className={`mt-3 flex flex-wrap items-center gap-1.5 transition-opacity ${(isSelected || isUnseen) ? 'opacity-100' : 'opacity-0 group-hover/card:opacity-100'}`}
-                    >
-                      {comment.status !== 'Replied' && (
-                        <button
-                          onClick={() => onUpdateStatus(comment.id, 'Replied')}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors"
-                        >
-                          <CheckCircle className="w-3 h-3" /> Replied
-                        </button>
-                      )}
-                      {isUnseen && (
-                        <button
-                          onClick={() => onUpdateStatus(comment.id, 'Seen')}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 transition-colors"
-                        >
-                          <Eye className="w-3 h-3" /> Seen
-                        </button>
-                      )}
-                      {commentUrl && (
-                        <a
-                          href={commentUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={() => { if (comment.status === 'Unseen') onUpdateStatus(comment.id, 'Seen'); }}
-                          className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 transition-colors"
-                        >
-                          <MessageSquareReply className="w-3 h-3" />
-                          Open
-                          <ExternalLink className="w-3 h-3 opacity-70" />
-                        </a>
-                      )}
-                    </div>
                   </div>
                 </div>
               );
@@ -584,13 +491,14 @@ export default function UnifiedInbox({
         </div>
 
         {/* Inline detail panel */}
-        <div className="xl:col-span-6">
-          <div className="xl:sticky xl:top-20">
+        <div>
+          <div className="xl:sticky xl:top-16">
             {previewComment ? (
               <CommentDetailDrawer
                 comment={previewComment}
                 ads={ads}
                 displayMode="panel"
+                onClose={() => setPreviewCommentId(undefined)}
                 teamMembers={teamMembers}
                 notes={notes}
                 activityLogs={activityLogs}

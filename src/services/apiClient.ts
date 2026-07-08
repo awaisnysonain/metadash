@@ -209,6 +209,12 @@ export const apiClient = {
   getCommentReplies: (id: string) =>
     request<{ items: MetaThreadItem[]; unavailableReason?: string }>(`/api/comments/${id}/replies`),
 
+  getReplySuggestions: (id: string, data: { brand?: string; replies?: MetaThreadItem[]; refresh?: boolean }) =>
+    request<{ suggestion: string; suggestions: string[]; confidence?: number; generatedAt?: string; cached?: boolean }>(`/api/comments/${id}/reply-suggestions`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
   editMetaComment: (id: string, metaCommentId: string, message: string) =>
     request<{ ok: boolean }>(`/api/comments/${id}/meta-comment/${metaCommentId}/edit`, {
       method: 'POST',
