@@ -62,7 +62,7 @@ export default function ProfileView() {
         <h2 className="font-editorial mt-1" style={{ fontSize: 28, lineHeight: 1.1, letterSpacing: '-0.015em' }}>
           How you show up to the team.
         </h2>
-        <p className="mt-1 text-sm text-slate-500">Your name, avatar, and short bio — visible on assigned comments and activity logs.</p>
+        <p className="mt-1 text-sm text-slate-500">Your name, avatar, and short bio — visible on activity logs and replies.</p>
       </div>
 
       <form onSubmit={handleSave} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">

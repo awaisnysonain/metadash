@@ -56,7 +56,6 @@ export default function App() {
     campaigns,
     ads,
     updateStatus,
-    updateAssign,
     updatePriority,
     updateTags,
     saveComments,
@@ -141,14 +140,6 @@ export default function App() {
     const comment = comments.find(c => c.id === commentId);
     if (!comment) return;
     await updatePriority(commentId, priority, comment.priority);
-  };
-
-  const handleAssignTeam = async (commentId: string, teamUserId?: string) => {
-    const comment = comments.find(c => c.id === commentId);
-    if (!comment) return;
-    const oldName = comment.assignedTo ? team.find(t => t.id === comment.assignedTo)?.name || 'Someone' : 'Unassigned';
-    const newName = teamUserId ? team.find(t => t.id === teamUserId)?.name || 'Someone' : 'Unassigned';
-    await updateAssign(commentId, teamUserId, { oldAssignee: oldName, assigneeName: newName });
   };
 
   const handleAddNote = async (commentId: string, noteText: string) => {
@@ -398,10 +389,7 @@ export default function App() {
           {currentTab === 'dashboard' && hasPermission('inbox.view') && (
             <DashboardOverview
               comments={comments}
-              campaigns={campaigns}
-              teamMembers={team}
               ads={ads}
-              currentUserId={user?.id}
               onNavigateToInbox={handleNavigateWithFilters}
               onSelectComment={comment => { setSelectedComment(comment); handleNavigateWithFilters({}); }}
             />
@@ -410,7 +398,6 @@ export default function App() {
           {(currentTab === 'inbox' || currentTab === 'facebook' || currentTab === 'instagram') && hasPermission('inbox.view') && (
             <UnifiedInbox
               comments={comments}
-              teamMembers={team}
               ads={ads}
               onSelectComment={setSelectedComment}
               selectedCommentId={selectedComment?.id}
@@ -418,7 +405,6 @@ export default function App() {
               onReplyToComment={handleReplyToComment}
               onModerateComment={handleModerateComment}
               onUpdatePriority={handleUpdatePriority}
-              onAssignTeam={handleAssignTeam}
               onAddNote={handleAddNote}
               onAddCommentTag={handleAddCommentTag}
               onRemoveCommentTag={handleRemoveCommentTag}
@@ -447,7 +433,7 @@ export default function App() {
           )}
 
           {currentTab === 'team' && hasPermission('team.view') && (
-            <TeamView teamMembers={team} comments={comments} onNavigateToInbox={handleNavigateWithFilters} />
+            <TeamView teamMembers={team} />
           )}
 
           {currentTab === 'reports' && hasPermission('reports.view') && (

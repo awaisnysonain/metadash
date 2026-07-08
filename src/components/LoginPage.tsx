@@ -72,7 +72,7 @@ export default function LoginPage() {
             in one place.
           </h1>
           <p className="mt-5 max-w-md text-[15px] leading-relaxed" style={{ color: 'rgba(246, 245, 240, 0.72)' }}>
-            Facebook and Instagram, paid and organic. Assigned, replied to, or hidden — with the source, spend, and history in view.
+            Facebook and Instagram, paid and organic. Replied to or hidden — with the source, spend, and history in view.
           </p>
         </div>
 

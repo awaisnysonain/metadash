@@ -1,6 +1,8 @@
 import React from 'react';
 import { Campaign, Comment, Ad } from '../types';
 import { getCommentsForCampaign, getAdsForCampaign } from '../utils/campaignHelpers';
+import { getCommentsForAd, isOpenComment } from '../utils/commentMetrics';
+import type { InboxFilters } from './UnifiedInbox';
 import { Facebook, Instagram, Megaphone, MessageCircle, Heart, ArrowRight } from 'lucide-react';
 
 interface CampaignsViewProps {
@@ -8,7 +10,7 @@ interface CampaignsViewProps {
   comments: Comment[];
   ads: Ad[];
   isDemoMode?: boolean;
-  onNavigateToInbox: (filters?: { platform?: string }) => void;
+  onNavigateToInbox: (filters?: InboxFilters) => void;
   onNavigateToSettings?: () => void;
 }
 
@@ -23,6 +25,7 @@ export default function CampaignsView({
   const campaignData = campaigns.map(camp => {
     const campComments = getCommentsForCampaign(comments, camp);
     const totalComments = campComments.length;
+    const waitingComments = campComments.filter(c => isOpenComment(c)).length;
     const unseenComments = campComments.filter(c => c.status === 'Unseen').length;
     const repliedComments = campComments.filter(c => c.status === 'Replied').length;
 
@@ -40,6 +43,7 @@ export default function CampaignsView({
     return {
       ...camp,
       totalComments,
+      waitingComments,
       unseenComments,
       replyRate: totalComments > 0 ? Math.round((repliedComments / totalComments) * 100) : 0,
       happinessScore,
@@ -203,7 +207,7 @@ export default function CampaignsView({
                                   <Heart className="w-3 h-3" /> {ad.likesCount ?? 0}
                                 </span>
                                 <span className="flex items-center gap-1">
-                                  <MessageCircle className="w-3 h-3" /> {ad.commentsCount ?? 0}
+                                  <MessageCircle className="w-3 h-3" /> {getCommentsForAd(comments, ad, ads).length}
                                 </span>
                               </div>
                             </div>
@@ -221,12 +225,12 @@ export default function CampaignsView({
 
                 <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
                   <span className="text-sm text-slate-500">
-                    {camp.unseenComments > 0
-                      ? `${camp.unseenComments} comments need a reply`
+                    {camp.waitingComments > 0
+                      ? `${camp.waitingComments} comments need a reply`
                       : 'All caught up'}
                   </span>
                   <button
-                    onClick={() => onNavigateToInbox({ platform: camp.platform })}
+                    onClick={() => onNavigateToInbox({ campaign: camp.campaignId || camp.campaignName, platform: camp.platform })}
                     className="text-sm text-slate-900 font-medium hover:text-slate-600 flex items-center gap-1 transition-colors"
                   >
                     View comments <ArrowRight className="w-4 h-4" />

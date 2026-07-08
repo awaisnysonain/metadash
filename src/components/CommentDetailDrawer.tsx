@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Comment, TeamMember, CommentNote, ActivityLog, CommentStatus, CommentPriority, Ad, CommentView } from '../types';
+import { Comment, CommentNote, ActivityLog, CommentStatus, CommentPriority, Ad, CommentView } from '../types';
 import { getAdForComment, formatFullTime, displayCommenterName, commentExternalUrl, inferBrandLabel } from '../utils/helpers';
 import { StatusBadge, PriorityBadge, SentimentBadge, PlatformBadge } from './ui/Badges';
 import AdPreviewPanel from './AdPreviewPanel';
@@ -28,7 +28,6 @@ interface CommentDetailDrawerProps {
   ads: Ad[];
   onClose?: () => void;
   displayMode?: 'drawer' | 'panel';
-  teamMembers: TeamMember[];
   notes: CommentNote[];
   activityLogs: ActivityLog[];
   onAddNote: (commentId: string, noteText: string) => void;
@@ -36,7 +35,6 @@ interface CommentDetailDrawerProps {
   onReplyToComment?: (commentId: string, message: string, opts?: { targetCommentId?: string; mention?: string; includeMention?: boolean }) => Promise<void> | void;
   onModerateComment?: (commentId: string, hidden: boolean) => Promise<void> | void;
   onUpdatePriority: (commentId: string, priority: CommentPriority) => void;
-  onAssignTeam: (commentId: string, teamUserId?: string) => void;
   onRemoveCommentTag: (commentId: string, tag: string) => void;
   onAddCommentTag: (commentId: string, tag: string) => void;
   onViewComment?: (commentId: string, views?: CommentView[], updatedComment?: Comment) => void;
@@ -47,7 +45,6 @@ export default function CommentDetailDrawer({
   ads,
   onClose,
   displayMode = 'drawer',
-  teamMembers,
   notes,
   activityLogs,
   onAddNote,
@@ -55,7 +52,6 @@ export default function CommentDetailDrawer({
   onReplyToComment,
   onModerateComment,
   onUpdatePriority,
-  onAssignTeam,
   onRemoveCommentTag,
   onAddCommentTag,
   onViewComment,

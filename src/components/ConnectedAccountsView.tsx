@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Comment, Ad } from '../types';
 import { apiClient } from '../services/apiClient';
-import { getCommentsForCampaign, formatSpend } from '../utils/campaignHelpers';
+import { formatSpend } from '../utils/campaignHelpers';
+import { getCommentsForAd } from '../utils/commentMetrics';
 import { inferBrandLabel } from '../utils/helpers';
 import {
   Facebook,
@@ -234,7 +235,7 @@ export default function ConnectedAccountsView({ comments, ads, onNavigateToInbox
         ) : (
           <div className="grid grid-cols-1 gap-2 p-3 xl:grid-cols-2 2xl:grid-cols-3">
             {topAds.map((ad, i) => {
-              const adComments = comments.filter(c => c.adId === ad.adId || c.adName === ad.adName);
+              const adComments = getCommentsForAd(comments, ad, ads);
               const unseen = adComments.filter(c => c.status === 'Unseen').length;
               return (
                 <button

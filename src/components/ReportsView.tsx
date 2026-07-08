@@ -1,6 +1,8 @@
 import React from 'react';
 import { Comment, TeamMember, Campaign } from '../types';
 import { groupCommentsByDate } from '../utils/helpers';
+import { getCommentsForCampaign } from '../utils/campaignHelpers';
+import { isOpenComment } from '../utils/commentMetrics';
 import {
   Users,
   Facebook,
@@ -21,7 +23,7 @@ interface ReportsViewProps {
 export default function ReportsView({ comments, teamMembers, campaigns, onNavigateToInbox }: ReportsViewProps) {
   const totalComments = comments.length;
   const repliedCount = comments.filter(c => c.status === 'Replied').length;
-  const unrepliedCount = comments.filter(c => c.status === 'Unseen' || c.status === 'Seen').length;
+  const unrepliedCount = comments.filter(c => isOpenComment(c)).length;
   const fbCount = comments.filter(c => c.platform === 'facebook').length;
   const igCount = comments.filter(c => c.platform === 'instagram').length;
   const highPriority = comments.filter(
@@ -35,7 +37,7 @@ export default function ReportsView({ comments, teamMembers, campaigns, onNaviga
   const campaignVolume = campaigns
     .map(c => ({
       ...c,
-      count: comments.filter(cm => cm.campaignId === c.id).length,
+      count: getCommentsForCampaign(comments, c).length,
     }))
     .sort((a, b) => b.count - a.count);
 
@@ -51,22 +53,7 @@ export default function ReportsView({ comments, teamMembers, campaigns, onNaviga
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count);
 
-  const teamWorkload = teamMembers
-    .map(member => {
-      const assigned = comments.filter(c => c.assignedTo === member.id);
-      const resolved = assigned.filter(c => c.status === 'Replied').length;
-      const pending = assigned.filter(c => c.status !== 'Replied' && c.status !== 'Ignored').length;
-      const urgent = assigned.filter(c => c.priority === 'Urgent' && c.status !== 'Replied').length;
-      return {
-        ...member,
-        assigned: assigned.length,
-        resolved,
-        pending,
-        urgent,
-        rate: assigned.length > 0 ? Math.round((resolved / assigned.length) * 100) : 0,
-      };
-    })
-    .sort((a, b) => b.assigned - a.assigned);
+  const teamRoster = teamMembers;
 
   return (
     <div className="space-y-4 animate-fade-in" id="reports-screen">
@@ -183,12 +170,12 @@ export default function ReportsView({ comments, teamMembers, campaigns, onNaviga
 
         <div className="bg-white border border-slate-200 p-4 rounded-xl">
           <h3 className="font-medium text-slate-900 mb-4 flex items-center gap-2">
-            <Users className="w-4 h-4 text-slate-400" /> Team workload
+            <Users className="w-4 h-4 text-slate-400" /> Team ({teamRoster.length})
           </h3>
           <div className="space-y-3">
-            {teamWorkload.map(m => (
+            {teamRoster.map(m => (
               <div key={m.id} className="p-2.5 bg-slate-50 rounded-lg">
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2">
                   {m.avatarUrl ? (
                     <img src={m.avatarUrl} alt="" className="w-7 h-7 rounded-full" />
                   ) : (
@@ -198,15 +185,9 @@ export default function ReportsView({ comments, teamMembers, campaigns, onNaviga
                   )}
                   <div>
                     <p className="text-sm font-medium text-slate-800">{m.name}</p>
-                    <p className="text-xs text-slate-500">
-                      {m.assigned} assigned · {m.pending} waiting · {m.urgent} urgent
-                    </p>
+                    <p className="text-xs text-slate-500">{m.role}</p>
                   </div>
                 </div>
-                <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
-                  <div className="h-full bg-blue-600 rounded-full" style={{ width: `${m.rate}%` }} />
-                </div>
-                <p className="text-xs text-slate-400 mt-1">{m.rate}% replied</p>
               </div>
             ))}
           </div>

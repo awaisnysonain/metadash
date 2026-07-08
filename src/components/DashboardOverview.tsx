@@ -1,55 +1,39 @@
 import React, { useMemo } from 'react';
-import { Comment, Campaign, TeamMember, Ad } from '../types';
+import { Comment, Ad } from '../types';
 import { useAuth } from '../contexts/AuthContext';
-import {
-  ArrowRight,
-  ChevronDown,
-  ChevronUp,
-} from 'lucide-react';
+import { ArrowRight, ChevronDown, ChevronUp, MessageCircle, TrendingUp } from 'lucide-react';
 import type { InboxFilters } from './UnifiedInbox';
 import {
   displayCommenterName,
   formatCommentTime,
+  getAdForComment,
   inferBrandLabel,
-  inferSourceCategory,
 } from '../utils/helpers';
+import { formatSpend } from '../utils/campaignHelpers';
+import {
+  bucketByCalendarDay,
+  countDelta,
+  getCommentsForAd,
+  isOpenComment,
+  isToday,
+  isWaitingForReply,
+  isYesterday,
+} from '../utils/commentMetrics';
 
 interface DashboardOverviewProps {
   comments: Comment[];
-  campaigns: Campaign[];
-  teamMembers: TeamMember[];
   ads?: Ad[];
-  currentUserId?: string;
   onNavigateToInbox: (filters?: InboxFilters) => void;
   onSelectComment?: (comment: Comment) => void;
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function daysAgo(n: number): number {
-  return Date.now() - n * DAY_MS;
-}
-
-function bucketByDay(comments: Comment[], filter: (c: Comment) => boolean, days = 7): number[] {
-  const counts = Array<number>(days).fill(0);
-  const now = Date.now();
-  for (const c of comments) {
-    if (!filter(c)) continue;
-    const t = Date.parse(c.createdAt);
-    if (Number.isNaN(t)) continue;
-    const offset = Math.floor((now - t) / DAY_MS);
-    if (offset >= 0 && offset < days) counts[days - 1 - offset] += 1;
-  }
-  return counts;
-}
-
-interface SparkProps {
-  values: number[];
+interface Slice {
+  label: string;
+  value: number;
   color: string;
-  className?: string;
 }
 
-function Sparkline({ values, color, className }: SparkProps) {
+function Sparkline({ values, color, className }: { values: number[]; color: string; className?: string }) {
   if (values.length === 0) return null;
   const w = 96;
   const h = 26;
@@ -60,23 +44,15 @@ function Sparkline({ values, color, className }: SparkProps) {
     <svg viewBox={`0 0 ${w} ${h}`} className={className} preserveAspectRatio="none">
       {values.map((v, i) => {
         const bh = Math.max(2, Math.round((v / max) * (h - 2)));
-        return (
-          <rect key={i} x={i * (barW + gap)} y={h - bh} width={barW} height={bh} fill={color} rx={1.5} />
-        );
+        return <rect key={i} x={i * (barW + gap)} y={h - bh} width={barW} height={bh} fill={color} rx={1.5} />;
       })}
     </svg>
   );
 }
 
-interface Slice {
-  label: string;
-  value: number;
-  color: string;
-}
-
 function Donut({ slices, total }: { slices: Slice[]; total: number }) {
-  const c = 15.915; // circumference-friendly radius for viewBox 42
-  let offset = 25; // start at 12 o'clock
+  const c = 15.915;
+  let offset = 25;
   return (
     <svg viewBox="0 0 42 42" width={128} height={128} aria-label="Sentiment donut">
       <circle cx={21} cy={21} r={c} fill="none" stroke="#EFEDE7" strokeWidth={6} />
@@ -99,20 +75,10 @@ function Donut({ slices, total }: { slices: Slice[]; total: number }) {
         offset -= pct;
         return el;
       })}
-      <text
-        x={21}
-        y={20}
-        textAnchor="middle"
-        style={{ fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 500, fill: 'var(--color-ink)' }}
-      >
+      <text x={21} y={20} textAnchor="middle" style={{ fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 500, fill: 'var(--color-ink)' }}>
         {total.toLocaleString()}
       </text>
-      <text
-        x={21}
-        y={26}
-        textAnchor="middle"
-        style={{ fontFamily: 'var(--font-sans)', fontSize: 3, fill: 'var(--color-muted)' }}
-      >
+      <text x={21} y={26} textAnchor="middle" style={{ fontFamily: 'var(--font-sans)', fontSize: 3, fill: 'var(--color-muted)' }}>
         today
       </text>
     </svg>
@@ -121,102 +87,56 @@ function Donut({ slices, total }: { slices: Slice[]; total: number }) {
 
 export default function DashboardOverview({
   comments,
-  campaigns,
-  teamMembers,
   ads = [],
-  currentUserId,
   onNavigateToInbox,
   onSelectComment,
 }: DashboardOverviewProps) {
   const { user } = useAuth();
-
   const now = Date.now();
-  const todayMs = daysAgo(1);
-  const yesterdayMs = daysAgo(2);
 
-  // Received today / yesterday
-  const receivedToday = useMemo(
-    () => comments.filter(c => Date.parse(c.createdAt) >= todayMs).length,
-    [comments, todayMs]
-  );
+  const todayComments = useMemo(() => comments.filter(c => isToday(c.createdAt, now)), [comments, now]);
+  const yesterdayComments = useMemo(() => comments.filter(c => isYesterday(c.createdAt, now)), [comments, now]);
 
-  // Waiting for reply = status in ('Unseen','Seen')
-  const waitingForReply = useMemo(
-    () => comments.filter(c => c.status === 'Unseen' || c.status === 'Seen'),
+  const receivedToday = todayComments.length;
+  const receivedYesterday = yesterdayComments.length;
+  const receivedVariance = countDelta(receivedToday, receivedYesterday);
+
+  const waitingOpen = useMemo(() => comments.filter(c => isWaitingForReply(c)), [comments]);
+  const waitingToday = waitingOpen.filter(c => isToday(c.createdAt, now)).length;
+  const waitingYesterday = waitingOpen.filter(c => isYesterday(c.createdAt, now)).length;
+  const waitingVariance = countDelta(waitingToday, waitingYesterday);
+
+  const urgentOpen = useMemo(
+    () => comments.filter(c => c.priority === 'Urgent' && isOpenComment(c)),
     [comments]
   );
-  const waitingCount = waitingForReply.length;
-  const waitingToday = waitingForReply.filter(c => Date.parse(c.createdAt) >= todayMs).length;
-  const waitingYesterday = waitingForReply.filter(c => {
-    const t = Date.parse(c.createdAt);
-    return t >= yesterdayMs && t < todayMs;
-  }).length;
-  const waitingDelta = waitingToday - waitingYesterday;
+  const urgentToday = urgentOpen.filter(c => isToday(c.createdAt, now)).length;
+  const urgentYesterday = comments.filter(
+    c => c.priority === 'Urgent' && isYesterday(c.createdAt, now)
+  ).length;
+  const urgentVariance = countDelta(urgentToday, urgentYesterday);
 
-  // Urgent
-  const urgentComments = useMemo(
-    () => comments.filter(c => c.priority === 'Urgent' && c.status !== 'Ignored' && c.status !== 'Replied'),
-    [comments]
+  const repliedToday = useMemo(
+    () => comments.filter(c => c.status === 'Replied' && isToday(c.repliedAt || c.updatedAt, now)).length,
+    [comments, now]
   );
-  const urgentCount = urgentComments.length;
-  const urgentToday = urgentComments.filter(c => Date.parse(c.createdAt) >= todayMs).length;
-  const urgentYesterday = comments.filter(c => {
-    const t = Date.parse(c.createdAt);
-    return c.priority === 'Urgent' && t >= yesterdayMs && t < todayMs;
-  }).length;
-  const urgentDelta = urgentToday - urgentYesterday;
+  const repliedYesterday = useMemo(
+    () => comments.filter(c => c.status === 'Replied' && isYesterday(c.repliedAt || c.updatedAt, now)).length,
+    [comments, now]
+  );
+  const repliedVariance = countDelta(repliedToday, repliedYesterday);
 
-  // Assigned to me
-  const assignedToMe = useMemo(
-    () => currentUserId ? comments.filter(c => c.assignedTo === currentUserId && c.status !== 'Replied' && c.status !== 'Ignored') : [],
-    [comments, currentUserId]
-  );
-  const assignedCount = assignedToMe.length;
-  const assignedUnread = assignedToMe.filter(c => c.status === 'Unseen').length;
-  const oldestAssigned = assignedToMe.reduce<number>((oldest, c) => {
-    const t = Date.parse(c.createdAt);
-    return Number.isNaN(t) ? oldest : Math.max(oldest, now - t);
-  }, 0);
-  const oldestAssignedLabel = oldestAssigned > 0
-    ? formatCommentTime(new Date(now - oldestAssigned).toISOString())
-    : '—';
-
-  // Sparklines
-  const sparkWaiting = useMemo(
-    () => bucketByDay(comments, c => c.status === 'Unseen' || c.status === 'Seen'),
-    [comments]
-  );
-  const sparkUrgent = useMemo(
-    () => bucketByDay(comments, c => c.priority === 'Urgent'),
-    [comments]
-  );
-  const sparkAssigned = useMemo(
-    () => bucketByDay(comments, c => Boolean(currentUserId) && c.assignedTo === currentUserId),
-    [comments, currentUserId]
+  const latestToday = useMemo(
+    () => [...todayComments].sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0)).slice(0, 8),
+    [todayComments]
   );
 
-  // Queue — top 4 unseen, urgent first
-  const queue = useMemo(() => {
-    const priorityRank = { Urgent: 0, High: 1, Medium: 2, Low: 3 } as const;
-    return comments
-      .filter(c => c.status === 'Unseen' || (c.status === 'Seen' && c.priority === 'Urgent'))
-      .sort((a, b) => {
-        const pa = priorityRank[a.priority] ?? 2;
-        const pb = priorityRank[b.priority] ?? 2;
-        if (pa !== pb) return pa - pb;
-        return (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0);
-      })
-      .slice(0, 4);
-  }, [comments]);
-
-  // Sentiment split (last 24h)
-  const last24h = useMemo(() => comments.filter(c => Date.parse(c.createdAt) >= todayMs), [comments, todayMs]);
   const sentimentCounts = useMemo(() => ({
-    positive: last24h.filter(c => c.sentiment === 'Positive').length,
-    question: last24h.filter(c => c.sentiment === 'Question').length,
-    complaint: last24h.filter(c => c.sentiment === 'Complaint').length,
-    neutral: last24h.filter(c => c.sentiment === 'Neutral' || c.sentiment === 'Negative').length,
-  }), [last24h]);
+    positive: todayComments.filter(c => c.sentiment === 'Positive').length,
+    question: todayComments.filter(c => c.sentiment === 'Question').length,
+    complaint: todayComments.filter(c => c.sentiment === 'Complaint').length,
+    neutral: todayComments.filter(c => c.sentiment === 'Neutral' || c.sentiment === 'Negative').length,
+  }), [todayComments]);
 
   const donutSlices: Slice[] = [
     { label: 'Positive', value: sentimentCounts.positive, color: 'var(--color-sem-green)' },
@@ -225,211 +145,111 @@ export default function DashboardOverview({
     { label: 'Neutral', value: sentimentCounts.neutral, color: 'var(--color-sem-amber)' },
   ];
 
-  // Median first response (approx — only where we have both created + replied timestamps)
-  const responseTimes = useMemo(
-    () => comments
-      .filter(c => c.repliedAt && c.createdAt)
-      .map(c => {
-        const created = Date.parse(c.createdAt);
-        const replied = Date.parse(c.repliedAt!);
-        return Number.isNaN(created) || Number.isNaN(replied) ? null : (replied - created) / 60000;
-      })
-      .filter((n): n is number => n !== null && n >= 0)
-      .sort((a, b) => a - b),
-    [comments]
-  );
-  const medianResponseMin = responseTimes.length > 0
-    ? responseTimes[Math.floor(responseTimes.length / 2)]
-    : null;
-  const responseTargetMin = 15;
-  const responseBarPct = medianResponseMin != null
-    ? Math.min(100, Math.max(4, (medianResponseMin / (responseTargetMin * 2)) * 100))
-    : 0;
-
-  const fbToday = last24h.filter(c => c.platform === 'facebook').length;
-  const igToday = last24h.filter(c => c.platform === 'instagram').length;
+  const fbToday = todayComments.filter(c => c.platform === 'facebook').length;
+  const igToday = todayComments.filter(c => c.platform === 'instagram').length;
   const platformTotal = Math.max(1, fbToday + igToday);
-  const fbPct = (fbToday / platformTotal) * 100;
-  const igPct = (igToday / platformTotal) * 100;
 
-  // Source breakdown — group today's comments by (brand, source-type, ad/post name)
-  interface SourceRow {
-    key: string;
-    brand: string;
-    account: string;
-    source: 'Paid ad' | 'Whitelisted creator' | 'Creator/UGC' | 'Third-party page' | 'Organic';
-    displayName: string;
-    subtext: string;
-    received: number;
-    unseen: number;
-    urgent: number;
-    spend7d: number;
-  }
+  const sparkReceived = useMemo(() => bucketByCalendarDay(comments, () => true, 7, now), [comments, now]);
+  const sparkWaiting = useMemo(() => bucketByCalendarDay(comments, isWaitingForReply, 7, now), [comments, now]);
+  const sparkUrgent = useMemo(
+    () => bucketByCalendarDay(comments, c => c.priority === 'Urgent' && isOpenComment(c), 7, now),
+    [comments, now]
+  );
 
-  const sourceRows: SourceRow[] = useMemo(() => {
-    const bucket = new Map<string, SourceRow>();
-    for (const c of last24h) {
-      const linkedAd = ads.find(a => a.adId === c.adId || a.id === c.adId);
-      const brand = inferBrandLabel(c, linkedAd);
-      const category = inferSourceCategory(c, linkedAd);
-      const isOrganic = !linkedAd || c.campaignName === 'Organic';
-      const source: SourceRow['source'] = isOrganic
-        ? 'Organic'
-        : category === 'Whitelisted creator'
-          ? 'Whitelisted creator'
-          : category === 'Creator/UGC'
-            ? 'Creator/UGC'
-            : category === 'Third-party page'
-              ? 'Third-party page'
-              : 'Paid ad';
-      const displayName = linkedAd?.adName || c.adName || (isOrganic ? `Organic · ${c.instagramAccountName || c.pageName || c.platform}` : 'Unknown ad');
-      const account = linkedAd?.accountLabel || (isOrganic ? (c.instagramAccountName ? `@${c.instagramAccountName}` : (c.pageName || 'organic')) : brand);
-      const key = `${brand}|${source}|${displayName}`;
-      const row = bucket.get(key) ?? {
-        key,
-        brand,
-        account,
-        source,
-        displayName,
-        subtext: c.campaignName || c.adsetName || '',
-        received: 0,
-        unseen: 0,
-        urgent: 0,
-        spend7d: linkedAd?.recentSpend ?? 0,
-      };
-      row.received += 1;
-      if (c.status === 'Unseen') row.unseen += 1;
-      if (c.priority === 'Urgent' && c.status !== 'Ignored' && c.status !== 'Replied') row.urgent += 1;
-      bucket.set(key, row);
-    }
-    return [...bucket.values()]
-      .sort((a, b) => b.unseen - a.unseen || b.received - a.received)
-      .slice(0, 8);
-  }, [last24h, ads]);
+  const topSpendAds = useMemo(() => {
+    return [...ads]
+      .filter(ad => (ad.recentSpend ?? ad.spend ?? 0) > 0)
+      .sort((a, b) => (b.recentSpend ?? b.spend ?? 0) - (a.recentSpend ?? a.spend ?? 0))
+      .slice(0, 8)
+      .map(ad => {
+        const adComments = getCommentsForAd(comments, ad, ads);
+        const todayOnAd = adComments.filter(c => isToday(c.createdAt, now));
+        const latest = [...adComments].sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0))[0];
+        return {
+          ad,
+          totalComments: adComments.length,
+          todayComments: todayOnAd.length,
+          unseen: adComments.filter(c => c.status === 'Unseen').length,
+          urgent: adComments.filter(c => c.priority === 'Urgent' && isOpenComment(c)).length,
+          latest,
+        };
+      });
+  }, [ads, comments, now]);
 
   const displayName = user?.name?.split(' ')[0] || 'there';
   const dateLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
-  const totalCampaigns = campaigns.length;
-  void totalCampaigns;
-  void teamMembers;
 
   const brandSwatch = (brand: string) =>
     brand === 'Nobl' ? '#3A5F5D' : brand === 'Flo' ? 'var(--color-brand-ig)' : 'var(--color-muted)';
 
-  const sourceChip = (source: SourceRow['source']) => {
-    if (source === 'Paid ad') return { background: 'var(--color-accent-soft)', color: 'var(--color-accent)', border: '1px solid rgba(15,91,77,0.15)' };
-    if (source === 'Organic') return { background: 'var(--color-sem-green-soft)', color: 'var(--color-sem-green)', border: '1px solid rgba(75,122,85,0.2)' };
-    if (source === 'Whitelisted creator') return { background: 'rgba(180,50,107,0.06)', color: 'var(--color-brand-ig)', border: '1px solid rgba(180,50,107,0.15)' };
-    if (source === 'Creator/UGC') return { background: 'rgba(180,50,107,0.06)', color: 'var(--color-brand-ig)', border: '1px solid rgba(180,50,107,0.15)' };
-    return { background: 'var(--color-ground-2)', color: 'var(--color-muted)', border: '1px solid var(--color-line)' };
-  };
-
   return (
     <div className="animate-fade-in flex flex-col gap-6" id="dashboard-screen">
-
-      {/* Context bar (integrated with header, but adds a subline of numbers) */}
       <div className="flex items-baseline justify-between gap-4 flex-wrap">
         <div className="min-w-0">
           <p className="text-[11px] font-extrabold uppercase tracking-[0.16em]" style={{ color: 'var(--color-muted)' }}>{dateLabel}</p>
-          <h1
-            className="font-editorial mt-1"
-            style={{ fontSize: 32, lineHeight: 1.1, letterSpacing: '-0.015em', color: 'var(--color-ink)', textWrap: 'balance' }}
-          >
+          <h1 className="font-editorial mt-1" style={{ fontSize: 32, lineHeight: 1.1, letterSpacing: '-0.015em', color: 'var(--color-ink)' }}>
             Good morning, {displayName}.
           </h1>
           <p className="mt-1.5 text-[13px]" style={{ color: 'var(--color-muted)' }}>
-            <span className="font-semibold tabular" style={{ color: 'var(--color-ink-2)' }}>{receivedToday.toLocaleString()}</span> comments came in in the last 24 hours ·{' '}
-            <span className="font-semibold tabular" style={{ color: urgentCount > 0 ? 'var(--color-sem-red)' : 'var(--color-ink-2)' }}>{urgentCount.toLocaleString()}</span> flagged urgent
+            <span className="font-semibold tabular" style={{ color: 'var(--color-ink-2)' }}>{receivedToday.toLocaleString()}</span> comments today ·{' '}
+            <span className="font-semibold tabular" style={{ color: urgentOpen.length > 0 ? 'var(--color-sem-red)' : 'var(--color-ink-2)' }}>
+              {urgentOpen.length.toLocaleString()}
+            </span>{' '}
+            urgent open ·{' '}
+            <span className="font-semibold tabular" style={{ color: 'var(--color-ink-2)' }}>{waitingOpen.length.toLocaleString()}</span> waiting reply
           </p>
         </div>
       </div>
 
-      {/* Priority strip */}
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-        {/* Waiting */}
-        <button
+      <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3.5">
+        <MetricCard
+          label="Comments today"
+          value={receivedToday}
+          variance={receivedVariance}
+          sub={`${receivedYesterday} yesterday`}
+          spark={sparkReceived}
+          sparkColor="var(--color-accent)"
+          onClick={() => onNavigateToInbox({})}
+        />
+        <MetricCard
+          label="Waiting for reply"
+          value={waitingOpen.length}
+          variance={waitingVariance}
+          sub={`${waitingToday} arrived today`}
+          spark={sparkWaiting}
+          sparkColor="var(--color-accent)"
           onClick={() => onNavigateToInbox({ status: 'Unreplied' })}
-          className="text-left rounded-2xl p-5 transition-all hover:-translate-y-0.5 hover:shadow-md"
-          style={{ background: 'var(--color-panel)', border: '1px solid var(--color-line)' }}
-        >
-          <div className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: 'var(--color-muted)' }}>Waiting for reply</div>
-          <div className="mt-2 flex items-end justify-between gap-3">
-            <div className="font-editorial tabular" style={{ fontSize: 46, lineHeight: 1, color: 'var(--color-accent)' }}>
-              {waitingCount.toLocaleString()}
-            </div>
-            <div
-              className="text-[11px] font-semibold tabular flex items-center gap-1 pb-1"
-              style={{ color: waitingDelta > 0 ? 'var(--color-sem-red)' : waitingDelta < 0 ? 'var(--color-sem-green)' : 'var(--color-muted-2)' }}
-            >
-              {waitingDelta > 0 ? <ChevronUp className="w-3 h-3" /> : waitingDelta < 0 ? <ChevronDown className="w-3 h-3" /> : null}
-              {waitingDelta === 0 ? 'no change' : `${Math.abs(waitingDelta)} vs yesterday`}
-            </div>
-          </div>
-          <div className="mt-3 flex items-end justify-between gap-3">
-            <p className="text-[12px]" style={{ color: 'var(--color-muted)' }}>
-              {waitingToday.toLocaleString()} arrived today.
-            </p>
-            <Sparkline values={sparkWaiting} color="var(--color-accent)" className="w-24 h-6" />
-          </div>
-        </button>
-
-        {/* Urgent */}
-        <button
-          onClick={() => onNavigateToInbox({ priority: 'Urgent' })}
-          className="text-left rounded-2xl p-5 transition-all hover:-translate-y-0.5 hover:shadow-md"
-          style={{ background: 'var(--color-panel)', border: '1px solid var(--color-line)' }}
-        >
-          <div className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: 'var(--color-muted)' }}>Escalations</div>
-          <div className="mt-2 flex items-end justify-between gap-3">
-            <div className="font-editorial tabular" style={{ fontSize: 46, lineHeight: 1, color: urgentCount > 0 ? 'var(--color-sem-red)' : 'var(--color-ink)' }}>
-              {urgentCount.toLocaleString()}
-            </div>
-            <div
-              className="text-[11px] font-semibold tabular flex items-center gap-1 pb-1"
-              style={{ color: urgentDelta > 0 ? 'var(--color-sem-red)' : urgentDelta < 0 ? 'var(--color-sem-green)' : 'var(--color-muted-2)' }}
-            >
-              {urgentDelta > 0 ? <ChevronUp className="w-3 h-3" /> : urgentDelta < 0 ? <ChevronDown className="w-3 h-3" /> : null}
-              {urgentDelta === 0 ? 'no change' : `${Math.abs(urgentDelta)} vs yesterday`}
-            </div>
-          </div>
-          <div className="mt-3 flex items-end justify-between gap-3">
-            <p className="text-[12px]" style={{ color: 'var(--color-muted)' }}>
-              Complaints &amp; refund requests to work first.
-            </p>
-            <Sparkline values={sparkUrgent} color="var(--color-sem-red)" className="w-24 h-6" />
-          </div>
-        </button>
-
-        {/* Assigned to me */}
-        <button
-          onClick={() => currentUserId && onNavigateToInbox({ assignedTo: currentUserId })}
-          className="text-left rounded-2xl p-5 transition-all hover:-translate-y-0.5 hover:shadow-md"
-          style={{ background: 'var(--color-panel)', border: '1px solid var(--color-line)' }}
-        >
-          <div className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: 'var(--color-muted)' }}>Assigned to you</div>
-          <div className="mt-2 flex items-end justify-between gap-3">
-            <div className="font-editorial tabular" style={{ fontSize: 46, lineHeight: 1, color: 'var(--color-ink)' }}>
-              {assignedCount.toLocaleString()}
-            </div>
-          </div>
-          <div className="mt-3 flex items-end justify-between gap-3">
-            <p className="text-[12px]" style={{ color: 'var(--color-muted)' }}>
-              {assignedUnread > 0 ? `${assignedUnread} unread. Oldest ${oldestAssignedLabel}.` : 'All caught up.'}
-            </p>
-            <Sparkline values={sparkAssigned} color="var(--color-muted-2)" className="w-24 h-6" />
-          </div>
-        </button>
+        />
+        <MetricCard
+          label="Urgent open"
+          value={urgentOpen.length}
+          variance={urgentVariance}
+          sub="Complaints & refund requests"
+          spark={sparkUrgent}
+          sparkColor="var(--color-sem-red)"
+          valueColor={urgentOpen.length > 0 ? 'var(--color-sem-red)' : 'var(--color-ink)'}
+          onClick={() => onNavigateToInbox({ priority: 'Urgent', status: 'Unreplied' })}
+        />
+        <MetricCard
+          label="Replied today"
+          value={repliedToday}
+          variance={repliedVariance}
+          sub={`${repliedYesterday} yesterday`}
+          spark={sparkReceived}
+          sparkColor="var(--color-sem-green)"
+          onClick={() => onNavigateToInbox({ status: 'Replied' })}
+        />
       </section>
 
-      {/* Middle band */}
-      <section className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-3.5">
-
-        {/* The queue */}
+      <section className="grid grid-cols-1 xl:grid-cols-[1.35fr_1fr] gap-3.5">
         <div className="rounded-2xl overflow-hidden" style={{ background: 'var(--color-panel)', border: '1px solid var(--color-line)' }}>
           <div className="flex items-baseline justify-between gap-3 px-5 py-4" style={{ borderBottom: '1px solid var(--color-line-soft)' }}>
-            <h2 className="font-editorial text-[18px]" style={{ color: 'var(--color-ink)' }}>The queue</h2>
+            <div>
+              <h2 className="font-editorial text-[18px]" style={{ color: 'var(--color-ink)' }}>Today&apos;s latest comments</h2>
+              <p className="text-[12px] mt-0.5" style={{ color: 'var(--color-muted)' }}>Newest first · calendar day only</p>
+            </div>
             <button
-              onClick={() => onNavigateToInbox({ status: 'Unseen' })}
+              onClick={() => onNavigateToInbox({})}
               className="text-[12px] font-semibold flex items-center gap-1"
               style={{ color: 'var(--color-accent)' }}
             >
@@ -437,89 +257,64 @@ export default function DashboardOverview({
             </button>
           </div>
 
-          {queue.length === 0 ? (
+          {latestToday.length === 0 ? (
             <div className="p-10 text-center">
-              <p className="text-[13px]" style={{ color: 'var(--color-muted)' }}>Inbox is clear — nothing waiting.</p>
+              <p className="text-[13px]" style={{ color: 'var(--color-muted)' }}>No comments yet today.</p>
             </div>
           ) : (
             <div>
-              {queue.map(comment => {
+              {latestToday.map(comment => {
+                const linkedAd = getAdForComment(comment, ads);
+                const brand = inferBrandLabel(comment, linkedAd);
                 const isUrgent = comment.priority === 'Urgent';
-                const isHigh = comment.priority === 'High';
-                const stripeColor = isUrgent ? 'var(--color-sem-red)' : isHigh ? 'var(--color-sem-amber)' : 'transparent';
-                const brand = inferBrandLabel(comment, ads.find(a => a.adId === comment.adId));
-                const displayNameC = displayCommenterName(comment.commenterName);
-                const initial = displayNameC.replace('@', '').charAt(0).toUpperCase() || '?';
                 return (
                   <div
                     key={comment.id}
                     onClick={() => onSelectComment?.(comment)}
                     className="grid gap-3 px-4 py-3.5 cursor-pointer transition-colors hover:bg-black/[0.02]"
-                    style={{ gridTemplateColumns: '3px 32px 1fr auto', borderBottom: '1px solid var(--color-line-soft)' }}
+                    style={{ gridTemplateColumns: '3px 1fr auto', borderBottom: '1px solid var(--color-line-soft)' }}
                   >
-                    <div className="rounded-sm" style={{ background: stripeColor }} />
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center"
-                      style={{ background: 'var(--color-ground)', border: '1px solid var(--color-line)', color: 'var(--color-ink-2)', fontFamily: 'var(--font-display)', fontSize: 14 }}
-                    >
-                      {initial}
-                    </div>
+                    <div className="rounded-sm" style={{ background: isUrgent ? 'var(--color-sem-red)' : 'transparent' }} />
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="font-semibold text-[13.5px] truncate" style={{ color: 'var(--color-ink)' }}>
-                          {displayNameC}
+                      <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                        <span className="font-semibold text-[13.5px]" style={{ color: 'var(--color-ink)' }}>
+                          {displayCommenterName(comment.commenterName)}
                         </span>
-                        <span
-                          className="text-[10px] font-bold uppercase tracking-[0.06em] rounded-full px-1.5 py-[1px]"
-                          style={
-                            comment.platform === 'instagram'
-                              ? { background: 'rgba(180,50,107,0.08)', color: 'var(--color-brand-ig)' }
-                              : { background: 'rgba(30,75,143,0.08)', color: 'var(--color-brand-fb)' }
-                          }
-                        >
-                          {comment.platform === 'instagram' ? 'Instagram' : 'Facebook'}
+                        <span className="text-[10px] font-bold uppercase tracking-[0.06em] rounded-full px-1.5 py-[1px]" style={
+                          comment.sentiment === 'Complaint'
+                            ? { background: 'var(--color-sem-red-soft)', color: 'var(--color-sem-red)' }
+                            : comment.sentiment === 'Positive'
+                              ? { background: 'var(--color-sem-green-soft)', color: 'var(--color-sem-green)' }
+                              : comment.sentiment === 'Question'
+                                ? { background: 'rgba(15,91,77,0.08)', color: 'var(--color-accent)' }
+                                : { background: 'var(--color-ground)', color: 'var(--color-muted)', border: '1px solid var(--color-line)' }
+                        }>
+                          {comment.sentiment}
                         </span>
                         {brand !== 'Unattributed' && (
-                          <span
-                            className="text-[10px] font-bold rounded-full px-1.5 py-[1px]"
-                            style={{ background: 'var(--color-ground)', color: 'var(--color-muted)', border: '1px solid var(--color-line)' }}
-                          >
+                          <span className="text-[10px] font-bold rounded-full px-1.5 py-[1px]" style={{ background: 'var(--color-ground)', color: 'var(--color-muted)', border: '1px solid var(--color-line)' }}>
                             {brand}
                           </span>
                         )}
-                        <span className="ml-auto text-[11px] tabular shrink-0" style={{ color: 'var(--color-muted-2)' }}>
-                          {formatCommentTime(comment.createdAt)}
-                        </span>
                       </div>
-                      <p
-                        className="mt-1 text-[13px]"
-                        style={{ color: 'var(--color-ink-2)', lineHeight: 1.45, display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, overflow: 'hidden' }}
-                      >
+                      <p className="mt-1 text-[13px]" style={{ color: 'var(--color-ink-2)', lineHeight: 1.45, display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, overflow: 'hidden' }}>
                         {comment.commentText}
                       </p>
-                      <div className="mt-1.5 flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--color-muted)' }}>
-                        <span style={{ color: 'var(--color-muted-2)' }}>→</span>
-                        <span className="truncate" style={{ color: 'var(--color-ink-2)' }}>
-                          {comment.adName || 'Organic'}
-                        </span>
+                      <div className="mt-1.5 flex items-center gap-2 text-[11px]" style={{ color: 'var(--color-muted)' }}>
+                        <span className="truncate">{comment.adName || 'Organic'}</span>
+                        <span>·</span>
+                        <span className="shrink-0">{formatCommentTime(comment.createdAt)}</span>
+                        <span>·</span>
+                        <span className="capitalize">{comment.status.toLowerCase()}</span>
                       </div>
                     </div>
-                    <div className="flex flex-col gap-1.5 self-center">
-                      <button
-                        onClick={e => { e.stopPropagation(); onSelectComment?.(comment); }}
-                        className="px-2.5 py-1.5 rounded-md text-[11px] font-semibold"
-                        style={{ background: 'var(--color-accent)', color: '#FFFFFF' }}
-                      >
-                        Reply
-                      </button>
-                      <button
-                        onClick={e => { e.stopPropagation(); onSelectComment?.(comment); }}
-                        className="px-2.5 py-1.5 rounded-md text-[11px] font-semibold"
-                        style={{ background: 'transparent', color: 'var(--color-muted)', border: '1px solid var(--color-line)' }}
-                      >
-                        Assign
-                      </button>
-                    </div>
+                    <button
+                      onClick={e => { e.stopPropagation(); onSelectComment?.(comment); }}
+                      className="self-center px-2.5 py-1.5 rounded-md text-[11px] font-semibold"
+                      style={{ background: 'var(--color-accent)', color: '#FFFFFF' }}
+                    >
+                      Open
+                    </button>
                   </div>
                 );
               })}
@@ -527,18 +322,17 @@ export default function DashboardOverview({
           )}
         </div>
 
-        {/* Signal */}
         <div className="rounded-2xl p-5 flex flex-col gap-5" style={{ background: 'var(--color-panel)', border: '1px solid var(--color-line)' }}>
           <div className="flex items-baseline justify-between">
-            <h2 className="font-editorial text-[18px]" style={{ color: 'var(--color-ink)' }}>Signal</h2>
-            <div className="text-[11.5px]" style={{ color: 'var(--color-muted)' }}>Last 24h · {last24h.length.toLocaleString()} comments</div>
+            <h2 className="font-editorial text-[18px]" style={{ color: 'var(--color-ink)' }}>Today&apos;s sentiment</h2>
+            <div className="text-[11.5px]" style={{ color: 'var(--color-muted)' }}>{receivedToday.toLocaleString()} comments</div>
           </div>
 
           <div className="grid grid-cols-[132px_1fr] gap-4 items-center">
-            <Donut slices={donutSlices} total={last24h.length} />
+            <Donut slices={donutSlices} total={receivedToday} />
             <div className="flex flex-col gap-1.5 text-[12px]" style={{ color: 'var(--color-ink-2)' }}>
               {donutSlices.map(s => {
-                const pct = last24h.length > 0 ? Math.round((s.value / last24h.length) * 100) : 0;
+                const pct = receivedToday > 0 ? Math.round((s.value / receivedToday) * 100) : 0;
                 return (
                   <div key={s.label} className="grid items-baseline gap-2" style={{ gridTemplateColumns: '10px 1fr auto auto' }}>
                     <span className="rounded-sm h-2.5 self-center" style={{ background: s.color }} />
@@ -551,124 +345,109 @@ export default function DashboardOverview({
             </div>
           </div>
 
-          {medianResponseMin != null && (
-            <div className="pt-3 flex flex-col gap-2" style={{ borderTop: '1px solid var(--color-line-soft)' }}>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: 'var(--color-muted)' }}>Median first response</span>
-                <span className="font-editorial tabular" style={{ fontSize: 24, color: medianResponseMin <= responseTargetMin ? 'var(--color-accent)' : 'var(--color-sem-amber)' }}>
-                  {Math.round(medianResponseMin)}m
-                </span>
-              </div>
-              <div className="h-1.5 rounded-full relative" style={{ background: 'var(--color-line-soft)' }}>
-                <div className="h-full rounded-full" style={{ width: `${responseBarPct}%`, background: medianResponseMin <= responseTargetMin ? 'var(--color-accent)' : 'var(--color-sem-amber)' }} />
-                <div className="absolute top-[-2px] bottom-[-2px] w-[2px]" style={{ left: '50%', background: 'var(--color-ink-2)' }} title={`Target ${responseTargetMin}m`} />
-              </div>
-              <div className="text-[11px]" style={{ color: 'var(--color-muted)' }}>
-                Target: under {responseTargetMin} minutes ·{' '}
-                <span className="font-semibold" style={{ color: medianResponseMin <= responseTargetMin ? 'var(--color-sem-green)' : 'var(--color-sem-red)' }}>
-                  {medianResponseMin <= responseTargetMin
-                    ? `${Math.round(responseTargetMin - medianResponseMin)}m under target`
-                    : `${Math.round(medianResponseMin - responseTargetMin)}m over target`}
-                </span>
-              </div>
-            </div>
-          )}
-
           <div className="pt-3" style={{ borderTop: '1px solid var(--color-line-soft)' }}>
             <div className="flex items-baseline justify-between">
-              <span className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: 'var(--color-muted)' }}>Platform split</span>
+              <span className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: 'var(--color-muted)' }}>Platform split today</span>
               <span className="text-[11px] tabular" style={{ color: 'var(--color-muted)' }}>FB {fbToday} · IG {igToday}</span>
             </div>
             <div className="flex h-2 rounded-full overflow-hidden mt-2" style={{ background: 'var(--color-line-soft)' }}>
-              <div style={{ width: `${fbPct}%`, background: 'var(--color-brand-fb)' }} />
-              <div style={{ width: `${igPct}%`, background: 'var(--color-brand-ig)' }} />
+              <div style={{ width: `${(fbToday / platformTotal) * 100}%`, background: 'var(--color-brand-fb)' }} />
+              <div style={{ width: `${(igToday / platformTotal) * 100}%`, background: 'var(--color-brand-ig)' }} />
             </div>
           </div>
         </div>
       </section>
 
-      {/* Source breakdown */}
       <section className="rounded-2xl overflow-hidden" style={{ background: 'var(--color-panel)', border: '1px solid var(--color-line)' }}>
         <div className="flex items-baseline justify-between px-5 py-4" style={{ borderBottom: '1px solid var(--color-line-soft)' }}>
-          <h2 className="font-editorial text-[18px]" style={{ color: 'var(--color-ink)' }}>Where comments came from today</h2>
-          <div className="text-[11.5px]" style={{ color: 'var(--color-muted)' }}>Grouped by ad · sorted by unseen</div>
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-amber-500" />
+            <div>
+              <h2 className="font-editorial text-[18px]" style={{ color: 'var(--color-ink)' }}>Top spend ads &amp; comments</h2>
+              <p className="text-[12px]" style={{ color: 'var(--color-muted)' }}>Highest recent spend with inbox activity</p>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigateToInbox({ topSpend: true })}
+            className="text-[12px] font-semibold flex items-center gap-1"
+            style={{ color: 'var(--color-accent)' }}
+          >
+            View all top spend <ArrowRight className="w-3.5 h-3.5" />
+          </button>
         </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table className="w-full border-collapse text-[13px]">
-            <thead>
-              <tr style={{ background: 'var(--color-ground-2)' }}>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: 'var(--color-muted)', borderBottom: '1px solid var(--color-line)' }}>Brand · account</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: 'var(--color-muted)', borderBottom: '1px solid var(--color-line)' }}>Source</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: 'var(--color-muted)', borderBottom: '1px solid var(--color-line)' }}>Campaign / post</th>
-                <th className="text-right px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: 'var(--color-muted)', borderBottom: '1px solid var(--color-line)' }}>Received</th>
-                <th className="text-right px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: 'var(--color-muted)', borderBottom: '1px solid var(--color-line)' }}>Unseen</th>
-                <th className="text-right px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: 'var(--color-muted)', borderBottom: '1px solid var(--color-line)' }}>Urgent</th>
-                <th className="text-right px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: 'var(--color-muted)', borderBottom: '1px solid var(--color-line)' }}>Spend 7d</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sourceRows.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-[12px]" style={{ color: 'var(--color-muted)' }}>
-                    No comments received in the last 24 hours yet.
-                  </td>
-                </tr>
-              )}
-              {sourceRows.map(row => (
-                <tr key={row.key} style={{ borderBottom: '1px solid var(--color-line-soft)' }}>
-                  <td className="px-4 py-3 align-top">
-                    <span className="inline-flex items-center gap-2 font-semibold" style={{ color: 'var(--color-ink)' }}>
-                      <span className="w-2.5 h-2.5 rounded-sm" style={{ background: brandSwatch(row.brand) }} />
-                      {row.brand} · {row.account}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 align-top">
-                    <span
-                      className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em]"
-                      style={sourceChip(row.source)}
-                    >
-                      {row.source}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 align-top">
-                    <div style={{ color: 'var(--color-ink)' }}>{row.displayName}</div>
-                    {row.subtext && (
-                      <div className="text-[11.5px] mt-0.5" style={{ color: 'var(--color-muted)' }}>{row.subtext}</div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular" style={{ color: 'var(--color-ink)', fontWeight: 600 }}>{row.received.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right tabular" style={{ color: 'var(--color-ink-2)' }}>{row.unseen.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right tabular">
-                    <span style={{ color: row.urgent > 0 ? 'var(--color-sem-red)' : 'var(--color-muted-2)', fontWeight: row.urgent > 0 ? 600 : 400 }}>
-                      {row.urgent > 0 ? row.urgent.toLocaleString() : '0'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right tabular" style={{ color: 'var(--color-muted)' }}>
-                    {row.spend7d > 0 ? `$${Math.round(row.spend7d).toLocaleString()}` : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+
+        {topSpendAds.length === 0 ? (
+          <p className="p-6 text-[13px]" style={{ color: 'var(--color-muted)' }}>Sync ads to load spend-ranked comments.</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-0 divide-y" style={{ borderColor: 'var(--color-line-soft)' }}>
+            {topSpendAds.map((row, index) => {
+              const brand = inferBrandLabel(row.latest, row.ad);
+              return (
+                <button
+                  key={row.ad.id}
+                  type="button"
+                  onClick={() => onNavigateToInbox({ adId: row.ad.adId || row.ad.id })}
+                  className="w-full text-left px-5 py-4 hover:bg-black/[0.02] transition-colors"
+                >
+                  <div className="flex items-start gap-4">
+                    <span className="w-6 text-center text-sm font-bold shrink-0" style={{ color: 'var(--color-muted)' }}>#{index + 1}</span>
+                    <div className="w-14 h-10 rounded-lg overflow-hidden shrink-0" style={{ background: 'var(--color-ground)' }}>
+                      {(row.ad.thumbnailUrl || row.ad.mediaUrl) && (
+                        <img src={row.ad.thumbnailUrl || row.ad.mediaUrl} alt="" className="w-full h-full object-cover" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: brandSwatch(brand) }} />
+                        <span className="font-semibold text-[14px] truncate" style={{ color: 'var(--color-ink)' }}>{row.ad.adName}</span>
+                      </div>
+                      <p className="text-[12px] mt-0.5 truncate" style={{ color: 'var(--color-muted)' }}>
+                        {row.ad.campaignName} · {row.ad.accountLabel || brand}
+                      </p>
+                      {row.latest ? (
+                        <p className="mt-2 text-[12.5px] line-clamp-2" style={{ color: 'var(--color-ink-2)' }}>
+                          <MessageCircle className="inline w-3 h-3 mr-1 -mt-0.5" />
+                          {displayCommenterName(row.latest.commenterName)}: {row.latest.commentText}
+                        </p>
+                      ) : (
+                        <p className="mt-2 text-[12px]" style={{ color: 'var(--color-muted)' }}>No comments linked yet.</p>
+                      )}
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-bold tabular" style={{ color: 'var(--color-ink)' }}>{formatSpend(row.ad.recentSpend ?? row.ad.spend ?? 0)}</p>
+                      <p className="text-[11px] mt-1 tabular" style={{ color: 'var(--color-muted)' }}>
+                        {row.totalComments} total · {row.todayComments} today
+                      </p>
+                      {row.unseen > 0 && (
+                        <p className="text-[11px] font-semibold mt-0.5" style={{ color: 'var(--color-accent)' }}>{row.unseen} unseen</p>
+                      )}
+                      {row.urgent > 0 && (
+                        <p className="text-[11px] font-semibold mt-0.5" style={{ color: 'var(--color-sem-red)' }}>{row.urgent} urgent</p>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </section>
 
-      {/* Urgent alert */}
-      {urgentCount > 0 && (
+      {urgentOpen.length > 0 && (
         <section
           className="rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4"
           style={{ background: 'var(--color-sem-red-soft)', border: '1px solid rgba(181,69,69,0.2)' }}
         >
           <div className="min-w-0">
             <h3 className="font-editorial text-[17px]" style={{ color: 'var(--color-sem-red)' }}>
-              {urgentCount.toLocaleString()} urgent {urgentCount === 1 ? 'comment needs' : 'comments need'} a reply today
+              {urgentOpen.length.toLocaleString()} urgent {urgentOpen.length === 1 ? 'comment needs' : 'comments need'} a reply
             </h3>
             <p className="mt-1 text-[12.5px]" style={{ color: 'var(--color-ink-2)' }}>
-              Complaints and refund requests are flagged in red — clearing these first protects your response-time SLA.
+              {urgentToday} arrived today · {urgentVariance.label}
             </p>
           </div>
           <button
-            onClick={() => onNavigateToInbox({ priority: 'Urgent' })}
+            onClick={() => onNavigateToInbox({ priority: 'Urgent', status: 'Unreplied' })}
             className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-[13px] font-semibold"
             style={{ background: 'var(--color-sem-red)', color: '#FFFFFF' }}
           >
@@ -677,5 +456,52 @@ export default function DashboardOverview({
         </section>
       )}
     </div>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  variance,
+  sub,
+  spark,
+  sparkColor,
+  valueColor = 'var(--color-ink)',
+  onClick,
+}: {
+  label: string;
+  value: number;
+  variance: { delta: number; label: string };
+  sub: string;
+  spark: number[];
+  sparkColor: string;
+  valueColor?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="text-left rounded-2xl p-5 transition-all hover:-translate-y-0.5 hover:shadow-md"
+      style={{ background: 'var(--color-panel)', border: '1px solid var(--color-line)' }}
+    >
+      <div className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: 'var(--color-muted)' }}>{label}</div>
+      <div className="mt-2 flex items-end justify-between gap-3">
+        <div className="font-editorial tabular" style={{ fontSize: 42, lineHeight: 1, color: valueColor }}>
+          {value.toLocaleString()}
+        </div>
+        <div
+          className="text-[11px] font-semibold tabular flex items-center gap-1 pb-1 text-right max-w-[120px]"
+          style={{ color: variance.delta > 0 ? 'var(--color-sem-red)' : variance.delta < 0 ? 'var(--color-sem-green)' : 'var(--color-muted-2)' }}
+        >
+          {variance.delta > 0 ? <ChevronUp className="w-3 h-3 shrink-0" /> : variance.delta < 0 ? <ChevronDown className="w-3 h-3 shrink-0" /> : null}
+          <span className="leading-tight">{variance.label}</span>
+        </div>
+      </div>
+      <div className="mt-3 flex items-end justify-between gap-3">
+        <p className="text-[12px]" style={{ color: 'var(--color-muted)' }}>{sub}</p>
+        <Sparkline values={spark} color={sparkColor} className="w-24 h-6" />
+      </div>
+    </button>
   );
 }

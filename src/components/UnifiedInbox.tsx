@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Comment, TeamMember, CommentStatus, CommentPriority, CommentNote, ActivityLog, Ad, CommentView } from '../types';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { Comment, CommentStatus, CommentPriority, CommentNote, ActivityLog, Ad, CommentView } from '../types';
 import { getAdForComment, formatCommentTime, formatFullTime, displayCommenterName, isGenericCommenterName, inferBrandLabel, commentExternalUrl, commentLinkLabel, inferSourceCategory, sourceChipClass } from '../utils/helpers';
+import { matchesStatusTab } from '../utils/commentMetrics';
 import { PlatformBadge } from './ui/Badges';
 import CommentDetailDrawer from './CommentDetailDrawer';
 import CommentAvatar from './CommentAvatar';
@@ -24,7 +25,6 @@ export interface InboxFilters {
   status?: string;
   priority?: string;
   sentiment?: string;
-  assignedTo?: string;
   campaign?: string;
   brand?: string;
   topSpend?: boolean;
@@ -36,7 +36,6 @@ export interface InboxFilters {
 
 interface UnifiedInboxProps {
   comments: Comment[];
-  teamMembers: TeamMember[];
   ads: Ad[];
   onSelectComment: (comment: Comment) => void;
   selectedCommentId?: string;
@@ -44,7 +43,6 @@ interface UnifiedInboxProps {
   onReplyToComment?: (id: string, message: string, opts?: { targetCommentId?: string; mention?: string; includeMention?: boolean }) => Promise<void>;
   onModerateComment?: (id: string, hidden: boolean) => Promise<void>;
   onUpdatePriority: (id: string, priority: CommentPriority) => Promise<void>;
-  onAssignTeam: (commentId: string, teamUserId?: string) => Promise<void>;
   onAddNote: (commentId: string, noteText: string) => Promise<void>;
   onAddCommentTag: (commentId: string, tag: string) => Promise<void>;
   onRemoveCommentTag: (commentId: string, tag: string) => Promise<void>;
@@ -68,7 +66,6 @@ const PAGE_SIZE_OPTIONS = [25, 50, 100, 250] as const;
 
 export default function UnifiedInbox({
   comments,
-  teamMembers,
   ads,
   onSelectComment,
   selectedCommentId,
@@ -76,7 +73,6 @@ export default function UnifiedInbox({
   onReplyToComment,
   onModerateComment,
   onUpdatePriority,
-  onAssignTeam,
   onAddNote,
   onAddCommentTag,
   onRemoveCommentTag,
@@ -138,59 +134,73 @@ export default function UnifiedInbox({
     if (selectedCommentId) setPreviewCommentId(selectedCommentId);
   }, [selectedCommentId]);
 
-  const filteredComments = useMemo(() => {
-    return comments.filter(comment => {
-      const linkedAd = getAdForComment(comment, ads);
-      const brand = inferBrandLabel(comment, linkedAd);
-      const source = inferSourceCategory(comment, linkedAd);
-      const isTopSpend = Boolean(linkedAd && (topSpendAdIds.has(linkedAd.id) || topSpendAdIds.has(linkedAd.adId)));
-      const q = searchTerm.toLowerCase();
-      const textMatches =
-        !q ||
-        comment.commentText.toLowerCase().includes(q) ||
-        comment.commenterName.toLowerCase().includes(q) ||
-        displayCommenterName(comment.commenterName).toLowerCase().includes(q) ||
-        comment.campaignName.toLowerCase().includes(q) ||
-        comment.adName.toLowerCase().includes(q) ||
-        brand.toLowerCase().includes(q) ||
-        (linkedAd?.accountLabel || '').toLowerCase().includes(q);
+  const passesBaseFilters = useCallback((comment: Comment) => {
+    const linkedAd = getAdForComment(comment, ads);
+    const brand = inferBrandLabel(comment, linkedAd);
+    const source = inferSourceCategory(comment, linkedAd);
+    const isTopSpend = Boolean(linkedAd && (topSpendAdIds.has(linkedAd.id) || topSpendAdIds.has(linkedAd.adId)));
+    const q = searchTerm.toLowerCase();
+    const textMatches =
+      !q ||
+      comment.commentText.toLowerCase().includes(q) ||
+      comment.commenterName.toLowerCase().includes(q) ||
+      displayCommenterName(comment.commenterName).toLowerCase().includes(q) ||
+      comment.campaignName.toLowerCase().includes(q) ||
+      comment.adName.toLowerCase().includes(q) ||
+      brand.toLowerCase().includes(q) ||
+      (linkedAd?.accountLabel || '').toLowerCase().includes(q);
 
-      if (!textMatches) return false;
-      if (platformFilter !== 'All' && comment.platform !== platformFilter) return false;
-      if (priorityFilter !== 'All' && comment.priority !== priorityFilter) return false;
-      if (sentimentFilter !== 'All' && comment.sentiment !== sentimentFilter) return false;
-      if (brandFilter !== 'All' && brand !== brandFilter) return false;
-      if (sourceFilter !== 'All' && source !== sourceFilter) return false;
-      if (preconfiguredFilters?.pageId || preconfiguredFilters?.igAccountId) {
-        const pageMatches = Boolean(preconfiguredFilters.pageId && comment.pageId === preconfiguredFilters.pageId);
-        const linkedAdPageId = linkedAd?.postStoryId?.split('_')[0];
-        const linkedAdPageMatches = Boolean(preconfiguredFilters.pageId && linkedAdPageId === preconfiguredFilters.pageId);
-        const igMatches = Boolean(preconfiguredFilters.igAccountId && comment.instagramAccountId === preconfiguredFilters.igAccountId);
-        if (!pageMatches && !linkedAdPageMatches && !igMatches) return false;
-      }
-      if (preconfiguredFilters?.adId) {
-        const target = preconfiguredFilters.adId;
-        const adMatches = comment.adId === target || linkedAd?.id === target || linkedAd?.adId === target;
-        if (!adMatches) return false;
-      }
-      if (topSpendOnly && !isTopSpend) return false;
-      if (preconfiguredFilters?.assignedTo && comment.assignedTo !== preconfiguredFilters.assignedTo) return false;
-      if (preconfiguredFilters?.campaign && comment.campaignName !== preconfiguredFilters.campaign && comment.campaignId !== preconfiguredFilters.campaign) return false;
+    if (!textMatches) return false;
+    if (platformFilter !== 'All' && comment.platform !== platformFilter) return false;
+    if (priorityFilter !== 'All' && comment.priority !== priorityFilter) return false;
+    if (sentimentFilter !== 'All' && comment.sentiment !== sentimentFilter) return false;
+    if (brandFilter !== 'All' && brand !== brandFilter) return false;
+    if (sourceFilter !== 'All' && source !== sourceFilter) return false;
+    if (preconfiguredFilters?.pageId || preconfiguredFilters?.igAccountId) {
+      const pageMatches = Boolean(preconfiguredFilters.pageId && comment.pageId === preconfiguredFilters.pageId);
+      const linkedAdPageId = linkedAd?.postStoryId?.split('_')[0];
+      const linkedAdPageMatches = Boolean(preconfiguredFilters.pageId && linkedAdPageId === preconfiguredFilters.pageId);
+      const igMatches = Boolean(preconfiguredFilters.igAccountId && comment.instagramAccountId === preconfiguredFilters.igAccountId);
+      if (!pageMatches && !linkedAdPageMatches && !igMatches) return false;
+    }
+    if (preconfiguredFilters?.adId) {
+      const target = preconfiguredFilters.adId;
+      const adMatches = comment.adId === target || linkedAd?.id === target || linkedAd?.adId === target;
+      if (!adMatches) return false;
+    }
+    if (topSpendOnly && !isTopSpend) return false;
+    if (preconfiguredFilters?.campaign && comment.campaignName !== preconfiguredFilters.campaign && comment.campaignId !== preconfiguredFilters.campaign) return false;
+    return true;
+  }, [ads, topSpendAdIds, searchTerm, platformFilter, priorityFilter, sentimentFilter, brandFilter, sourceFilter, topSpendOnly, preconfiguredFilters]);
 
-      if (statusFilter !== 'All') {
-        if (statusFilter === 'Unreplied') {
-          if (comment.status === 'Replied' || comment.status === 'Ignored') return false;
-        } else if (comment.status !== statusFilter) return false;
-      }
-
-      return true;
-    }).sort((a, b) => {
+  const sortComments = useCallback((list: Comment[]) => {
+    return [...list].sort((a, b) => {
       const aTime = Date.parse(a.createdAt) || 0;
       const bTime = Date.parse(b.createdAt) || 0;
       if (bTime !== aTime) return bTime - aTime;
       return (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0);
     });
-  }, [comments, ads, topSpendAdIds, searchTerm, platformFilter, statusFilter, priorityFilter, sentimentFilter, brandFilter, sourceFilter, topSpendOnly, preconfiguredFilters]);
+  }, []);
+
+  const baseFilteredComments = useMemo(
+    () => sortComments(comments.filter(passesBaseFilters)),
+    [comments, passesBaseFilters, sortComments]
+  );
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const tab of STATUS_TABS) {
+      counts[tab.id] = tab.id === 'All'
+        ? baseFilteredComments.length
+        : baseFilteredComments.filter(c => matchesStatusTab(c, tab.id)).length;
+    }
+    return counts;
+  }, [baseFilteredComments]);
+
+  const filteredComments = useMemo(() => {
+    if (statusFilter === 'All') return baseFilteredComments;
+    return baseFilteredComments.filter(c => matchesStatusTab(c, statusFilter));
+  }, [baseFilteredComments, statusFilter]);
 
   const previewComment = filteredComments.find(c => c.id === previewCommentId)
     || comments.find(c => c.id === previewCommentId);
@@ -199,8 +209,6 @@ export default function UnifiedInbox({
   const pageStartIndex = filteredComments.length === 0 ? 0 : (safePage - 1) * pageSize;
   const pageEndIndex = Math.min(pageStartIndex + pageSize, filteredComments.length);
   const visibleComments = filteredComments.slice(pageStartIndex, pageEndIndex);
-
-  const unseenCount = comments.filter(c => c.status === 'Unseen').length;
 
   const seenByLabel = (comment: Comment) => {
     const names = [...new Set((comment.views ?? []).map(view => view.userName).filter(Boolean))];
@@ -311,10 +319,10 @@ export default function UnifiedInbox({
                 }`}
               >
                 {tab.label}
-                {tab.id === 'Unseen' && unseenCount > 0 && (
+                {statusCounts[tab.id] > 0 && (
                   <span className={`ml-1.5 rounded px-1.5 py-0.5 text-[10px] font-extrabold tabular ${
                     statusFilter === tab.id ? 'bg-white/20 text-white' : 'bg-slate-950 text-white'
-                  }`}>{unseenCount.toLocaleString()}</span>
+                  }`}>{statusCounts[tab.id].toLocaleString()}</span>
                 )}
               </button>
             ))}
@@ -368,7 +376,6 @@ export default function UnifiedInbox({
               const isSelected = previewCommentId === comment.id;
               const isUnseen = comment.status === 'Unseen';
               const wasJustViewed = recentlyViewed.has(comment.id);
-              const assignedUser = teamMembers.find(t => t.id === comment.assignedTo);
               const linkedAd = getAdForComment(comment, ads);
               const brand = inferBrandLabel(comment, linkedAd);
               const source = inferSourceCategory(comment, linkedAd);
@@ -473,11 +480,6 @@ export default function UnifiedInbox({
                               ? (comment.adName?.startsWith('Organic') ? comment.adName : `Organic · ${comment.pageName || comment.instagramAccountName || comment.platform}`)
                               : `${comment.adName || linkedAd?.adName || '—'}`}
                           </span>
-                          {assignedUser && (
-                            <span className="ml-auto shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500">
-                              <Users className="w-3 h-3" /> {assignedUser.name}
-                            </span>
-                          )}
                         </div>
                       </div>
                     </div>
@@ -499,7 +501,6 @@ export default function UnifiedInbox({
                 ads={ads}
                 displayMode="panel"
                 onClose={() => setPreviewCommentId(undefined)}
-                teamMembers={teamMembers}
                 notes={notes}
                 activityLogs={activityLogs}
                 onAddNote={onAddNote}
@@ -507,7 +508,6 @@ export default function UnifiedInbox({
                 onReplyToComment={onReplyToComment}
                 onModerateComment={onModerateComment}
                 onUpdatePriority={onUpdatePriority}
-                onAssignTeam={onAssignTeam}
                 onAddCommentTag={onAddCommentTag}
                 onRemoveCommentTag={onRemoveCommentTag}
                 onViewComment={onViewComment}

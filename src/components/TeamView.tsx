@@ -1,14 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { TeamMember, Comment, AppUser, Permission } from '../types';
+import { TeamMember, AppUser, Permission } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { apiClient } from '../services/apiClient';
 import {
   Users,
   PlusCircle,
   X,
-  ArrowRight,
-  CheckCircle2,
-  AlertCircle,
   Shield,
   Key,
   Loader2,
@@ -22,7 +19,7 @@ const PERMISSION_LABELS: Record<Permission, string> = {
   'inbox.view': 'View inbox',
   'inbox.manage': 'Manage inbox',
   'comments.reply': 'Reply to comments',
-  'comments.assign': 'Assign comments',
+  'comments.assign': 'Assign comments (deprecated)',
   'comments.notes': 'Add notes',
   'comments.tags': 'Manage tags',
   'campaigns.view': 'View campaigns',
@@ -47,11 +44,9 @@ function generateTemporaryPassword() {
 
 interface TeamViewProps {
   teamMembers: TeamMember[];
-  comments: Comment[];
-  onNavigateToInbox: (filters?: { assignedTo?: string }) => void;
 }
 
-export default function TeamView({ teamMembers, comments, onNavigateToInbox }: TeamViewProps) {
+export default function TeamView({ teamMembers }: TeamViewProps) {
   const { user, hasPermission } = useAuth();
   const isAdmin = user?.role === 'admin';
   const canManage = isAdmin && hasPermission('team.manage');
@@ -193,15 +188,7 @@ export default function TeamView({ teamMembers, comments, onNavigateToInbox }: T
       }))
     : teamMembers.map(m => ({ ...m, username: '', isAdmin: false, isActive: true }));
 
-  const listData = displayMembers.map(member => {
-    const assignedComments = comments.filter(c => c.assignedTo === member.id);
-    return {
-      ...member,
-      assignedCount: assignedComments.length,
-      completedCount: assignedComments.filter(c => c.status === 'Replied').length,
-      urgentCount: assignedComments.filter(c => c.priority === 'Urgent' && c.status !== 'Replied').length,
-    };
-  });
+  const listData = displayMembers;
 
   return (
     <div className="space-y-4 animate-fade-in" id="team-screen">
@@ -212,7 +199,7 @@ export default function TeamView({ teamMembers, comments, onNavigateToInbox }: T
             Who's on the desk.
           </h2>
           <p className="mt-1 text-sm text-slate-500">
-            {canManage ? 'Create teammates, adjust permissions, and set retention policies.' : 'Everyone who\'s helping triage today, and how their workload is stacked.'}
+            {canManage ? 'Create teammates, adjust permissions, and set retention policies.' : 'Everyone helping triage comments across Flo and Nobl.'}
           </p>
         </div>
         {canManage && (
@@ -278,7 +265,7 @@ export default function TeamView({ teamMembers, comments, onNavigateToInbox }: T
           <div>
               <label className="text-sm font-medium text-slate-700 block mb-2">Permissions</label>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-                {(Object.keys(PERMISSION_LABELS) as Permission[]).map(perm => (
+                {(Object.keys(PERMISSION_LABELS) as Permission[]).filter(perm => perm !== 'comments.assign').map(perm => (
                   <label key={perm} className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors text-xs ${
                     permissions.includes(perm) ? 'border-slate-400 bg-slate-100 text-slate-900' : 'border-slate-200 hover:bg-slate-50'
                   }`}>
@@ -339,33 +326,10 @@ export default function TeamView({ teamMembers, comments, onNavigateToInbox }: T
               </div>
             </div>
 
-            <div className="space-y-2 flex-1">
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-500">Assigned</span>
-                <span className="font-semibold text-slate-900">{member.assignedCount}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-500 flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Replied
-                </span>
-                <span className="font-semibold text-slate-900">{member.completedCount}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-500 flex items-center gap-1">
-                  <AlertCircle className="w-3.5 h-3.5 text-rose-500" /> Urgent
-                </span>
-                <span className={`font-semibold ${member.urgentCount > 0 ? 'text-rose-600' : 'text-slate-400'}`}>
-                  {member.urgentCount}
-                </span>
-              </div>
-            </div>
+            {'email' in member && member.email && (
+              <p className="text-xs text-slate-500 truncate mt-2">{member.email}</p>
+            )}
 
-            <button
-              onClick={() => onNavigateToInbox({ assignedTo: member.id })}
-              className="mt-4 pt-4 border-t border-slate-100 text-sm text-blue-600 font-medium hover:text-blue-700 flex items-center gap-1 transition-colors"
-            >
-              View comments <ArrowRight className="w-4 h-4" />
-            </button>
             {canManage && 'username' in member && member.username && (
               <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap gap-2">
                 <button
@@ -403,7 +367,7 @@ export default function TeamView({ teamMembers, comments, onNavigateToInbox }: T
         <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center">
           <Users className="w-10 h-10 text-slate-300 mx-auto mb-3" />
           <p className="text-base font-medium text-slate-700">No team members yet</p>
-          <p className="text-sm text-slate-500 mt-1">Add your first team member to start assigning comments.</p>
+          <p className="text-sm text-slate-500 mt-1">Add your first team member to start collaborating on comments.</p>
         </div>
       )}
     </div>

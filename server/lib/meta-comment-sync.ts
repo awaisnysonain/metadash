@@ -42,6 +42,17 @@ export interface CommentSyncState {
   nextRunAt: string | null;
   tokenValid: boolean;
   tokenMessage: string;
+  highSpendPoll: {
+    enabled: boolean;
+    intervalMinutes: number;
+    adsPerBrand: number;
+    lastRunAt: string | null;
+    lastRunOk: boolean;
+    lastSynced: number;
+    lastMessage: string;
+    isRunning: boolean;
+    nextRunAt: string | null;
+  };
 }
 
 export interface TargetedCommentSyncOptions {
@@ -61,6 +72,7 @@ interface ProcessAdsContext {
   analyzeWithAi: boolean;
   alertNewComment: boolean;
   updateProgress?: boolean;
+  adConcurrency?: number;
 }
 
 interface ProcessAdsResult {
@@ -103,6 +115,10 @@ const AD_CONCURRENCY_PER_TOKEN = Math.min(Math.max(Number(process.env.COMMENT_SY
 const INSTAGRAM_PRIORITY_AD_LIMIT = Math.max(Number(process.env.COMMENT_SYNC_INSTAGRAM_PRIORITY_ADS_PER_TOKEN_PER_RUN || PER_TOKEN_AD_LIMIT), 0);
 const REGULAR_ADS_PER_TOKEN_RESERVE = Math.min(Math.max(Number(process.env.COMMENT_SYNC_REGULAR_ADS_PER_TOKEN_RESERVE || 10), 0), PER_TOKEN_AD_LIMIT);
 const HIGH_SPEND_PINNED_ADS_PER_BRAND = Math.max(Number(process.env.COMMENT_SYNC_HIGH_SPEND_ADS_PER_BRAND || 10), 0);
+const HIGH_SPEND_POLL_ENABLED = process.env.COMMENT_SYNC_HIGH_SPEND_POLL !== 'false';
+const HIGH_SPEND_POLL_INTERVAL_MS = Math.max(Number(process.env.COMMENT_SYNC_HIGH_SPEND_INTERVAL_MINUTES || 3), 1) * 60 * 1000;
+const HIGH_SPEND_SKIP_DURING_FULL = process.env.COMMENT_SYNC_HIGH_SPEND_SKIP_DURING_FULL !== 'false';
+const HIGH_SPEND_AD_CONCURRENCY = Math.min(Math.max(Number(process.env.COMMENT_SYNC_HIGH_SPEND_AD_CONCURRENCY || 2), 1), 8);
 const FACEBOOK_WATERMARK_OVERLAP_SECONDS = Math.max(Number(process.env.COMMENT_SYNC_WATERMARK_OVERLAP_MINUTES || 60), 0) * 60;
 const INSTAGRAM_WATERMARK_OVERLAP_SECONDS = Math.max(Number(process.env.COMMENT_SYNC_INSTAGRAM_WATERMARK_OVERLAP_HOURS || 24), 0) * 60 * 60;
 const INSTAGRAM_INITIAL_LOOKBACK_SECONDS = Math.max(Number(process.env.COMMENT_SYNC_INSTAGRAM_LOOKBACK_HOURS || 24), 1) * 60 * 60;
@@ -126,6 +142,17 @@ const AD_CURSOR_CONFIG_KEY = 'comment_sync_ad_cursor';
 const TOKEN_CURSOR_CONFIG_KEY = 'comment_sync_token_lane_cursors';
 const AD_WATERMARKS_CONFIG_KEY = 'comment_sync_ad_watermarks';
 let syncRunStartedAt: number | null = null;
+let highSpendSyncRunning = false;
+let highSpendRunStartedAt: number | null = null;
+let highSpendCronTimer: ReturnType<typeof setInterval> | null = null;
+
+const highSpendPollState = {
+  lastRunAt: null as string | null,
+  lastRunOk: false,
+  lastSynced: 0,
+  lastMessage: '',
+  nextRunAt: null as string | null,
+};
 
 let syncState: CommentSyncState = {
   lastRunAt: null,
@@ -136,10 +163,32 @@ let syncState: CommentSyncState = {
   nextRunAt: null,
   tokenValid: true,
   tokenMessage: '',
+  highSpendPoll: {
+    enabled: HIGH_SPEND_POLL_ENABLED,
+    intervalMinutes: HIGH_SPEND_POLL_INTERVAL_MS / 60000,
+    adsPerBrand: HIGH_SPEND_PINNED_ADS_PER_BRAND,
+    lastRunAt: null,
+    lastRunOk: false,
+    lastSynced: 0,
+    lastMessage: '',
+    isRunning: false,
+    nextRunAt: null,
+  },
 };
 
 export function getCommentSyncState(): CommentSyncState {
-  return { ...syncState };
+  return {
+    ...syncState,
+    highSpendPoll: {
+      ...syncState.highSpendPoll,
+      isRunning: highSpendSyncRunning,
+      lastRunAt: highSpendPollState.lastRunAt,
+      lastRunOk: highSpendPollState.lastRunOk,
+      lastSynced: highSpendPollState.lastSynced,
+      lastMessage: highSpendPollState.lastMessage,
+      nextRunAt: highSpendPollState.nextRunAt,
+    },
+  };
 }
 
 function sleep(ms: number): Promise<void> {
@@ -885,7 +934,7 @@ async function processAdsForComments(adsToProcess: SyncAd[], ctx: ProcessAdsCont
     }
   };
 
-  const workerCount = Math.min(AD_CONCURRENCY_PER_TOKEN, adsToProcess.length || 1);
+  const workerCount = Math.min(ctx.adConcurrency ?? AD_CONCURRENCY_PER_TOKEN, adsToProcess.length || 1);
   await Promise.all(Array.from({ length: workerCount }, async () => {
     while (!stopLane) {
       const index = nextAdIndex++;
@@ -1377,6 +1426,157 @@ export async function runTargetedCommentSync(options: TargetedCommentSyncOptions
   };
 }
 
+/** Fast poll: top-spend ads only, one dedicated token lane per brand (FLO / NOBL). */
+async function syncHighSpendCommentsFromMeta(): Promise<CommentSyncOutcome> {
+  const blocked = await assertCanRunCommentSync();
+  if (blocked) return blocked;
+
+  const ads = await getAdsForCommentSync();
+  const pinnedAds = getPinnedHighSpendAds(ads);
+  if (!pinnedAds.length) {
+    return {
+      ok: true,
+      synced: 0,
+      message: 'High-spend poll: no ads with recent spend to prioritize.',
+      details: { adsPerBrand: HIGH_SPEND_PINNED_ADS_PER_BRAND },
+    };
+  }
+
+  const since = await sinceTimestamp('incremental');
+  const until = Math.floor(Date.now() / 1000);
+  const adWatermarks = await getConfigValue<Record<string, string>>(AD_WATERMARKS_CONFIG_KEY, {});
+  const lanes = groupAdsByTokenLane(pinnedAds);
+  const processCtx: ProcessAdsContext = {
+    modeLabel: 'high-spend',
+    since,
+    until,
+    adWatermarks,
+    analyzeWithAi: true,
+    alertNewComment: true,
+    updateProgress: false,
+    adConcurrency: HIGH_SPEND_AD_CONCURRENCY,
+  };
+
+  let synced = 0;
+  let adsProcessed = 0;
+  let adsSkipped = 0;
+  let adsWithStory = 0;
+  let adsChecked = 0;
+  const errors: string[] = [];
+  const failedAds: SyncAd[] = [];
+
+  // Run each token lane sequentially so FLO and NOBL tokens stay isolated from each other.
+  for (const [laneIndex, lane] of lanes.entries()) {
+    const laneResult = await processAdsForComments(lane.ads, {
+      ...processCtx,
+      modeLabel: lanes.length > 1 ? `high-spend/lane-${laneIndex + 1}` : 'high-spend',
+    });
+    synced += laneResult.synced;
+    adsProcessed += laneResult.adsProcessed;
+    adsSkipped += laneResult.adsSkipped;
+    adsWithStory += laneResult.adsWithStory;
+    adsChecked += laneResult.adsChecked;
+    errors.push(...laneResult.errors);
+    failedAds.push(...laneResult.failedAds);
+  }
+
+  if (failedAds.length > 0) {
+    const retryAds = uniqueAds(failedAds);
+    const retry = await processAdsForComments(retryAds, {
+      ...processCtx,
+      modeLabel: 'high-spend-retry',
+    });
+    synced += retry.synced;
+    adsProcessed += retry.adsProcessed;
+    adsSkipped += retry.adsSkipped;
+    adsWithStory += retry.adsWithStory;
+    adsChecked += retry.adsChecked;
+    errors.push(...retry.errors);
+  }
+
+  if (adsChecked > 0) {
+    await setConfigValue(AD_WATERMARKS_CONFIG_KEY, adWatermarks);
+  }
+
+  const laneLabels = lanes.map(lane => {
+    const sample = lane.ads[0];
+    return sample?.accountLabel || normalizedBrandLabel(sample!) || lane.key;
+  });
+
+  let message = `High-spend poll: synced ${synced} comment(s) from ${adsProcessed}/${pinnedAds.length} ad(s) across ${lanes.length} token lane(s)`;
+  if (laneLabels.length) message += ` (${laneLabels.join(', ')})`;
+  message += '.';
+  if (errors.length) message += ` ${errors.length} fetch error(s).`;
+
+  return {
+    ok: errors.length === 0,
+    synced,
+    adsProcessed,
+    adsSkipped,
+    adsWithStory,
+    message,
+    details: {
+      mode: 'high-spend',
+      since,
+      until,
+      pinnedAds: pinnedAds.length,
+      adsPerBrand: HIGH_SPEND_PINNED_ADS_PER_BRAND,
+      laneCount: lanes.length,
+      laneLabels,
+      adsChecked,
+      errors: errors.slice(0, 10),
+    },
+  };
+}
+
+export async function runHighSpendCommentSync(): Promise<CommentSyncOutcome> {
+  if (!HIGH_SPEND_POLL_ENABLED) {
+    return { ok: true, synced: 0, message: 'High-spend poll is disabled (COMMENT_SYNC_HIGH_SPEND_POLL=false).' };
+  }
+
+  if (HIGH_SPEND_SKIP_DURING_FULL && syncState.isRunning) {
+    return { ok: true, synced: 0, message: 'High-spend poll skipped — full comment sync in progress.' };
+  }
+
+  if (highSpendSyncRunning) {
+    if (highSpendRunStartedAt && Date.now() - highSpendRunStartedAt > STUCK_SYNC_MS) {
+      console.warn('[comment-sync/high-spend] Resetting stuck high-spend flag after timeout');
+      highSpendSyncRunning = false;
+      highSpendRunStartedAt = null;
+    } else {
+      return { ok: false, synced: 0, message: 'High-spend poll already in progress.' };
+    }
+  }
+
+  highSpendSyncRunning = true;
+  highSpendRunStartedAt = Date.now();
+
+  try {
+    const result = await syncHighSpendCommentsFromMeta();
+    highSpendPollState.lastRunAt = new Date().toISOString();
+    highSpendPollState.lastRunOk = result.ok;
+    highSpendPollState.lastSynced = result.synced;
+    highSpendPollState.lastMessage = result.message;
+    console.log(`[comment-sync/high-spend] ${result.message}`);
+    return result;
+  } catch (err) {
+    const { message } = syncErrorMessage(err);
+    highSpendPollState.lastRunAt = new Date().toISOString();
+    highSpendPollState.lastRunOk = false;
+    highSpendPollState.lastSynced = 0;
+    highSpendPollState.lastMessage = message;
+    console.error('[comment-sync/high-spend] failed:', message);
+    return { ok: false, synced: 0, message };
+  } finally {
+    highSpendSyncRunning = false;
+    highSpendRunStartedAt = null;
+  }
+}
+
+export async function syncHighSpendCommentsIncremental(): Promise<CommentSyncOutcome> {
+  return runHighSpendCommentSync();
+}
+
 export async function runCommentSync(mode: 'incremental' | 'backfill' = 'incremental'): Promise<CommentSyncOutcome> {
   if (syncState.isRunning) {
     if (syncRunStartedAt && Date.now() - syncRunStartedAt > STUCK_SYNC_MS) {
@@ -1435,6 +1635,46 @@ export async function syncCommentsBackfill(): Promise<CommentSyncOutcome> {
 const CRON_INTERVAL_MS = Math.max(Number(process.env.COMMENT_SYNC_INTERVAL_MINUTES || 15), 1) * 60 * 1000;
 let cronTimer: ReturnType<typeof setInterval> | null = null;
 
+function scheduleHighSpendPollNextRun(): void {
+  if (!HIGH_SPEND_POLL_ENABLED) return;
+  highSpendPollState.nextRunAt = new Date(Date.now() + HIGH_SPEND_POLL_INTERVAL_MS).toISOString();
+}
+
+function startHighSpendCommentSyncCron(): void {
+  if (!HIGH_SPEND_POLL_ENABLED || isServerDemoMode() || highSpendCronTimer) return;
+
+  scheduleHighSpendPollNextRun();
+
+  highSpendCronTimer = setInterval(async () => {
+    scheduleHighSpendPollNextRun();
+    const resolved = await resolveCommentSyncToken();
+    if (!resolved?.status.canSyncComments) {
+      console.warn('[comment-sync/high-spend] Cron skipped — no valid token');
+      return;
+    }
+    console.log('[comment-sync/high-spend] Cron: starting high-spend poll');
+    await runHighSpendCommentSync();
+    scheduleHighSpendPollNextRun();
+  }, HIGH_SPEND_POLL_INTERVAL_MS);
+
+  console.log(
+    `[comment-sync/high-spend] Cron scheduled every ${HIGH_SPEND_POLL_INTERVAL_MS / 60000} minutes ` +
+    `(${HIGH_SPEND_PINNED_ADS_PER_BRAND} ads/brand, ${HIGH_SPEND_AD_CONCURRENCY} concurrent/ lane)`
+  );
+
+  // Stagger first run so it does not collide with startup full sync.
+  setTimeout(() => {
+    void (async () => {
+      const resolved = await resolveCommentSyncToken();
+      if (!resolved?.status.canSyncComments) return;
+      if (HIGH_SPEND_SKIP_DURING_FULL && syncState.isRunning) return;
+      console.log('[comment-sync/high-spend] Startup: first high-spend poll');
+      await runHighSpendCommentSync();
+      scheduleHighSpendPollNextRun();
+    })();
+  }, Math.min(90_000, HIGH_SPEND_POLL_INTERVAL_MS));
+}
+
 export function startCommentSyncCron(): void {
   if (isServerDemoMode() || cronTimer) return;
 
@@ -1477,6 +1717,8 @@ export function startCommentSyncCron(): void {
     await runCommentSync('incremental');
     syncState.nextRunAt = new Date(Date.now() + CRON_INTERVAL_MS).toISOString();
   })();
+
+  startHighSpendCommentSyncCron();
 }
 
 export function stopCommentSyncCron(): void {
@@ -1484,4 +1726,9 @@ export function stopCommentSyncCron(): void {
     clearInterval(cronTimer);
     cronTimer = null;
   }
+  if (highSpendCronTimer) {
+    clearInterval(highSpendCronTimer);
+    highSpendCronTimer = null;
+  }
+  highSpendPollState.nextRunAt = null;
 }
