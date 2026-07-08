@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Comment, Ad } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { ArrowRight, ChevronDown, ChevronUp, MessageCircle, TrendingUp } from 'lucide-react';
+import SentimentDetailPanel from './SentimentDetailPanel';
 import type { InboxFilters } from './UnifiedInbox';
 import {
   displayCommenterName,
@@ -92,6 +93,7 @@ export default function DashboardOverview({
   onSelectComment,
 }: DashboardOverviewProps) {
   const { user } = useAuth();
+  const [sentimentPanelOpen, setSentimentPanelOpen] = useState(false);
   const now = Date.now();
 
   const todayComments = useMemo(() => comments.filter(c => isToday(c.createdAt, now)), [comments, now]);
@@ -322,10 +324,20 @@ export default function DashboardOverview({
           )}
         </div>
 
-        <div className="rounded-2xl p-5 flex flex-col gap-5" style={{ background: 'var(--color-panel)', border: '1px solid var(--color-line)' }}>
+        <button
+          type="button"
+          onClick={() => setSentimentPanelOpen(true)}
+          className="rounded-2xl p-5 flex flex-col gap-5 text-left w-full transition-all hover:-translate-y-0.5 hover:shadow-md cursor-pointer"
+          style={{ background: 'var(--color-panel)', border: '1px solid var(--color-line)' }}
+        >
           <div className="flex items-baseline justify-between">
             <h2 className="font-editorial text-[18px]" style={{ color: 'var(--color-ink)' }}>Today&apos;s sentiment</h2>
-            <div className="text-[11.5px]" style={{ color: 'var(--color-muted)' }}>{receivedToday.toLocaleString()} comments</div>
+            <div className="flex items-center gap-2 text-[11.5px]" style={{ color: 'var(--color-muted)' }}>
+              <span>{receivedToday.toLocaleString()} comments</span>
+              <span className="font-semibold flex items-center gap-0.5" style={{ color: 'var(--color-accent)' }}>
+                Details <ArrowRight className="w-3 h-3" />
+              </span>
+            </div>
           </div>
 
           <div className="grid grid-cols-[132px_1fr] gap-4 items-center">
@@ -355,8 +367,24 @@ export default function DashboardOverview({
               <div style={{ width: `${(igToday / platformTotal) * 100}%`, background: 'var(--color-brand-ig)' }} />
             </div>
           </div>
-        </div>
+        </button>
       </section>
+
+      {sentimentPanelOpen && (
+        <SentimentDetailPanel
+          comments={comments}
+          ads={ads}
+          onClose={() => setSentimentPanelOpen(false)}
+          onSelectComment={comment => {
+            setSentimentPanelOpen(false);
+            onSelectComment?.(comment);
+          }}
+          onNavigateToInbox={filters => {
+            setSentimentPanelOpen(false);
+            onNavigateToInbox(filters);
+          }}
+        />
+      )}
 
       <section className="rounded-2xl overflow-hidden" style={{ background: 'var(--color-panel)', border: '1px solid var(--color-line)' }}>
         <div className="flex items-baseline justify-between px-5 py-4" style={{ borderBottom: '1px solid var(--color-line-soft)' }}>
