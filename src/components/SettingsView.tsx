@@ -85,7 +85,7 @@ export default function SettingsView({
       const next = await apiClient.setRetentionDays(days);
       setRetention(next);
       setRetentionDaysInput(String(next.days));
-      setRetentionMessage(`Retention window updated to ${next.days} day(s). New archives run on the next daily cron.`);
+      setRetentionMessage(`Retention window updated to ${next.days} day(s). Older comments are deleted on the next daily sweep.`);
     } catch (err) {
       setRetentionMessage(err instanceof Error ? err.message : String(err));
     } finally {
@@ -101,7 +101,7 @@ export default function SettingsView({
       setRetention(next);
       setRetentionDaysInput(String(next.days));
       setRetentionMessage(next.justRan
-        ? `Sweep archived ${next.justRan.archived} comment(s) older than ${next.justRan.days} day(s).`
+        ? `Sweep deleted ${next.justRan.deleted ?? next.justRan.archived ?? 0} comment(s) older than ${next.justRan.days} day(s).`
         : 'Sweep completed.');
     } catch (err) {
       setRetentionMessage(err instanceof Error ? err.message : String(err));
@@ -431,7 +431,7 @@ export default function SettingsView({
             <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700">Owner only</span>
           </h3>
           <p className="mt-1 text-xs text-slate-500">
-            Comments older than this window are moved to the archive daily. They stay in the database, but disappear from the inbox and all counts.
+            Comments older than this window are permanently deleted from the database every day — replied, unseen, and archived comments included.
           </p>
 
           <div className="mt-4 flex flex-wrap items-end gap-3">
@@ -474,14 +474,14 @@ export default function SettingsView({
               <p className="mt-1 text-lg font-extrabold text-slate-900">{retention.days} <span className="text-xs font-semibold text-slate-500">day{retention.days === 1 ? '' : 's'}</span></p>
             </div>
             <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
-              <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Archived total</p>
-              <p className="mt-1 text-lg font-extrabold text-slate-900">{retention.archivedTotal.toLocaleString()}</p>
+              <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Last sweep deleted</p>
+              <p className="mt-1 text-lg font-extrabold text-slate-900">{(retention.deletedTotal ?? retention.archivedTotal ?? 0).toLocaleString()}</p>
             </div>
             <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
               <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Last sweep</p>
               <p className="mt-1 text-sm font-semibold text-slate-800">
                 {retention.lastRun
-                  ? `${retention.lastRun.archived} archived · ${new Date(retention.lastRun.at).toLocaleString()}`
+                  ? `${retention.lastRun.deleted ?? retention.lastRun.archived ?? 0} deleted · ${new Date(retention.lastRun.at).toLocaleString()}`
                   : 'Not run yet'}
               </p>
             </div>

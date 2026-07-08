@@ -28,25 +28,4 @@ pm2 save
 sleep 8
 curl -s http://127.0.0.1:5011/api/health | python3 -m json.tool | head -12
 
-echo "=== Triggering comment backfill to recover any missed comments ==="
-TOKEN=$(curl -s -X POST http://127.0.0.1:5011/api/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"oh.awais","password":"@Nysonian.0"}' | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))")
-
-if [ -z "$TOKEN" ]; then
-  echo "WARN: login failed — backfill not triggered"
-  exit 0
-fi
-
-# Start backfill in background (can take 30+ min for 2238 ads)
-nohup curl -s -X POST http://127.0.0.1:5011/api/meta/sync/comments/backfill \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  > /tmp/metadash-backfill.log 2>&1 &
-
-echo "Backfill started in background (log: /tmp/metadash-backfill.log)"
-sleep 3
-curl -s http://127.0.0.1:5011/api/meta/sync/comments/status \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool | head -20
-
-echo DEPLOY_OK
+echo "=== DEPLOY_OK (no backfill) ==="

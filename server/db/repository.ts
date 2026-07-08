@@ -118,20 +118,23 @@ export async function commentExistsByMetaId(commentId: string): Promise<boolean>
 }
 
 /**
- * Archive (soft-delete) comments older than `retentionDays`. Archived comments stay
- * in the DB — activity_logs / notes still reference them — but every user-facing
- * query filters them out via VISIBLE_COMMENT_WHERE.
+ * Permanently delete comments older than `retentionDays` (by created_at).
+ * Applies to all comments regardless of status, seen/replied state, or archive flag.
+ * Related notes and activity logs cascade via FK.
  */
-export async function archiveOldComments(retentionDays: number): Promise<number> {
+export async function deleteOldComments(retentionDays: number): Promise<number> {
   const days = Math.max(Math.floor(retentionDays), 1);
   const { rowCount } = await query(
-    `UPDATE comments
-     SET archived_at = NOW()
-     WHERE archived_at IS NULL
-       AND created_at < NOW() - ($1 || ' days')::INTERVAL`,
+    `DELETE FROM comments
+     WHERE created_at < NOW() - ($1 || ' days')::INTERVAL`,
     [String(days)]
   );
   return rowCount ?? 0;
+}
+
+/** @deprecated Use deleteOldComments — kept as alias for callers not yet updated */
+export async function archiveOldComments(retentionDays: number): Promise<number> {
+  return deleteOldComments(retentionDays);
 }
 
 export async function getArchivedCommentStats(): Promise<{ total: number; latest: string | null }> {

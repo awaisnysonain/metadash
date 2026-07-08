@@ -341,7 +341,7 @@ export const apiClient = {
   getRetentionStatus: () => request<RetentionStatus>('/api/settings/retention'),
   setRetentionDays: (days: number) =>
     request<RetentionStatus>('/api/settings/retention', { method: 'PATCH', body: JSON.stringify({ days }) }),
-  runRetentionSweep: () => request<RetentionStatus & { justRan?: { archived: number; days: number } }>('/api/settings/retention/run', { method: 'POST' }),
+  runRetentionSweep: () => request<RetentionStatus & { justRan?: { deleted?: number; archived?: number; days: number } }>('/api/settings/retention/run', { method: 'POST' }),
 };
 
 export interface RetentionStatus {
@@ -349,7 +349,8 @@ export interface RetentionStatus {
   minDays: number;
   maxDays: number;
   archivedTotal: number;
-  lastArchivedAt: string | null;
+  deletedTotal?: number;
+  lastArchivedAt?: string | null;
   ownerUsername: string;
-  lastRun: { at: string; archived: number; days: number } | null;
+  lastRun: { at: string; deleted?: number; archived?: number; days: number } | null;
 }

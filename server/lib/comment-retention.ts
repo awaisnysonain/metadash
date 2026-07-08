@@ -1,9 +1,9 @@
 import { isDatabaseConfigured } from '../db/pool.js';
-import { archiveOldComments, getConfigValue, setConfigValue, getArchivedCommentStats } from '../db/repository.js';
+import { deleteOldComments, getConfigValue, setConfigValue } from '../db/repository.js';
 import { isServerDemoMode } from './meta.js';
 
-/** Default retention window if the owner hasn't set one. Comments older than this get archived. */
-export const DEFAULT_RETENTION_DAYS = 3;
+/** Default retention window — comments older than this are permanently deleted. */
+export const DEFAULT_RETENTION_DAYS = 7;
 export const MIN_RETENTION_DAYS = 1;
 export const MAX_RETENTION_DAYS = 90;
 
@@ -14,9 +14,13 @@ const RETENTION_LAST_RUN_KEY = 'comment_retention_last_run_at';
 const RUN_INTERVAL_MS = Math.max(Number(process.env.COMMENT_RETENTION_INTERVAL_MS || 24 * 60 * 60 * 1000), 60_000);
 
 let cronTimer: ReturnType<typeof setInterval> | null = null;
-let lastRun: { at: string; archived: number; days: number } | null = null;
+let lastRun: { at: string; deleted: number; days: number } | null = null;
 
 export async function getRetentionDays(): Promise<number> {
+  const envDays = Number(process.env.COMMENT_RETENTION_DAYS);
+  if (Number.isFinite(envDays) && envDays >= MIN_RETENTION_DAYS) {
+    return Math.min(Math.floor(envDays), MAX_RETENTION_DAYS);
+  }
   const value = await getConfigValue<number | string>(RETENTION_CONFIG_KEY, DEFAULT_RETENTION_DAYS);
   const n = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(n)) return DEFAULT_RETENTION_DAYS;
@@ -29,32 +33,39 @@ export async function setRetentionDays(days: number): Promise<number> {
   return clamped;
 }
 
-export async function runRetentionSweep(): Promise<{ archived: number; days: number }> {
-  if (!isDatabaseConfigured()) return { archived: 0, days: DEFAULT_RETENTION_DAYS };
+export async function runRetentionSweep(): Promise<{ deleted: number; days: number; archived?: number }> {
+  if (!isDatabaseConfigured()) return { deleted: 0, days: DEFAULT_RETENTION_DAYS };
   const days = await getRetentionDays();
-  const archived = await archiveOldComments(days);
+  const deleted = await deleteOldComments(days);
   const at = new Date().toISOString();
-  lastRun = { at, archived, days };
-  await setConfigValue(RETENTION_LAST_RUN_KEY, { at, archived, days });
-  if (archived > 0) {
-    console.log(`[retention] Archived ${archived} comment(s) older than ${days} day(s)`);
+  lastRun = { at, deleted, days };
+  await setConfigValue(RETENTION_LAST_RUN_KEY, { at, deleted, days });
+  if (deleted > 0) {
+    console.log(`[retention] Deleted ${deleted} comment(s) older than ${days} day(s)`);
   }
-  return { archived, days };
+  return { deleted, days, archived: deleted };
 }
 
 export async function getRetentionStatus() {
-  const [days, archived, storedLastRun] = await Promise.all([
+  const [days, storedLastRun] = await Promise.all([
     getRetentionDays(),
-    getArchivedCommentStats(),
     getConfigValue<typeof lastRun>(RETENTION_LAST_RUN_KEY, null),
   ]);
+  const resolvedLastRun = lastRun ?? storedLastRun ?? null;
   return {
     days,
     minDays: MIN_RETENTION_DAYS,
     maxDays: MAX_RETENTION_DAYS,
-    lastRun: lastRun ?? storedLastRun ?? null,
-    archivedTotal: archived.total,
-    lastArchivedAt: archived.latest,
+    lastRun: resolvedLastRun
+      ? {
+          at: resolvedLastRun.at,
+          deleted: resolvedLastRun.deleted ?? (resolvedLastRun as { archived?: number }).archived ?? 0,
+          days: resolvedLastRun.days,
+          archived: resolvedLastRun.deleted ?? (resolvedLastRun as { archived?: number }).archived ?? 0,
+        }
+      : null,
+    deletedTotal: resolvedLastRun?.deleted ?? (resolvedLastRun as { archived?: number } | null)?.archived ?? 0,
+    archivedTotal: resolvedLastRun?.deleted ?? (resolvedLastRun as { archived?: number } | null)?.archived ?? 0,
   };
 }
 
