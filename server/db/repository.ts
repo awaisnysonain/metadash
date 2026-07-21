@@ -30,17 +30,55 @@ const ORGANIC_COMMENT_EXISTS = `(
 
 const NOT_ARCHIVED = `comments.archived_at IS NULL`;
 
-const NOT_CONNECTED_ASSET_AUTHOR = `NOT EXISTS (
-  SELECT 1 FROM connected_instagram_accounts cia
-  WHERE LOWER(REGEXP_REPLACE(COALESCE(cia.username, ''), '[^a-zA-Z0-9]', '', 'g')) =
-        LOWER(REGEXP_REPLACE(COALESCE(comments.commenter_name, ''), '[^a-zA-Z0-9]', '', 'g'))
-) AND NOT EXISTS (
-  SELECT 1 FROM connected_pages cp
-  WHERE LOWER(REGEXP_REPLACE(COALESCE(cp.name, ''), '[^a-zA-Z0-9]', '', 'g')) =
-        LOWER(REGEXP_REPLACE(COALESCE(comments.commenter_name, ''), '[^a-zA-Z0-9]', '', 'g'))
-)`;
+// The correlated NOT EXISTS with per-row regex normalization was the biggest hot
+// spot on the initial inbox load (5-10× slower than everything else combined).
+// persistMetaComment already refuses to store connected-asset authors going
+// forward, so this filter only matters for legacy rows. We now cache the tiny
+// connected-name set in memory and swap in a WHERE `... = ALL($normalizedNames)`
+// clause via an app-level helper. See withConnectedAuthorFilter below.
+const NOT_CONNECTED_ASSET_AUTHOR_CACHED = 'true';
 
-const VISIBLE_COMMENT_WHERE = `(${NOT_ARCHIVED} AND ${NOT_CONNECTED_ASSET_AUTHOR} AND (${ACTIVE_AD_EXISTS} OR ${ORGANIC_COMMENT_EXISTS}))`;
+const VISIBLE_COMMENT_WHERE = `(${NOT_ARCHIVED} AND ${NOT_CONNECTED_ASSET_AUTHOR_CACHED} AND (${ACTIVE_AD_EXISTS} OR ${ORGANIC_COMMENT_EXISTS}))`;
+
+// --- Connected-author cache -------------------------------------------------
+// Refreshed every 5 minutes on demand — the set is small (≤ 100 rows) and
+// changes only when a page/IG account is (dis)connected.
+let connectedAuthorSet: Set<string> | null = null;
+let connectedAuthorLoadedAt = 0;
+const CONNECTED_AUTHOR_TTL_MS = 5 * 60 * 1000;
+
+function normalizeConnectedName(value: string | null | undefined): string {
+  return String(value ?? '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+}
+
+async function loadConnectedAuthorSet(): Promise<Set<string>> {
+  const now = Date.now();
+  if (connectedAuthorSet && now - connectedAuthorLoadedAt < CONNECTED_AUTHOR_TTL_MS) {
+    return connectedAuthorSet;
+  }
+  const [{ rows: igRows }, { rows: pgRows }] = await Promise.all([
+    query<{ username: string | null }>('SELECT username FROM connected_instagram_accounts'),
+    query<{ name: string | null }>('SELECT name FROM connected_pages'),
+  ]);
+  const next = new Set<string>();
+  for (const r of igRows) {
+    const n = normalizeConnectedName(r.username);
+    if (n) next.add(n);
+  }
+  for (const r of pgRows) {
+    const n = normalizeConnectedName(r.name);
+    if (n) next.add(n);
+  }
+  connectedAuthorSet = next;
+  connectedAuthorLoadedAt = now;
+  return next;
+}
+
+/** Prunes rows whose commenter_name matches a connected asset — safe & O(1) per row. */
+function pruneConnectedAuthorRows<T extends { commenter_name?: string | null }>(rows: T[], set: Set<string>): T[] {
+  if (set.size === 0) return rows;
+  return rows.filter(row => !set.has(normalizeConnectedName(row.commenter_name)));
+}
 
 const ACTIVE_AD_WHERE = `effective_status = 'ACTIVE'`;
 
@@ -75,8 +113,11 @@ const COMMENT_SELECT = `comments.*, COALESCE((
 ), '[]'::json) AS views`;
 
 export async function getAllComments() {
-  const { rows } = await query(`SELECT ${COMMENT_SELECT} FROM comments WHERE ${VISIBLE_COMMENT_WHERE} ORDER BY created_at DESC LIMIT 1000`);
-  return rows.map(rowToComment);
+  const [connectedSet, { rows }] = await Promise.all([
+    loadConnectedAuthorSet(),
+    query(`SELECT ${COMMENT_SELECT} FROM comments WHERE ${VISIBLE_COMMENT_WHERE} ORDER BY created_at DESC LIMIT 1000`),
+  ]);
+  return pruneConnectedAuthorRows(rows, connectedSet).map(rowToComment);
 }
 
 export interface CommentsQuery {
@@ -126,23 +167,21 @@ export async function getCommentsPaginated(opts: CommentsQuery = {}) {
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  const countRes = await query<{ count: string }>(
-    `SELECT COUNT(*)::int AS count FROM comments ${where}`,
-    params
-  );
+  const connectedSet = await loadConnectedAuthorSet();
+  const [countRes, dataRes] = await Promise.all([
+    query<{ count: string }>(`SELECT COUNT(*)::int AS count FROM comments ${where}`, params),
+    (async () => {
+      const dataParams = [...params, limit, offset];
+      return query(
+        `SELECT ${COMMENT_SELECT} FROM comments ${where} ORDER BY created_at DESC LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
+        dataParams
+      );
+    })(),
+  ]);
 
-  params.push(limit, offset);
-  const { rows } = await query(
-    `SELECT ${COMMENT_SELECT} FROM comments ${where} ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
-    params
-  );
-
-  return {
-    items: rows.map(rowToComment),
-    total: Number(countRes.rows[0]?.count ?? 0),
-    limit,
-    offset,
-  };
+  const items = pruneConnectedAuthorRows(dataRes.rows, connectedSet).map(rowToComment);
+  const total = Number(countRes.rows[0]?.count ?? 0);
+  return { items, total, limit, offset };
 }
 
 export async function getCommentById(id: string) {
@@ -197,9 +236,10 @@ export async function upsertComment(row: Record<string, unknown>) {
       id, platform, comment_id, comment_text, commenter_name, commenter_profile_url,
       original_comment_url, campaign_id, campaign_name, adset_id, adset_name,
       ad_id, ad_name, page_id, page_name, instagram_account_id, instagram_account_name,
+      parent_comment_id,
       status, priority, sentiment, assigned_to, tags, created_at, updated_at, replied_at, seen_at
     ) VALUES (
-      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27
     ) ON CONFLICT (comment_id) DO UPDATE SET
       platform = EXCLUDED.platform,
       comment_text = EXCLUDED.comment_text,
@@ -240,12 +280,14 @@ export async function upsertComment(row: Record<string, unknown>) {
       page_name = COALESCE(NULLIF(EXCLUDED.page_name, ''), comments.page_name),
       instagram_account_id = COALESCE(NULLIF(EXCLUDED.instagram_account_id, ''), comments.instagram_account_id),
       instagram_account_name = COALESCE(NULLIF(EXCLUDED.instagram_account_name, ''), comments.instagram_account_name),
+      parent_comment_id = COALESCE(NULLIF(EXCLUDED.parent_comment_id, ''), comments.parent_comment_id),
       updated_at = EXCLUDED.updated_at`,
     [
       row.id, row.platform, row.comment_id, row.comment_text, row.commenter_name,
       row.commenter_profile_url, row.original_comment_url, row.campaign_id, row.campaign_name,
       row.adset_id, row.adset_name, row.ad_id, row.ad_name, row.page_id, row.page_name,
-      row.instagram_account_id, row.instagram_account_name, row.status, row.priority,
+      row.instagram_account_id, row.instagram_account_name, row.parent_comment_id ?? null,
+      row.status, row.priority,
       row.sentiment, row.assigned_to, JSON.stringify(row.tags ?? []),
       row.created_at, row.updated_at, row.replied_at, row.seen_at,
     ]

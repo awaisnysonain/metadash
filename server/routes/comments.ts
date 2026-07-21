@@ -27,7 +27,7 @@ import { query } from '../db/pool.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { metaGraphDelete, metaGraphGet, metaGraphPaginate, metaGraphPost, getMetaConfig, MetaApiError } from '../lib/meta.js';
 import { getTokensForAccount } from '../lib/meta-accounts.js';
-import { getPageAccessToken } from '../db/sync-repository.js';
+import { getPageAccessToken, getConnectedInstagramInfo, getConnectedPageInfo } from '../db/sync-repository.js';
 import { suggestCommentReplies } from '../lib/ai-analysis.js';
 
 export const commentsRouter = Router();
@@ -88,34 +88,73 @@ async function getMetaTokensForComment(comment: CommentRecord): Promise<string[]
     meta_account_id: string | null;
     account_label: string | null;
     post_story_id: string | null;
+    instagram_media_id: string | null;
   }>(
-    `SELECT meta_account_id, account_label, post_story_id
+    `SELECT meta_account_id, account_label, post_story_id, instagram_media_id
      FROM ads
      WHERE ad_id = $1 OR id = $1
      LIMIT 1`,
     [comment.adId]
   );
   const ad = rows[0];
-  const pageId = comment.pageId || ad?.post_story_id?.split('_')[0] || null;
-  const pageToken = pageId ? await getPageAccessToken(pageId) : null;
+  const fbPageId = comment.pageId || (ad?.post_story_id?.split('_')[0] ?? null);
+  const fbPageToken = fbPageId ? await getPageAccessToken(fbPageId) : null;
+
+  // Meta requires a Page Access Token (or the linked-Page-owned token) to reply
+  // to an Instagram comment — a user token or a different account's token
+  // returns "missing permissions" (which is why FLO IG replies used to fail).
+  // Resolve the IG-owning Page via connected_instagram_accounts.linked_page_id
+  // and prefer THAT page's access_token first for IG comments.
+  let igPageToken: string | null = null;
+  let igLinkedPageId: string | null = null;
+  if (comment.platform === 'instagram' && comment.instagramAccountId) {
+    const igInfo = await getConnectedInstagramInfo(comment.instagramAccountId);
+    if (igInfo?.accessToken?.trim()) igPageToken = igInfo.accessToken.trim();
+    if (!igPageToken && igInfo?.linkedPageId) {
+      igLinkedPageId = igInfo.linkedPageId;
+      const linkedPage = await getConnectedPageInfo(igInfo.linkedPageId);
+      igPageToken = linkedPage?.accessToken?.trim() ?? null;
+    }
+  }
+
   const accountTokens = ad?.meta_account_id ? getTokensForAccount(ad.meta_account_id, ad.account_label ?? undefined) : [];
   const fallbackToken = getMetaConfig().accessToken?.trim();
+
   const candidates = comment.platform === 'facebook'
-    ? [pageToken, ...accountTokens, fallbackToken]
-    : [...accountTokens, pageToken, fallbackToken];
-  return [...new Set(candidates.filter((token): token is string => Boolean(token?.trim())))];
+    ? [fbPageToken, ...accountTokens, fallbackToken]
+    // For IG replies: IG-page token first (only one that consistently works),
+    // then FB page token (some IG business accounts share one), then account tokens.
+    : [igPageToken, fbPageToken, ...accountTokens, fallbackToken];
+  const uniqueTokens = [...new Set(candidates.filter((token): token is string => Boolean(token?.trim())))];
+  if (process.env.META_REPLY_DEBUG === 'true') {
+    console.log(
+      `[reply-tokens] comment=${comment.id} platform=${comment.platform} ` +
+      `igPageToken=${Boolean(igPageToken)} fbPageToken=${Boolean(fbPageToken)} ` +
+      `igLinkedPage=${igLinkedPageId ?? 'none'} accountTokens=${accountTokens.length} total=${uniqueTokens.length}`
+    );
+  }
+  return uniqueTokens;
 }
 
 async function postMetaWithFallback<T>(path: string, params: Record<string, string>, tokens: string[]): Promise<T> {
-  let lastError: unknown;
-  for (const token of tokens) {
+  const attemptErrors: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
     try {
-      return await metaGraphPost<T>(path, params, token);
+      return await metaGraphPost<T>(path, params, tokens[i]);
     } catch (err) {
-      lastError = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      attemptErrors.push(`token#${i + 1}: ${msg}`);
+      // Non-recoverable errors — permission/token issues — try the next token.
+      // Everything else (transient / rate-limit) still tries next; the collected
+      // error trail surfaces via META_REPLY_DEBUG or by re-throwing the final one.
     }
   }
-  throw lastError ?? new Error('No Meta token available for this comment.');
+  if (process.env.META_REPLY_DEBUG === 'true' && attemptErrors.length) {
+    console.warn(`[reply-post] all ${tokens.length} token(s) failed for ${path}: ${attemptErrors.join(' | ')}`);
+  }
+  throw new Error(
+    attemptErrors[attemptErrors.length - 1] || 'No Meta token available for this comment.'
+  );
 }
 
 async function getMetaWithFallback<T>(path: string, tokens: string[]): Promise<T> {
@@ -286,7 +325,16 @@ commentsRouter.post('/:id/reply', async (req: AuthenticatedRequest, res) => {
     const path = comment.platform === 'instagram'
       ? `/${replyTargetId}/replies`
       : `/${replyTargetId}/comments`;
-    await postMetaWithFallback(path, { message: replyMessage }, tokens);
+    const postResult = await postMetaWithFallback<{ id?: string }>(path, { message: replyMessage }, tokens);
+
+    // Meta returns { id: "<page>_<comment>" } on success. If we don't get an id
+    // back the POST silently succeeded on a token that doesn't own the asset —
+    // the reply won't actually appear in Business Suite. Treat that as failure.
+    if (!postResult?.id) {
+      return res.status(502).json({
+        error: `Meta accepted the reply but returned no comment id — the reply likely didn't post. Check that this ${comment.platform === 'instagram' ? 'IG business account' : 'Page'} is connected with a Page Access Token (see Connected Accounts).`,
+      });
+    }
 
     const now = new Date().toISOString();
     await markCommentSeenForTeam(req.params.id, user);
@@ -298,7 +346,9 @@ commentsRouter.post('/:id/reply', async (req: AuthenticatedRequest, res) => {
       user_name: user.name,
       action: 'Meta Reply',
       old_value: comment.status,
-      new_value: targetCommentId ? `Replied to ${targetCommentId} on Meta` : 'Replied on Meta',
+      new_value: targetCommentId
+        ? `Replied to ${targetCommentId} on Meta (${postResult.id})`
+        : `Replied on Meta (${postResult.id})`,
       created_at: now,
     });
 

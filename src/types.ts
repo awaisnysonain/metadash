@@ -135,6 +135,7 @@ export interface Comment {
   pageName?: string;
   instagramAccountId?: string;
   instagramAccountName?: string;
+  parentCommentId?: string;
   status: CommentStatus;
   priority: CommentPriority;
   sentiment: CommentSentiment;

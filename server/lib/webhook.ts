@@ -52,6 +52,7 @@ function buildCommentRow(payload: {
   pageName?: string;
   instagramAccountId?: string;
   instagramAccountName?: string;
+  parentCommentId?: string;
   campaignName?: string;
   adsetName?: string;
   adId?: string;
@@ -92,6 +93,7 @@ function buildCommentRow(payload: {
     page_name: payload.pageName ?? null,
     instagram_account_id: payload.instagramAccountId ?? null,
     instagram_account_name: payload.instagramAccountName ?? null,
+    parent_comment_id: payload.parentCommentId ?? null,
     status: 'Unseen',
     priority: tagging.priority,
     sentiment: tagging.sentiment,
@@ -118,6 +120,7 @@ export function mapWebhookComment(payload: {
   pageName?: string;
   instagramAccountId?: string;
   instagramAccountName?: string;
+  parentCommentId?: string;
   campaignName?: string;
   adsetName?: string;
   adId?: string;
@@ -142,8 +145,11 @@ export function mapSyncedComment(payload: {
   adName: string;
   adsetName: string;
   campaignName: string;
+  pageId?: string;
+  pageName?: string;
   instagramAccountId?: string;
   instagramAccountName?: string;
+  parentCommentId?: string;
   campaignMetaId?: string;
   adsetMetaId?: string;
 }) {

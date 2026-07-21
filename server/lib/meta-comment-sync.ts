@@ -3,6 +3,8 @@ import { getAdsForCommentSync, upsertComment, insertActivityLog, commentExistsBy
 import {
   realignCommentPlatformsFromAds,
   getPageAccessToken,
+  getConnectedPageInfo,
+  getConnectedInstagramInfo,
   findAdByInstagramMediaId,
   findAdByPostStoryId,
   getConnectedInstagramAccountsForSync,
@@ -648,6 +650,8 @@ async function persistMetaComment(
     since: number;
     pageAccessToken?: string | null;
     accountLabel?: string | null;
+    pageId?: string | null;
+    pageName?: string | null;
     instagramAccountId?: string | null;
     instagramAccountName?: string | null;
     analyzeWithAi: boolean;
@@ -669,11 +673,13 @@ async function persistMetaComment(
   const author = resolveCommenterInfo(enriched.from, enriched.username);
   const isConnectedAuthor = await isConnectedAssetAuthor(author.name, author.id);
   const parentCommentId = enriched.parent?.id || metaComment.parent?.id;
-  if (parentCommentId) {
-    if (isConnectedAuthor) return applyBrandReplyToParent(parentCommentId, author.name);
+
+  // Brand replies (from our own connected page/IG account) flip the parent
+  // comment's status to Replied but are not stored as inbox rows themselves.
+  if (isConnectedAuthor) {
+    if (parentCommentId) return applyBrandReplyToParent(parentCommentId, author.name);
     return false;
   }
-  if (isConnectedAuthor) return false;
 
   const platform = inferCommentPlatform(ctx.platform, enriched);
   const text = enriched.message || metaComment.message || '';
@@ -695,8 +701,11 @@ async function persistMetaComment(
     campaignName: ctx.campaignName,
     campaignMetaId: ctx.campaignMetaId,
     adsetMetaId: ctx.adsetMetaId,
+    pageId: ctx.pageId ?? undefined,
+    pageName: ctx.pageName ?? undefined,
     instagramAccountId: ctx.instagramAccountId ?? undefined,
     instagramAccountName: ctx.instagramAccountName ?? undefined,
+    parentCommentId: parentCommentId ?? undefined,
   });
   row.priority = analysis.priority;
   row.sentiment = analysis.sentiment;
@@ -793,7 +802,9 @@ async function processAdsForComments(adsToProcess: SyncAd[], ctx: ProcessAdsCont
         }
       }
 
-      const pageToken = pageId ? await getPageAccessToken(pageId) : null;
+      const pageInfo = pageId ? await getConnectedPageInfo(pageId) : null;
+      const pageToken = pageInfo?.accessToken ?? (pageId ? await getPageAccessToken(pageId) : null);
+      const pageName = pageInfo?.name ?? null;
       const facebookSince = platformSince(ctx, ad, 'facebook');
       const instagramSince = platformSince(ctx, ad, 'instagram');
 
@@ -811,7 +822,11 @@ async function processAdsForComments(adsToProcess: SyncAd[], ctx: ProcessAdsCont
             let laneSynced = 0;
             for (const c of comments) {
               const saved = await persistMetaComment(c, {
-                platform: ad.platform,
+                // Pin to 'facebook' on the FB Graph edge so IG comments returned
+                // via /{storyId}/comments don't inherit the ad row's platform.
+                // inferCommentPlatform will still upgrade to 'instagram' when
+                // the comment carries a strong IG signal (username/permalink).
+                platform: 'facebook',
                 adId: ad.adId,
                 adName: ad.adName,
                 adsetName: ad.adsetName,
@@ -822,6 +837,8 @@ async function processAdsForComments(adsToProcess: SyncAd[], ctx: ProcessAdsCont
                 since: facebookSince,
                 pageAccessToken: pageToken,
                 accountLabel: ad.accountLabel,
+                pageId: pageId ?? undefined,
+                pageName: pageName ?? undefined,
                 analyzeWithAi: ctx.analyzeWithAi,
                 alertNewComment: ctx.alertNewComment,
               });
@@ -1092,6 +1109,8 @@ async function persistOrganicFbComment(
     since: 0,
     pageAccessToken: ctx.pageAccessToken,
     accountLabel: ctx.matchedAd?.accountLabel ?? null,
+    pageId: ctx.pageId,
+    pageName: ctx.pageName,
     analyzeWithAi: ctx.analyzeWithAi,
     alertNewComment: ctx.alertNewComment,
   });
@@ -1120,7 +1139,16 @@ async function syncOrganicComments(opts: {
   };
   if (!ORGANIC_SYNC_ENABLED) return result;
 
-  const cutoff = Math.max(opts.sinceUnix, Math.floor(Date.now() / 1000) - ORGANIC_LOOKBACK_HOURS * 3600);
+  // Incremental runs pass a since ≈ last-comment-time; backfill passes 730d ago.
+  // Previously we clamped to `max(sinceUnix, now - 72h)`, which silently dropped
+  // any post older than 72 hours EVEN IN BACKFILL — losing organic posts moderators
+  // report as missing. Now: honor the caller in backfill, only apply the 72h floor
+  // in incremental mode (where sinceUnix is already recent).
+  const now = Math.floor(Date.now() / 1000);
+  const incrementalFloor = now - ORGANIC_LOOKBACK_HOURS * 3600;
+  const cutoff = opts.sinceUnix < incrementalFloor - 24 * 3600
+    ? opts.sinceUnix
+    : Math.max(opts.sinceUnix, incrementalFloor);
 
   // --- Instagram organic (brand pages only by default) ------------------------
   const igAccountsAll = await getConnectedInstagramAccountsForSync();

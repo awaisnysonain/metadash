@@ -21,6 +21,7 @@ export function rowToComment(row: any) {
     pageName: row.page_name ?? undefined,
     instagramAccountId: row.instagram_account_id ?? undefined,
     instagramAccountName: row.instagram_account_name ?? undefined,
+    parentCommentId: row.parent_comment_id ?? undefined,
     status: row.status,
     priority: row.priority,
     sentiment: row.sentiment,

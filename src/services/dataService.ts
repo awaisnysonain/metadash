@@ -81,14 +81,16 @@ async function fetchCommentsPages(opts: { brand?: string; platform?: string; top
 }
 
 async function fetchAllComments(): Promise<Comment[]> {
-  const [recent, floFacebook, floInstagram, topSpend] = await Promise.all([
-    fetchCommentsPages({ maxItems: 1000 }),
-    fetchCommentsPages({ brand: 'FLO', platform: 'facebook' }),
-    fetchCommentsPages({ brand: 'FLO', platform: 'instagram' }),
+  // Initial load was 4 parallel queries (recent + FLO-FB + FLO-IG + topSpend),
+  // each hitting an expensive WHERE with a correlated regex NOT EXISTS. The FLO
+  // brand queries mostly overlapped `recent`; consolidating to `recent 3000` +
+  // `topSpend` roughly halves the DB work on page load.
+  const [recent, topSpend] = await Promise.all([
+    fetchCommentsPages({ maxItems: 3000 }),
     fetchCommentsPages({ topSpend: true }),
   ]);
   const byId = new Map<string, Comment>();
-  for (const comment of [...recent, ...floFacebook, ...floInstagram, ...topSpend]) byId.set(comment.id, comment);
+  for (const comment of [...recent, ...topSpend]) byId.set(comment.id, comment);
   return [...byId.values()].sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
 }
 
@@ -200,17 +202,58 @@ export async function persistTeam(mode: DataMode, member: TeamMember): Promise<v
 
 export function subscribeToComments(
   mode: DataMode,
-  onChange: (comments: Comment[]) => void
+  onChange: (updater: (previous: Comment[]) => Comment[]) => void
 ): (() => void) | undefined {
   if (mode === 'demo') return undefined;
   const interval = setInterval(async () => {
     try {
-      onChange(await fetchAllComments());
+      const incoming = await fetchAllComments();
+      // Merge, don't replace. Preserves object identity for existing rows so
+      // React skips re-renders of the row DOM (avoids the inbox "shifting"
+      // effect users saw during moderation).
+      onChange(previous => mergeCommentSnapshots(previous, incoming));
     } catch {
       /* ignore poll errors */
     }
   }, 60000);
   return () => clearInterval(interval);
+}
+
+function mergeCommentSnapshots(previous: Comment[], incoming: Comment[]): Comment[] {
+  if (!previous.length) return incoming;
+  const prevById = new Map<string, Comment>(previous.map(c => [c.id, c]));
+  const incomingById = new Map<string, Comment>(incoming.map(c => [c.id, c]));
+  const seen = new Set<string>();
+  const merged: Comment[] = [];
+
+  // Keep previous order for rows that still exist; update field values only if
+  // something meaningful changed so React reference equality skips unchanged rows.
+  for (const prev of previous) {
+    const next = incomingById.get(prev.id);
+    if (!next) continue;
+    seen.add(prev.id);
+    merged.push(commentsShallowEqual(prev, next) ? prev : { ...prev, ...next });
+  }
+  // Then append any brand-new rows in incoming order (which is createdAt DESC).
+  for (const next of incoming) {
+    if (seen.has(next.id) || prevById.has(next.id)) continue;
+    merged.push(next);
+  }
+  return merged;
+}
+
+function commentsShallowEqual(a: Comment, b: Comment): boolean {
+  return (
+    a.status === b.status &&
+    a.priority === b.priority &&
+    a.sentiment === b.sentiment &&
+    a.assignedTo === b.assignedTo &&
+    a.repliedAt === b.repliedAt &&
+    a.seenAt === b.seenAt &&
+    a.commentText === b.commentText &&
+    (a.tags?.length ?? 0) === (b.tags?.length ?? 0) &&
+    (a.views?.length ?? 0) === (b.views?.length ?? 0)
+  );
 }
 
 export async function fetchCommentsNow(mode: DataMode): Promise<Comment[]> {

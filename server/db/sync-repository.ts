@@ -409,6 +409,49 @@ export async function getPageAccessToken(pageId: string): Promise<string | null>
   return rows[0]?.access_token ?? null;
 }
 
+export interface ConnectedPageInfo {
+  pageId: string;
+  name: string | null;
+  accessToken: string | null;
+}
+
+export async function getConnectedPageInfo(pageId: string): Promise<ConnectedPageInfo | null> {
+  const { rows } = await query<{ page_id: string; name: string | null; access_token: string | null }>(
+    'SELECT page_id, name, access_token FROM connected_pages WHERE page_id = $1 LIMIT 1',
+    [pageId]
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return { pageId: row.page_id, name: row.name, accessToken: row.access_token };
+}
+
+export interface ConnectedInstagramInfo {
+  accountId: string;
+  username: string | null;
+  linkedPageId: string | null;
+  accessToken: string | null;
+}
+
+export async function getConnectedInstagramInfo(accountId: string): Promise<ConnectedInstagramInfo | null> {
+  const { rows } = await query<{
+    account_id: string;
+    username: string | null;
+    linked_page_id: string | null;
+    access_token: string | null;
+  }>(
+    'SELECT account_id, username, linked_page_id, access_token FROM connected_instagram_accounts WHERE account_id = $1 LIMIT 1',
+    [accountId]
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    accountId: row.account_id,
+    username: row.username,
+    linkedPageId: row.linked_page_id,
+    accessToken: row.access_token,
+  };
+}
+
 export interface AdLookupRow {
   adId: string;
   adName: string;

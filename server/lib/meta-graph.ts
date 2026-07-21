@@ -1,4 +1,4 @@
-import { metaGraphGet, metaGraphPaginate, metaGraphPaginateWithRaw, metaGraphPost, getMetaConfig, MetaApiError } from './meta.js';
+import { metaGraphGet, metaGraphPaginate, metaGraphPaginateWithRaw, metaGraphPost, getMetaConfig, MetaApiError, META_GRAPH, type MetaPaginated } from './meta.js';
 
 /* ── Meta Graph API response shapes ── */
 
@@ -595,21 +595,38 @@ export async function fetchInstagramMediaDetails(
 export async function fetchInstagramAccountRecentMedia(
   igAccountId: string,
   accessToken?: string,
-  opts?: { limit?: number; sinceUnix?: number }
+  opts?: { limit?: number; sinceUnix?: number; maxPages?: number }
 ): Promise<Array<{ id: string; timestamp?: string; permalink?: string; mediaType?: string }>> {
   const token = accessToken || getMetaConfig().accessToken;
   if (!token) return [];
 
-  const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 100);
-  const path = `/${igAccountId}/media?fields=id,timestamp,permalink,media_type&limit=${limit}`;
+  const pageSize = Math.min(Math.max(opts?.limit ?? 50, 1), 100);
+  const maxPages = Math.max(opts?.maxPages ?? 20, 1);
+  const cutoff = opts?.sinceUnix ?? 0;
+  const collected: Array<{ id: string; timestamp?: string; permalink?: string; media_type?: string }> = [];
+  let url: string | null = `${META_GRAPH}/${igAccountId}/media?fields=id,timestamp,permalink,media_type&limit=${pageSize}`;
+  let pages = 0;
 
   try {
-    const rows = await metaGraphPaginate<{ id: string; timestamp?: string; permalink?: string; media_type?: string }>(
-      path,
-      token
-    );
-    const cutoff = opts?.sinceUnix ?? 0;
-    return rows
+    while (url && pages < maxPages) {
+      const page: MetaPaginated<{ id: string; timestamp?: string; permalink?: string; media_type?: string }> =
+        await metaGraphGet(url, token);
+      pages++;
+      const rows = page.data ?? [];
+      collected.push(...rows);
+      // Early-exit: once the last row in the page is older than the cutoff, everything
+      // beyond it is older too (IG returns most-recent first).
+      if (cutoff && rows.length > 0) {
+        const oldest = rows[rows.length - 1];
+        if (oldest?.timestamp) {
+          const ts = Math.floor(new Date(oldest.timestamp).getTime() / 1000);
+          if (ts < cutoff) break;
+        }
+      }
+      url = page.paging?.next ?? null;
+    }
+
+    return collected
       .filter(row => {
         if (!row.id) return false;
         if (!cutoff || !row.timestamp) return true;

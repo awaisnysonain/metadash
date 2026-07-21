@@ -183,12 +183,17 @@ export default function UnifiedInbox({
     return true;
   }, [ads, topSpendAdIds, searchTerm, platformFilter, priorityFilter, sentimentFilter, brandFilter, sourceFilter, topSpendOnly, preconfiguredFilters]);
 
+  // Sort by createdAt (newest first). Tiebreaker MUST be immutable, otherwise
+  // clicking a comment (which updates updatedAt via recordCommentView) would
+  // shuffle the row past its peers — moderators lose track of what they read.
   const sortComments = useCallback((list: Comment[]) => {
     return [...list].sort((a, b) => {
       const aTime = Date.parse(a.createdAt) || 0;
       const bTime = Date.parse(b.createdAt) || 0;
       if (bTime !== aTime) return bTime - aTime;
-      return (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0);
+      const aKey = a.commentId || a.id;
+      const bKey = b.commentId || b.id;
+      return aKey < bKey ? 1 : aKey > bKey ? -1 : 0;
     });
   }, []);
 
@@ -220,6 +225,19 @@ export default function UnifiedInbox({
     if (statusFilter === 'All') return baseFilteredComments;
     return baseFilteredComments.filter(c => matchesStatusTab(c, statusFilter));
   }, [baseFilteredComments, statusFilter]);
+
+  // Thread-reply awareness in the list: count how many child replies exist per
+  // parent (from what sync has pulled locally). The drawer still fetches live
+  // replies from Meta; this badge just tells moderators a comment has a thread.
+  const replyCountByParent = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of comments) {
+      const parent = c.parentCommentId;
+      if (!parent) continue;
+      counts.set(parent, (counts.get(parent) ?? 0) + 1);
+    }
+    return counts;
+  }, [comments]);
 
   const previewComment = filteredComments.find(c => c.id === previewCommentId)
     || comments.find(c => c.id === previewCommentId);
@@ -422,6 +440,8 @@ export default function UnifiedInbox({
               const isOrganic = !linkedAd;
               const commentUrl = commentExternalUrl(comment);
               const seenLabel = seenByLabel(comment);
+              const replyChildCount = replyCountByParent.get(comment.commentId) ?? 0;
+              const isThreadReply = Boolean(comment.parentCommentId);
 
               return (
                 <div
@@ -447,8 +467,17 @@ export default function UnifiedInbox({
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start gap-2 min-w-0">
                           <p className={`min-w-0 flex-1 truncate ${isUnseen ? 'text-[13px] font-extrabold text-slate-950' : 'text-[13px] font-bold text-slate-800'}`}>
+                            {isThreadReply && <span className="mr-1 text-slate-400" title="This is a reply within a thread">↳</span>}
                             {displayCommenterName(comment.commenterName)}
                           </p>
+                          {replyChildCount > 0 && (
+                            <span
+                              className="shrink-0 rounded-md border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700"
+                              title={`${replyChildCount} thread ${replyChildCount === 1 ? 'reply' : 'replies'} synced`}
+                            >
+                              {replyChildCount} {replyChildCount === 1 ? 'reply' : 'replies'}
+                            </span>
+                          )}
                           <span
                             className="shrink-0 text-[10px] text-slate-400 flex items-center gap-1"
                             title={`Received: ${formatFullTime(comment.updatedAt)} · Comment made: ${formatFullTime(comment.createdAt)}`}
@@ -486,6 +515,11 @@ export default function UnifiedInbox({
                           )}
                           <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-bold ${sourceChipClass(source)}`} title="Source category">
                             {source}
+                            {(source === 'Third-party page' || source === 'Creator / Whitelist') && (comment.pageName || comment.instagramAccountName) && (
+                              <span className="ml-1 font-normal opacity-80">
+                                · {comment.platform === 'instagram' ? 'IG' : 'FB'}: {comment.instagramAccountName || comment.pageName}
+                              </span>
+                            )}
                           </span>
                         </div>
 

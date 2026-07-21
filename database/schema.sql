@@ -181,6 +181,17 @@ CREATE INDEX IF NOT EXISTS idx_comments_archived_at ON comments(archived_at);
 CREATE INDEX IF NOT EXISTS idx_comments_active_created_at
   ON comments(created_at DESC) WHERE archived_at IS NULL;
 
+-- Reply threading: when Meta returns a reply on a parent comment we now persist it
+-- (previously dropped in persistMetaComment). Children link to parents by Meta ID.
+ALTER TABLE comments ADD COLUMN IF NOT EXISTS parent_comment_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parent_comment_id);
+
+-- Dashboard-load performance: activity_logs and comment_notes are sorted by
+-- created_at DESC on the bootstrap fetch — index it so the sort is index-order.
+CREATE INDEX IF NOT EXISTS idx_activity_logs_created_at ON activity_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_comment_notes_created_at ON comment_notes(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_comments_updated_at ON comments(updated_at DESC);
+
 ALTER TABLE ads ADD COLUMN IF NOT EXISTS post_story_id TEXT;
 ALTER TABLE ads ADD COLUMN IF NOT EXISTS spend NUMERIC DEFAULT 0;
 ALTER TABLE ads ADD COLUMN IF NOT EXISTS recent_spend NUMERIC DEFAULT 0;
