@@ -45,7 +45,7 @@ import { getConfiguredMetaAccounts, getPageSyncTokenSources } from './meta-accou
 import { normalizeAccountLabel } from './brand.js';
 import { mockAds, mockCampaigns, connectedPages } from '../../src/data.js';
 
-const ACTIVE_ADS_SYNC_INTERVAL_MS = Math.max(Number(process.env.ACTIVE_ADS_SYNC_INTERVAL_MINUTES || 1440), 5) * 60 * 1000;
+const ACTIVE_ADS_SYNC_INTERVAL_MS = Math.max(Number(process.env.ACTIVE_ADS_SYNC_INTERVAL_MINUTES || 60), 5) * 60 * 1000;
 let activeAdsRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let activeAdsRefreshRunning = false;
 

@@ -36,15 +36,17 @@ export function matchesStatusTab(comment: Comment, tab: string): boolean {
   return comment.status === tab;
 }
 
-export function commentMatchesAd(comment: Comment, ad: Pick<Ad, 'id' | 'adId' | 'adName'>): boolean {
+export function commentMatchesAd(comment: Comment, ad: Pick<Ad, 'id' | 'adId' | 'adName'> & Partial<Pick<Ad, 'postStoryId' | 'instagramMediaId'>>): boolean {
   return (
     comment.adId === ad.adId ||
     comment.adId === ad.id ||
+    comment.adId === ad.postStoryId ||
+    comment.adId === ad.instagramMediaId ||
     (Boolean(ad.adName) && comment.adName === ad.adName)
   );
 }
 
-export function getCommentsForAd(comments: Comment[], ad: Pick<Ad, 'id' | 'adId' | 'adName'>, ads: Ad[] = []): Comment[] {
+export function getCommentsForAd(comments: Comment[], ad: Pick<Ad, 'id' | 'adId' | 'adName'> & Partial<Pick<Ad, 'postStoryId' | 'instagramMediaId'>>, ads: Ad[] = []): Comment[] {
   return comments.filter(c => {
     if (commentMatchesAd(c, ad)) return true;
     const linked = getAdForComment(c, ads);

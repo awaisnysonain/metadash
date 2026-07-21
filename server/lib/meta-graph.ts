@@ -884,9 +884,16 @@ export async function fetchInstagramMediaComments(
 
   const replyFields = 'id,text,timestamp,username';
   const fields = `id,text,timestamp,username,permalink,replies.limit(50){${replyFields}}`;
+  const lightweightFields = 'id,text,timestamp,username,permalink';
   const limit = opts?.limit ?? 100;
   const buildPath = (withRange: boolean) => {
     const parts = [`fields=${fields}`, `limit=${limit}`];
+    if (withRange && opts?.since) parts.push(`since=${opts.since}`);
+    if (withRange && opts?.until) parts.push(`until=${opts.until}`);
+    return `/${mediaId}/comments?${parts.join('&')}`;
+  };
+  const buildLightweightPath = (withRange: boolean) => {
+    const parts = [`fields=${lightweightFields}`, `limit=${limit}`];
     if (withRange && opts?.since) parts.push(`since=${opts.since}`);
     if (withRange && opts?.until) parts.push(`until=${opts.until}`);
     return `/${mediaId}/comments?${parts.join('&')}`;
@@ -897,8 +904,14 @@ export async function fetchInstagramMediaComments(
     rows = await metaGraphPaginate<MetaInstagramCommentWithReplies>(buildPath(true), token);
   } catch (err) {
     // IG rejects since/until on some assets (code 100) — retry without the range.
-    if (!(err instanceof MetaApiError) || err.code !== 100) throw err;
-    rows = await metaGraphPaginate<MetaInstagramCommentWithReplies>(buildPath(false), token);
+    if (err instanceof MetaApiError && err.code === 100) {
+      rows = await metaGraphPaginate<MetaInstagramCommentWithReplies>(buildPath(false), token);
+    } else if (err instanceof Error && err.name === 'AbortError') {
+      // Large reply payloads can exceed the request timeout. Keep root comments flowing.
+      rows = await metaGraphPaginate<MetaInstagramCommentWithReplies>(buildLightweightPath(true), token);
+    } else {
+      throw err;
+    }
   }
 
   const mediaPermalink = opts?.mediaPermalink?.trim() || await fetchInstagramMediaPermalink(mediaId, token);

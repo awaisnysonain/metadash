@@ -59,6 +59,8 @@ export function getTopSpendAdIdSet(ads: Ad[]): Set<string> {
   for (const ad of getTopSpendAds(ads)) {
     ids.add(ad.id);
     ids.add(ad.adId);
+    if (ad.postStoryId) ids.add(ad.postStoryId);
+    if (ad.instagramMediaId) ids.add(ad.instagramMediaId);
   }
   return ids;
 }

@@ -129,6 +129,27 @@ function withToken(url: string, accessToken: string): string {
 
 export { withToken };
 
+function isRetryableMetaRequestError(err: unknown): boolean {
+  if (err instanceof Error && err.name === 'AbortError') return true;
+  if (!(err instanceof MetaApiError)) return false;
+  return err.status === 408 || err.status === 429 || err.status >= 500;
+}
+
+async function retryMetaRequest<T>(operation: () => Promise<T>): Promise<T> {
+  const maxAttempts = Math.max(Number(process.env.META_REQUEST_RETRIES || 3), 1);
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (err) {
+      lastError = err;
+      if (!isRetryableMetaRequestError(err) || attempt >= maxAttempts) throw err;
+      await new Promise(resolve => setTimeout(resolve, 750 * attempt));
+    }
+  }
+  throw lastError ?? new Error('Meta request failed');
+}
+
 export async function fetchWithTimeout(
   input: string | URL | Request,
   init: RequestInit = {},
@@ -148,8 +169,10 @@ export async function metaGraphGet<T>(path: string, accessToken?: string): Promi
   if (!token) throw new MetaApiError('META_ACCESS_TOKEN is not set', { status: 400 });
 
   const url = path.startsWith('http') ? path : `${META_GRAPH}${path}`;
-  const res = await fetchWithTimeout(withToken(url, token), {}, Math.max(Number(process.env.META_FETCH_TIMEOUT_MS || 15000), 1000));
-  return parseMetaResponse<T>(res, `Meta GET ${path}`);
+  return retryMetaRequest(async () => {
+    const res = await fetchWithTimeout(withToken(url, token), {}, Math.max(Number(process.env.META_FETCH_TIMEOUT_MS || 30000), 1000));
+    return parseMetaResponse<T>(res, `Meta GET ${path}`);
+  });
 }
 
 export async function metaGraphPost<T>(
@@ -385,8 +408,10 @@ export async function metaGraphPaginate<T>(path: string, accessToken?: string): 
 
   while (url) {
     const fetchUrl = url.includes('access_token=') ? url : withToken(url, token);
-    const res = await fetchWithTimeout(fetchUrl, {}, Math.max(Number(process.env.META_FETCH_TIMEOUT_MS || 15000), 1000));
-    const page = await parseMetaResponse<MetaPaginated<T>>(res, `Meta GET ${path}`);
+    const page = await retryMetaRequest(async () => {
+      const res = await fetchWithTimeout(fetchUrl, {}, Math.max(Number(process.env.META_FETCH_TIMEOUT_MS || 30000), 1000));
+      return parseMetaResponse<MetaPaginated<T>>(res, `Meta GET ${path}`);
+    });
     if (page.data?.length) all.push(...page.data);
     url = page.paging?.next ?? null;
   }

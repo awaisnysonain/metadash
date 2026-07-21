@@ -56,21 +56,40 @@ function emptyLiveSnapshot(): AppDataSnapshot {
   };
 }
 
-async function fetchAllComments(): Promise<Comment[]> {
-  const pageSize = 500;
+async function fetchCommentsPages(opts: { brand?: string; platform?: string; topSpend?: boolean; maxItems?: number } = {}): Promise<Comment[]> {
+  const pageSize = 2000;
   const all: Comment[] = [];
   let offset = 0;
   let total = Infinity;
+  const maxItems = opts.maxItems ?? Infinity;
 
-  while (offset < total && offset < 1000) {
-    const res = await apiClient.getComments({ limit: pageSize, offset });
+  while (offset < total && all.length < maxItems) {
+    const res = await apiClient.getComments({
+      limit: Math.min(pageSize, maxItems - all.length),
+      offset,
+      brand: opts.brand,
+      platform: opts.platform,
+      topSpend: opts.topSpend,
+    });
     if (Array.isArray(res)) return res;
     all.push(...res.items);
     total = res.total;
     if (res.items.length < pageSize) break;
-    offset += pageSize;
+    offset += res.items.length;
   }
   return all;
+}
+
+async function fetchAllComments(): Promise<Comment[]> {
+  const [recent, floFacebook, floInstagram, topSpend] = await Promise.all([
+    fetchCommentsPages({ maxItems: 1000 }),
+    fetchCommentsPages({ brand: 'FLO', platform: 'facebook' }),
+    fetchCommentsPages({ brand: 'FLO', platform: 'instagram' }),
+    fetchCommentsPages({ topSpend: true }),
+  ]);
+  const byId = new Map<string, Comment>();
+  for (const comment of [...recent, ...floFacebook, ...floInstagram, ...topSpend]) byId.set(comment.id, comment);
+  return [...byId.values()].sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
 }
 
 export async function loadAppData(mode: DataMode): Promise<AppDataSnapshot> {

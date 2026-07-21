@@ -174,18 +174,20 @@ export const apiClient = {
     ),
 
   getTopAdsBySpend: (limit = 20) =>
-    request<Array<{ id: string; adId: string; adName: string; campaignName: string; platform: string; spend: number; recentSpend?: number; accountLabel: string }>>(
+    request<Array<{ id: string; adId: string; adName: string; campaignName: string; platform: string; spend: number; recentSpend?: number; accountLabel: string; postStoryId?: string; instagramMediaId?: string }>>(
       `/api/ads/top-by-spend?limit=${limit}`
     ),
 
   health: () => request<HealthStatus>('/api/health'),
 
-  getComments: (opts?: { limit?: number; offset?: number; platform?: string; status?: string }) => {
+  getComments: (opts?: { limit?: number; offset?: number; platform?: string; status?: string; brand?: string; topSpend?: boolean }) => {
     const params = new URLSearchParams();
     if (opts?.limit != null) params.set('limit', String(opts.limit));
     if (opts?.offset != null) params.set('offset', String(opts.offset));
     if (opts?.platform) params.set('platform', opts.platform);
     if (opts?.status) params.set('status', opts.status);
+    if (opts?.brand) params.set('brand', opts.brand);
+    if (opts?.topSpend) params.set('topSpend', 'true');
     const qs = params.toString();
     return request<Comment[] | { items: Comment[]; total: number; limit: number; offset: number }>(
       `/api/comments${qs ? `?${qs}` : ''}`

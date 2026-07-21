@@ -340,9 +340,11 @@ export async function getTopAdsBySpend(limit = 20) {
     thumbnail_url: string | null;
     media_url: string | null;
     comments_count: number | null;
+    post_story_id: string | null;
+    instagram_media_id: string | null;
   }>(
     `WITH ranked AS (
-       SELECT id, ad_id, ad_name, campaign_name, platform, spend, recent_spend, account_label, media_type, thumbnail_url, media_url, comments_count,
+       SELECT id, ad_id, ad_name, campaign_name, platform, spend, recent_spend, account_label, media_type, thumbnail_url, media_url, comments_count, post_story_id, instagram_media_id,
               ROW_NUMBER() OVER (
                 PARTITION BY COALESCE(NULLIF(account_label, ''), 'UNKNOWN')
                 ORDER BY COALESCE(recent_spend, 0) DESC, COALESCE(spend, 0) DESC, COALESCE(comments_count, 0) DESC, ad_name
@@ -370,6 +372,8 @@ export async function getTopAdsBySpend(limit = 20) {
     thumbnailUrl: row.thumbnail_url ?? undefined,
     mediaUrl: row.media_url ?? undefined,
     commentsCount: row.comments_count ?? 0,
+    postStoryId: row.post_story_id ?? undefined,
+    instagramMediaId: row.instagram_media_id ?? undefined,
   }));
 }
 

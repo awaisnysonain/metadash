@@ -11,6 +11,7 @@ import {
   inferBrandLabel,
 } from '../utils/helpers';
 import { formatSpend } from '../utils/campaignHelpers';
+import { getTopSpendAds } from '../utils/topSpendAds';
 import {
   bucketByCalendarDay,
   countDelta,
@@ -159,10 +160,7 @@ export default function DashboardOverview({
   );
 
   const topSpendAds = useMemo(() => {
-    return [...ads]
-      .filter(ad => (ad.recentSpend ?? ad.spend ?? 0) > 0)
-      .sort((a, b) => (b.recentSpend ?? b.spend ?? 0) - (a.recentSpend ?? a.spend ?? 0))
-      .slice(0, 8)
+    return getTopSpendAds(ads, 4)
       .map(ad => {
         const adComments = getCommentsForAd(comments, ad, ads);
         const todayOnAd = adComments.filter(c => isToday(c.createdAt, now));

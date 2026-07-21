@@ -107,7 +107,7 @@ interface AdsSelection {
 }
 
 const BACKFILL_DAYS = 730;
-const INCREMENTAL_FALLBACK_HOURS = 24;
+const INCREMENTAL_FALLBACK_HOURS = Math.max(Number(process.env.COMMENT_SYNC_INCREMENTAL_LOOKBACK_HOURS || 168), 1);
 const CRON_ALERT_MAX_AGE_HOURS = Math.max(Number(process.env.COMMENT_SYNC_ALERT_MAX_AGE_HOURS || 2), 0);
 const AD_BATCH_DELAY_MS = Math.max(Number(process.env.COMMENT_SYNC_AD_DELAY_MS || 60), 0);
 const PARALLEL_TOKEN_LANES = process.env.COMMENT_SYNC_PARALLEL_TOKEN_LANES !== 'false';
@@ -122,7 +122,7 @@ const HIGH_SPEND_SKIP_DURING_FULL = process.env.COMMENT_SYNC_HIGH_SPEND_SKIP_DUR
 const HIGH_SPEND_AD_CONCURRENCY = Math.min(Math.max(Number(process.env.COMMENT_SYNC_HIGH_SPEND_AD_CONCURRENCY || 2), 1), 8);
 const FACEBOOK_WATERMARK_OVERLAP_SECONDS = Math.max(Number(process.env.COMMENT_SYNC_WATERMARK_OVERLAP_MINUTES || 60), 0) * 60;
 const INSTAGRAM_WATERMARK_OVERLAP_SECONDS = Math.max(Number(process.env.COMMENT_SYNC_INSTAGRAM_WATERMARK_OVERLAP_HOURS || 24), 0) * 60 * 60;
-const INSTAGRAM_INITIAL_LOOKBACK_SECONDS = Math.max(Number(process.env.COMMENT_SYNC_INSTAGRAM_LOOKBACK_HOURS || 24), 1) * 60 * 60;
+const INSTAGRAM_INITIAL_LOOKBACK_SECONDS = Math.max(Number(process.env.COMMENT_SYNC_INSTAGRAM_LOOKBACK_HOURS || 168), 1) * 60 * 60;
 const STUCK_SYNC_MS = 45 * 60 * 1000;
 const INCREMENTAL_AD_LIMIT = Math.max(Number(process.env.MAX_COMMENT_SYNC_ADS_PER_RUN || 75), 1);
 // When true, every FB-classified ad also gets a one-shot IG media probe so we discover
@@ -1470,8 +1470,10 @@ async function syncHighSpendCommentsFromMeta(): Promise<CommentSyncOutcome> {
     since,
     until,
     adWatermarks,
-    analyzeWithAi: true,
-    alertNewComment: true,
+    // Keep the fast ingestion lane independent of external AI quotas; the
+    // persisted fallback analysis is enough to keep the comment visible.
+    analyzeWithAi: false,
+    alertNewComment: false,
     updateProgress: false,
     adConcurrency: HIGH_SPEND_AD_CONCURRENCY,
   };

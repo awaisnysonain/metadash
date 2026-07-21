@@ -21,7 +21,7 @@ interface ConnectedData {
   adAccounts: Array<{ id: string; accountId: string; name: string; spend: string; status: string; isConnected: boolean; label: string }>;
   pages: Array<{ id: string; pageId: string; pageName: string; fans?: string; avatar?: string; isConnected: boolean }>;
   instagram: Array<{ id: string; accountId: string; username: string; followers: string; avatar?: string; isConnected: boolean }>;
-  topAds: Array<{ id: string; adId: string; adName: string; campaignName: string; platform: string; spend: number; recentSpend?: number; accountLabel: string; thumbnailUrl?: string; mediaUrl?: string; commentsCount: number }>;
+  topAds: Array<{ id: string; adId: string; adName: string; campaignName: string; platform: string; spend: number; recentSpend?: number; accountLabel: string; thumbnailUrl?: string; mediaUrl?: string; commentsCount: number; postStoryId?: string; instagramMediaId?: string }>;
 }
 
 interface ConnectedAccountsViewProps {

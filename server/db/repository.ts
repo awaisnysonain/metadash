@@ -12,7 +12,12 @@ import {
 
 const ACTIVE_AD_EXISTS = `EXISTS (
   SELECT 1 FROM ads a
-  WHERE (a.ad_id = comments.ad_id OR a.id = comments.ad_id)
+  WHERE (
+      a.ad_id = comments.ad_id
+      OR a.id = comments.ad_id
+      OR a.post_story_id = comments.ad_id
+      OR a.instagram_media_id = comments.ad_id
+    )
     AND a.effective_status = 'ACTIVE'
 )`;
 
@@ -39,6 +44,26 @@ const VISIBLE_COMMENT_WHERE = `(${NOT_ARCHIVED} AND ${NOT_CONNECTED_ASSET_AUTHOR
 
 const ACTIVE_AD_WHERE = `effective_status = 'ACTIVE'`;
 
+const TOP_SPEND_AD_EXISTS = `EXISTS (
+  SELECT 1 FROM (
+    SELECT id, ad_id, post_story_id, instagram_media_id,
+           ROW_NUMBER() OVER (
+             PARTITION BY COALESCE(NULLIF(UPPER(account_label), ''), 'UNKNOWN')
+             ORDER BY COALESCE(recent_spend, 0) DESC, COALESCE(spend, 0) DESC, synced_at DESC NULLS LAST, ad_name
+           ) AS account_rank
+    FROM ads
+    WHERE effective_status = 'ACTIVE'
+      AND COALESCE(recent_spend, spend, 0) > 0
+  ) top_ads
+  WHERE top_ads.account_rank <= 15
+    AND (
+      top_ads.ad_id = comments.ad_id
+      OR top_ads.id = comments.ad_id
+      OR top_ads.post_story_id = comments.ad_id
+      OR top_ads.instagram_media_id = comments.ad_id
+    )
+)`;
+
 const COMMENT_SELECT = `comments.*, COALESCE((
   SELECT json_agg(json_build_object(
     'userId', cv.user_id,
@@ -59,6 +84,8 @@ export interface CommentsQuery {
   offset?: number;
   platform?: string;
   status?: string;
+  brand?: string;
+  topSpend?: boolean;
 }
 
 export async function getCommentsPaginated(opts: CommentsQuery = {}) {
@@ -79,6 +106,22 @@ export async function getCommentsPaginated(opts: CommentsQuery = {}) {
   }
   if (opts.status === 'Unreplied') {
     conditions.push(`comments.status IN ('Unseen', 'Seen')`);
+  }
+  if (opts.brand && opts.brand !== 'All') {
+    params.push(opts.brand.toUpperCase());
+    conditions.push(`EXISTS (
+      SELECT 1 FROM ads a
+      WHERE (
+          a.ad_id = comments.ad_id
+          OR a.id = comments.ad_id
+          OR a.post_story_id = comments.ad_id
+          OR a.instagram_media_id = comments.ad_id
+        )
+        AND UPPER(COALESCE(a.account_label, '')) = $${params.length}
+    )`);
+  }
+  if (opts.topSpend) {
+    conditions.push(TOP_SPEND_AD_EXISTS);
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -330,7 +373,7 @@ export async function getAdsSummaries() {
   const { rows } = await query(`
     SELECT id, platform, ad_id, ad_name, adset_id, adset_name, campaign_id, campaign_name, original_ad_url,
            media_type, thumbnail_url, comments_count, spend, recent_spend, account_label,
-           meta_account_id, post_story_id, headline, cta
+           meta_account_id, post_story_id, instagram_media_id, headline, cta
     FROM ads WHERE ${ACTIVE_AD_WHERE} ORDER BY ad_name
   `);
   return rows.map(row => ({

@@ -176,9 +176,11 @@ commentsRouter.get('/', async (req, res) => {
     const offset = req.query.offset != null ? Number(req.query.offset) : undefined;
     const platform = typeof req.query.platform === 'string' ? req.query.platform : undefined;
     const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+    const brand = typeof req.query.brand === 'string' ? req.query.brand : undefined;
+    const topSpend = req.query.topSpend === '1' || req.query.topSpend === 'true';
 
-    if (limit != null || offset != null || platform || status) {
-      const page = await getCommentsPaginated({ limit, offset, platform, status });
+    if (limit != null || offset != null || platform || status || brand || topSpend) {
+      const page = await getCommentsPaginated({ limit, offset, platform, status, brand, topSpend });
       return res.json(page);
     }
 

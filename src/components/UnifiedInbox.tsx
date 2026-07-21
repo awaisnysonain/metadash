@@ -133,6 +133,8 @@ export default function UnifiedInbox({
         .forEach(ad => {
           ids.add(ad.id);
           ids.add(ad.adId);
+          if (ad.postStoryId) ids.add(ad.postStoryId);
+          if (ad.instagramMediaId) ids.add(ad.instagramMediaId);
         });
       });
     return ids;

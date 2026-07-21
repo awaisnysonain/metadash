@@ -2,7 +2,12 @@ import { Comment, Ad, CommentStatus, CommentPriority, CommentSentiment, Platform
 import { igHandleFromOrganicLabel, isBrandIgUsername, normalizeIgUsername } from './brandIg';
 
 export const getAdForComment = (comment: Comment, ads: Ad[]): Ad | undefined =>
-  ads.find(ad => ad.id === comment.adId || ad.adId === comment.adId);
+  ads.find(ad =>
+    ad.id === comment.adId ||
+    ad.adId === comment.adId ||
+    ad.postStoryId === comment.adId ||
+    ad.instagramMediaId === comment.adId
+  );
 
 export function safeExternalUrl(url?: string | null): string | undefined {
   const trimmed = url?.trim();
